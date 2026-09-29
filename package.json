@@ -31,7 +31,10 @@
     "smoke:features3": "npm run build && electron smoke/features3.cjs --user-data-dir=node_modules/.smoke-data/features3",
     "verify": "npm run typecheck && npm run smoke:deps && npm run smoke:ssh && npm run smoke:ui && npm run smoke:features && npm run smoke:regress && npm run smoke:ui2 && npm run smoke:ui3 && npm run smoke:ui4 && npm run smoke:ui5 && npm run smoke:ctxmenu && npm run smoke:tabmenu && npm run smoke:features2 && npm run smoke:features3 && npm run smoke:snippet && npm run smoke:layout && npm run smoke:contrast",
     "build:win": "npm run build && electron-builder --win --dir",
-    "build:linux": "npm run build && electron-builder --linux --dir"
+    "build:linux": "npm run build && electron-builder --linux --dir",
+    "pack:win": "npm run build && electron-builder --win --dir",
+    "dist:win": "npm run build && electron-builder --win",
+    "pack:zip": "npm run build && electron-builder --win --dir && node scripts/zipdist.cjs"
   },
   "dependencies": {
     "ssh2": "^1.17.0"
@@ -51,6 +54,7 @@
     "@xterm/xterm": "^6.0.0",
     "dockview": "^8.3.1",
     "electron": "^33.2.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^2.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -60,6 +64,50 @@
   "allowScripts": {
     "electron@33.4.11": true,
     "esbuild@0.21.5": true,
-    "ssh2@1.17.0": true
+    "ssh2@1.17.0": true,
+    "electron-winstaller@5.4.0": true
+  },
+  "build": {
+    "appId": "com.lblacklewis.termdeck",
+    "productName": "TermDeck",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "TermDeck-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TermDeck",
+      "artifactName": "TermDeck-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network"
+    }
   }
 }

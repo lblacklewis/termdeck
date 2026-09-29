@@ -216,6 +216,84 @@ npm run build
 npm start        # preview the built bundles
 ```
 
+## Building a downloadable app
+
+Three commands, in increasing order of convenience for whoever downloads it:
+
+```bash
+npm run pack:win    # release/win-unpacked/ — runs by double-clicking TermDeck.exe
+npm run pack:zip    # + release/TermDeck-<version>-win-x64-portable.zip (~114 MB)
+npm run dist:win    # + an NSIS installer and a single-file portable .exe
+```
+
+`pack:zip` builds the unpacked app and zips it with a small script
+(`scripts/zipdist.cjs`) so there is no extra dependency. Unzipped, the app is
+about 273 MB — mostly the Electron runtime, which is normal.
+
+`dist:win` additionally produces a **Setup .exe** (installer) and a
+**portable .exe** (single file, no install). Those two require electron-builder
+to download the NSIS toolchain on first run, so they need network access;
+`pack:zip` does not.
+
+The app icon is currently Electron's default. To set one, add a 256×256
+`build/icon.ico` — electron-builder picks it up automatically.
+
+### Publishing a GitHub release
+
+A release is a tagged snapshot plus files people can download.
+
+1. **Build the artefacts** you want to attach:
+
+   ```bash
+   npm run pack:zip      # portable zip
+   npm run dist:win      # installer + portable exe
+   ```
+
+2. **Make sure the version is right.** `release` uses the `version` field in
+   `package.json`; bump it first if this is a new release, and commit that.
+
+3. **Push your commits and a tag:**
+
+   ```bash
+   git add -A
+   git commit -m "发布: v0.1.0"
+   git tag v0.1.0
+   git push origin master
+   git push origin v0.1.0
+   ```
+
+   The tag is what a release hangs off. `v0.1.0` matches the version, which is
+   the convention GitHub expects.
+
+4. **Create the release** in the browser:
+
+   - Go to `https://github.com/<you>/termdeck/releases`
+   - Click **Draft a new release**
+   - **Choose a tag** → pick the `v0.1.0` you just pushed (or create it there)
+   - **Release title**: e.g. `TermDeck v0.1.0`
+   - **Describe this release** — the notes shown on the release page
+   - **Attach binaries** by dragging files into the box, or click
+     *Attach binaries by dropping them here*. Add:
+     - `release/TermDeck-Setup-0.1.0.exe`
+     - `release/TermDeck-0.1.0-x64.exe` (portable)
+     - `release/TermDeck-0.1.0-win-x64-portable.zip`
+   - Click **Publish release**
+
+   The download URLs then look like
+   `https://github.com/<you>/termdeck/releases/download/v0.1.0/TermDeck-Setup-0.1.0.exe`.
+
+   Note that GitHub rejects individual assets over 2 GB; these are ~114 MB, so
+   that is a non-issue here.
+
+5. **Later releases** are the same: bump the version, build, commit, tag, push
+   the tag, draft a release, attach the files. Tag push does not create a release
+   by itself — uploading assets is a separate step.
+
+A Windows SmartScreen warning is expected on first launch for an unsigned build:
+the binary has no code-signing certificate, so Windows cannot vouch for the
+publisher. "More info → Run anyway" proceeds. Buying a certificate and setting
+`CSC_LINK` / `CSC_KEY_PASSWORD` removes the warning.
+
 ## Verification
 
 The test suites drive the real application inside Electron — real PTYs, real

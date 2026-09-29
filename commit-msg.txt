@@ -1,0 +1,14 @@
+构建: 增加 Windows 打包与 GitHub Release 说明
+
+- 新增 `pack:win` / `pack:zip` / `dist:win` 三个打包脚本。
+- `scripts/zipdist.cjs`：把 win-unpacked 打成 zip，只用 Node 的 zlib，
+  不引入额外依赖。外部依赖会让"想自己打包的人"多一层安装成本。
+- package.json 增加 electron-builder 配置（NSIS 安装包 + 单文件便携版）。
+- README 增加「Building a downloadable app」与「Publishing a GitHub release」，
+  包含版本号、打 tag、上传资产和 SmartScreen 提示的完整步骤。
+
+已实测产出物：
+- release/win-unpacked/ 直接双击 TermDeck.exe 可运行
+- TermDeck-0.1.0-win-x64-portable.zip（113.5 MB，解压 119 个文件）
+- TermDeck-Setup-0.1.0.exe（77.6 MB，NSIS 安装包）
+- TermDeck-0.1.0-x64.exe（70.2 MB，单文件便携版，已实测能启动）
