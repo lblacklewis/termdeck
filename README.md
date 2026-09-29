@@ -294,6 +294,20 @@ the binary has no code-signing certificate, so Windows cannot vouch for the
 publisher. "More info → Run anyway" proceeds. Buying a certificate and setting
 `CSC_LINK` / `CSC_KEY_PASSWORD` removes the warning.
 
+### If the installer step fails
+
+`electron-builder` may report `Can't open output file` and leave a ~0.2 MB
+`TermDeck-Setup-*.exe` behind. This is a transient file-lock, not a
+configuration problem. Delete the partial file and build that one target again:
+
+```bash
+rm release/TermDeck-Setup-*.exe        # PowerShell: Remove-Item release\TermDeck-Setup-*.exe
+npx electron-builder --win nsis --x64
+npx electron-builder --win portable --x64
+```
+
+`npm run pack:zip` is unaffected and is the most reliable route.
+
 ## Verification
 
 The test suites drive the real application inside Electron — real PTYs, real
