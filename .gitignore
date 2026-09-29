@@ -1,0 +1,16 @@
+# Dependencies and build output
+node_modules/
+out/
+dist/
+release/
+
+# TypeScript incremental build state
+*.tsbuildinfo
+
+# Smoke harness scratch data (isolated user-data dirs, exported files)
+.smoke-data/
+
+# Logs and OS noise
+*.log
+.DS_Store
+Thumbs.db

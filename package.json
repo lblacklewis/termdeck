@@ -1,0 +1,65 @@
+{
+  "name": "termdeck",
+  "version": "0.1.0",
+  "description": "A Termius-style SSH client with draggable, dockable terminal panes.",
+  "main": "./out/main/index.js",
+  "author": "termdeck",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "electron-vite build",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json",
+    "typecheck:web": "tsc --noEmit -p tsconfig.web.json",
+    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "smoke:deps": "electron smoke/smoke.cjs",
+    "smoke:ssh": "electron smoke/sshdata.cjs",
+    "smoke:ui": "npm run build && electron smoke/probe.cjs --user-data-dir=node_modules/.smoke-data/ui",
+    "smoke:features": "npm run build && electron smoke/features.cjs --user-data-dir=node_modules/.smoke-data/features",
+    "smoke:regress": "npm run build && node smoke/regress.cjs",
+    "smoke:ui2": "npm run build && electron smoke/ui2.cjs --user-data-dir=node_modules/.smoke-data/ui2",
+    "smoke:ui3": "npm run build && electron smoke/ui3.cjs --user-data-dir=node_modules/.smoke-data/ui3",
+    "smoke:contrast": "npm run build && electron smoke/contrast.cjs --user-data-dir=node_modules/.smoke-data/contrast",
+    "smoke:ui4": "npm run build && electron smoke/ui4.cjs --user-data-dir=node_modules/.smoke-data/ui4",
+    "smoke:ui5": "npm run build && electron smoke/ui5.cjs --user-data-dir=node_modules/.smoke-data/ui5",
+    "smoke:ctxmenu": "npm run build && electron smoke/ctxmenu.cjs --user-data-dir=node_modules/.smoke-data/ctxmenu",
+    "smoke:layout": "npm run build && electron smoke/layout.cjs --user-data-dir=node_modules/.smoke-data/layout",
+    "smoke:tabmenu": "npm run build && electron smoke/tabmenu.cjs --user-data-dir=node_modules/.smoke-data/tabmenu",
+    "smoke:features2": "npm run build && electron smoke/features2.cjs --user-data-dir=node_modules/.smoke-data/features2",
+    "smoke:snippet": "npm run build && electron smoke/snippet.cjs --user-data-dir=node_modules/.smoke-data/snippet",
+    "smoke:features3": "npm run build && electron smoke/features3.cjs --user-data-dir=node_modules/.smoke-data/features3",
+    "verify": "npm run typecheck && npm run smoke:deps && npm run smoke:ssh && npm run smoke:ui && npm run smoke:features && npm run smoke:regress && npm run smoke:ui2 && npm run smoke:ui3 && npm run smoke:ui4 && npm run smoke:ui5 && npm run smoke:ctxmenu && npm run smoke:tabmenu && npm run smoke:features2 && npm run smoke:features3 && npm run smoke:snippet && npm run smoke:layout && npm run smoke:contrast",
+    "build:win": "npm run build && electron-builder --win --dir",
+    "build:linux": "npm run build && electron-builder --linux --dir"
+  },
+  "dependencies": {
+    "ssh2": "^1.17.0"
+  },
+  "optionalDependencies": {
+    "@lydell/node-pty": "^1.2.0-beta.15"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@types/ssh2": "^1.15.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-web-links": "^0.12.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
+    "dockview": "^8.3.1",
+    "electron": "^33.2.1",
+    "electron-vite": "^2.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.21.5": true,
+    "ssh2@1.17.0": true
+  }
+}
