@@ -14,3 +14,7 @@ release/
 *.log
 .DS_Store
 Thumbs.db
+
+# Scratch commit-message files
+commit-msg.txt
+commitmsg.txt
