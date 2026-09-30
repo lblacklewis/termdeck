@@ -74,7 +74,10 @@
       "output": "release"
     },
     "files": [
-      "out/**/*",
+      "out/main/**/*",
+      "out/preload/**/*",
+      "out/renderer/**/*",
+      "!out/main/smokeEntry.js",
       "package.json"
     ],
     "win": {
