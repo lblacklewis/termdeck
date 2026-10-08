@@ -131,10 +131,15 @@ strip ANSI escape codes, so a saved file is plain readable text.
 
 ## Timestamps
 
-Settings → Terminal → *Show a timestamp column beside each pane* adds a gutter
-showing when each line was written. Times are recorded per line as output
-arrives, and lines older than an hour drop the seconds to keep the column
-narrow. They are not persisted, because scrollback is not either.
+A timestamp gutter beside each pane is **on by default**; Settings → Terminal →
+*Show a timestamp column beside each pane* turns it off. Each line is stamped as
+it arrives, in the bracketed `[HH:MM:SS]` form the reference client (WindTerm)
+uses. Lines older than an hour drop the seconds so the column stays narrow.
+
+The gutter is drawn as an overlay aligned to xterm's own measured row height
+rather than written into the buffer, so it can never end up inside a selection or
+in copied/saved output. Times are not persisted, because scrollback is not
+either.
 
 ## Quick connect
 
@@ -362,6 +367,16 @@ rediscovered.
 - **Never edit source files with PowerShell.** `Set-Content -Encoding UTF8`
   writes a BOM (which broke `package.json` outright) and corrupts non-ASCII text.
   Use the editor tools.
+- **A ResizeObserver alone does not size a terminal.** It only fires on a
+  *change*, and dockview attaches a panel before its group has been measured, so
+  the terminal kept xterm's default 80×24 and painted 456px tall inside a 791px
+  host — leaving a dead band at the bottom of the pane that the snippet bar
+  appeared to be covering. `useTerminal` now fits once immediately and again
+  after layout settles.
+- **Inside a template literal, a regex needs double escaping.** `/\[\d{2}/`
+  written directly inside an injected script becomes `/[d{2}/` once the template
+  is processed, which throws at runtime and surfaces only as "Script failed to
+  execute". Use `new RegExp('\\\\[\\\\d{2}')` or a character class.
 
 The UI suites run against a throwaway `--user-data-dir`, so they never touch
 your real settings, session tree or vault. `smoke:ssh`, `smoke:ui` and

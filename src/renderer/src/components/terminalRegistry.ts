@@ -73,14 +73,20 @@ const SECOND = 1000
 const MINUTE = 60 * SECOND
 const HOUR = 60 * MINUTE
 
-/** `HH:MM:SS`, or `HH:MM` once the line is more than an hour old. */
+/**
+ * `[HH:MM:SS]`, or `[HH:MM]` once the line is more than an hour old.
+ *
+ * Bracketed and fixed-width to match the convention the reference client
+ * (WindTerm) uses, so the column reads as a gutter rather than as part of the
+ * command output.
+ */
 function formatStamp(at: number, now: number): string {
   const d = new Date(at)
   const pad = (n: number): string => String(n).padStart(2, '0')
   const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
   // Older lines lose the seconds, so the column stays narrow while scrolling
   // back and gains detail for anything recent.
-  return now - at > HOUR ? clock.slice(0, 5) : clock
+  return now - at > HOUR ? `[${clock.slice(0, 5)}]` : `[${clock}]`
 }
 
 /**

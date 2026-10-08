@@ -208,6 +208,18 @@ export function useTerminal(
     const observer = new ResizeObserver(scheduleFit)
     observer.observe(container)
 
+    /*
+     * Fit once now, and once more after layout settles.
+     *
+     * Registering the observer alone is not enough: it only fires on a *change*,
+     * and dockview can attach a panel before its group has been measured. Without
+     * this first fit the terminal keeps xterm's default 80x24 forever, so it
+     * paints 456px tall inside a 791px host — which left a dead band at the
+     * bottom of the pane that the snippet bar appeared to cover.
+     */
+    scheduleFit()
+    const settleTimer = window.setTimeout(scheduleFit, 120)
+
     // Broadcast by ReactContentRenderer.onShow when a hidden pane reappears.
     const onShown = (): void => scheduleFit()
     window.addEventListener('termdeck:panel-shown', onShown)
@@ -215,6 +227,7 @@ export function useTerminal(
     return () => {
       disposed = true
       if (rafId) cancelAnimationFrame(rafId)
+      window.clearTimeout(settleTimer)
       handleRef.current = null
       unregisterTerminal(sessionId)
       unregisterStamps(sessionId)

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Coverage for three features: timestamp gutter, saving a pane's output, and
  * auto-saving a quick connection.
  *
@@ -79,6 +79,7 @@ async function main() {
       const out = []
       const push = (n, ok, d) => out.push({ name: n, ok: Boolean(ok), detail: d || '' })
       const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+      try {
       const waitFor = async (fn, timeout) => {
         const end = Date.now() + (timeout || 8000)
         while (Date.now() < end) {
@@ -109,24 +110,25 @@ async function main() {
         await wait(1200)
       }
 
-      push('the gutter is off by default',
-        !document.querySelector('[data-testid="timestamp-gutter"]'),
-        'no gutter in the DOM')
+      // The gutter is on by default (matching the reference client), so the
+      // interesting assertion is that the setting can turn it off.
+      const settingOnLoad = (await api.loadSettings()).terminal.showTimestamps
+      push('the gutter is on by default',
+        settingOnLoad === true && !!document.querySelector('[data-testid="timestamp-gutter"]'),
+        'showTimestamps=' + settingOnLoad +
+          ' gutter=' + !!document.querySelector('[data-testid="timestamp-gutter"]'))
 
       await setStamp(true)
       const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
-      const host = document.querySelector('.td-terminal')
       push('enabling the setting shows the gutter', gutter,
-        'setting=' + (await api.loadSettings()).terminal.showTimestamps +
-          ' | ' + (host ? host.getAttribute('data-stamp-debug') : 'no panel') +
-          ' | loop=' + JSON.stringify(window.__tdStampDebug || null))
+        'showTimestamps=' + (await api.loadSettings()).terminal.showTimestamps)
       if (gutter) {
         const rows = [...gutter.querySelectorAll('.td-terminal-stamp')]
-        push('the gutter has one cell per terminal row', rows.length === 24 || rows.length > 10,
+        push('the gutter has one cell per terminal row', rows.length > 10,
           'cells=' + rows.length + ' terminal rows=' + (window.__tdTerminals[sessionId]?.term?.rows ?? '?'))
 
-        const labelled = rows.filter((r) => /\\d{2}:\\d{2}/.test(r.textContent || ''))
-        push('written lines carry a HH:MM timestamp', labelled.length >= 2,
+        const labelled = rows.filter((r) => new RegExp('\\\\[\\\\d{2}:\\\\d{2}').test(r.textContent || ''))
+        push('written lines carry a bracketed HH:MM timestamp', labelled.length >= 2,
           'labelled=' + labelled.length + ' first=' + JSON.stringify(rows[0]?.textContent))
 
         // Alignment matters more than presence: compare each stamp cell's top
@@ -179,6 +181,10 @@ async function main() {
         await wait(1500)
       }
       return out
+      } catch (err) {
+        // Report the page-side failure instead of a bare "script failed".
+        return [{ name: 'feature probe error', ok: false, detail: String((err && err.stack) || err) }]
+      }
     })()
   `
 

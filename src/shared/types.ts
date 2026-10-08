@@ -412,9 +412,12 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   // Deliberately slower than xterm's own ~0.5s cadence, which reads as a flicker.
   cursorBlinkMs: 900,
   scrollback: 10_000,
-  // Off by default: a timestamp column is a deliberate choice, not something to
-  // impose on every pane.
-  showTimestamps: false
+  /**
+   * On by default. A per-line time column is what makes output auditable, and it
+   * is what the reference client (WindTerm) shows; it can be turned off in
+   * Settings → Terminal.
+   */
+  showTimestamps: true
 }
 
 export const DEFAULT_CLIPBOARD_SETTINGS: ClipboardSettings = {
