@@ -80,6 +80,49 @@ export function App(): JSX.Element {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   // Applies the theme to the document (CSS custom properties) as it changes.
   useTheme(settings.theme)
+
+  /*
+   * Apply the interface scale.
+   *
+   * Skipped on the first render: the main process already applied the stored
+   * scale before the window was shown.
+   *
+   * Every scale change has to go through here, including the settings drawer's
+   * live preview, because a zoom change does not alter the container's CSS size —
+   * the ResizeObserver watching it stays silent, while dockview's internal grid
+   * is left at its 100x100 placeholder and every pane paints into a 65px box with
+   * an empty terminal. The layout sync is re-asserted once the zoom has landed.
+   */
+  const scaleAppliedRef = useRef(false)
+  const applyUiScale = useCallback((scale: number): void => {
+    const sync = (): void => {
+      // Two frames: one for the zoom to be applied, one for the viewport to
+      // settle at the new size before dockview is asked to re-measure.
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => dockSyncRef.current?.())
+      })
+    }
+    void api
+      .setUiScale(scale)
+      .then(async () => {
+        sync()
+        // A zoom change is asynchronous in Chromium; a second, later sync covers
+        // the case where the first pair of frames lands before it takes effect.
+        await new Promise((resolve) => window.setTimeout(resolve, 120))
+        sync()
+      })
+      .catch(() => {
+        // A scale that cannot be applied is not worth interrupting the user for.
+      })
+  }, [])
+
+  useEffect(() => {
+    if (!scaleAppliedRef.current) {
+      scaleAppliedRef.current = true
+      return
+    }
+    applyUiScale(settings.uiScale)
+  }, [settings.uiScale, applyUiScale])
   const [credentialStatus, setCredentialStatus] = useState<CredentialStatus>({
     backend: 'local',
     detail: '',
@@ -420,12 +463,42 @@ export function App(): JSX.Element {
      * and never expand, so the terminal ends up painting in a 65px box. Asking
      * dockview to re-layout whenever the container's size settles (and once more
      * after mount) is what corrects it.
+     *
+     * Two things make this fiddly. The container is sampled on a later frame
+     * rather than synchronously, because a resize can still be in flight —
+     * `setZoomFactor` updates zoom asynchronously, and a pass taken during that
+     * window records a size the page never had, which pinned the grid at 100x100
+     * and collapsed every pane. And it has to keep re-asserting rather than stop
+     * at the first size that looks settled: an intermediate value repeats for a
+     * frame or two, and one early exit leaves the grid wrong for good.
      */
+    let settleFrame = 0
+
     const syncLayout = (): void => {
-      if (host.clientWidth === 0 || host.clientHeight === 0) return
-      // `force` matters: without it dockview treats the size as unchanged and
-      // leaves its internal grid at the placeholder it measured on mount.
-      dock.layout(host.clientWidth, host.clientHeight, true)
+      if (settleFrame) window.cancelAnimationFrame(settleFrame)
+      settleFrame = window.requestAnimationFrame(() => {
+        settleFrame = 0
+        const width = host.clientWidth
+        const height = host.clientHeight
+        if (width === 0 || height === 0) return
+        // `force` matters: without it dockview treats the size as unchanged and
+        // leaves its internal grid at the placeholder it measured on mount.
+        dock.layout(width, height, true)
+        if (window.localStorage.getItem('tdDebug') === '1') {
+          const trail = ((window as unknown as Record<string, unknown>)['__tdDockTrail'] ??=
+            []) as Array<Record<string, unknown>>
+          const grid = document.querySelector('.dv-grid-view')
+          const group = document.querySelector('.dv-groupview')
+          trail.push({
+            at: Math.round(performance.now()),
+            dpr: window.devicePixelRatio,
+            asked: `${width}x${height}`,
+            grid: grid ? `${grid.clientWidth}x${grid.clientHeight}` : null,
+            group: group ? `${group.clientWidth}x${group.clientHeight}` : null
+          })
+          if (trail.length > 60) trail.shift()
+        }
+      })
     }
     // Reachable from addSession: a pane added before the dock has been measured
     // would otherwise stay glued to the placeholder size forever.
@@ -453,6 +526,7 @@ export function App(): JSX.Element {
     return () => {
       cancelled = true
       window.clearTimeout(saveTimer)
+      if (settleFrame) window.cancelAnimationFrame(settleFrame)
       window.clearInterval(layoutWatchdog)
       window.clearTimeout(layoutWatchdogStop)
       dockObserver.disconnect()
@@ -1482,6 +1556,7 @@ export function App(): JSX.Element {
         <SettingsDialog
           settings={settings}
           credentialStatus={credentialStatus}
+          onApplyScale={applyUiScale}
           onClose={() => {
             setSettingsOpen(false)
             void refreshCredentials()

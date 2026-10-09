@@ -24,8 +24,9 @@ function report(checks) {
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
-  // Start from a clean arrangement so a layout left by an earlier run cannot
-  // change what this probe sees.
+  // Start from a clean arrangement so a layout, a snippet or an edited setting
+  // left by an earlier run cannot change what this probe sees.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
   mod.storeAccess().layout.clear()
 
   const win = new BrowserWindow({

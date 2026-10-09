@@ -23,6 +23,9 @@ function report(checks) {
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
+  // Timestamps are asserted to start *on*, and the sidebar to start expanded, so
+  // a settings file left by another run has to go.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
   mod.storeAccess().layout.clear()
 
   const win = new BrowserWindow({

@@ -3485,3 +3485,35 @@ html[data-theme-scheme='light'] .td-select {
   font-size: 9px;
   padding: 0 3px;
 }
+
+/* Interface-scale presets. Chips rather than a slider: the useful sizes are a
+   short list, and a slider makes it easy to land somewhere that is neither. */
+.td-scale-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.td-scale-chip {
+  padding: 5px 11px;
+  background: var(--td-surface);
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius-full);
+  color: var(--td-text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.td-scale-chip:hover {
+  background: var(--td-surface-hover);
+  color: var(--td-text);
+}
+
+.td-scale-chip.is-active,
+.td-scale-chip[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--td-accent) 18%, transparent);
+  border-color: var(--td-accent);
+  color: var(--td-text);
+}

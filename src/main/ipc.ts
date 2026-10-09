@@ -11,7 +11,7 @@ import {
 import { CredentialStore } from './store/CredentialStore'
 import { LayoutStore } from './store/LayoutStore'
 import { listFontChoices } from './fonts'
-import { SettingsStore, SessionStore } from './store/Stores'
+import { clampScale, SettingsStore, SessionStore } from './store/Stores'
 import { KnownHosts } from './ssh/KnownHosts'
 import type {
   AppSettings,
@@ -67,6 +67,11 @@ function getLayoutStore(): LayoutStore {
 function getSettingsStore(): SettingsStore {
   settingsStore ??= new SettingsStore(configDir())
   return settingsStore
+}
+
+/** Only for the app entry, which needs the saved interface scale before start-up. */
+export function loadSettingsForStartup(): AppSettings {
+  return getSettingsStore().load()
 }
 
 function getSessionStore(): SessionStore {
@@ -430,6 +435,21 @@ export function registerIpc(): void {
       }
     }
   )
+
+  // ---- interface scale ---------------------------------------------------
+
+  /**
+   * Applied in the main process because `setZoomFactor` lives on webContents and
+   * is the one mechanism that scales every measurement together — rail, side bar,
+   * dialogs and terminal font. Electron does not persist it across a reload, so
+   * the renderer re-sends the stored value on load and on every change.
+   */
+  ipcMain.handle('ui:setScale', (event, scale: number) => {
+    const next = clampScale(scale)
+    const win = BrowserWindow.fromWebContents(event.sender)
+    if (win && !win.isDestroyed()) win.webContents.setZoomFactor(next)
+    return next
+  })
 
   // ---- layout ------------------------------------------------------------
 

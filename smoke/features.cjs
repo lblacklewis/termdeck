@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Feature verification for the vault, saved sessions, host-key policy and
  * clipboard behaviour.
  *
@@ -29,6 +29,15 @@ async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
 
+  // This suite asserts exact folder/session/tag counts and default settings, so
+  // it has to start from empty stores — it used to inherit whatever the previous
+  // run left behind (an edited font size, copy-on-select off, extra sessions)
+  // and only ever passed on a fresh machine.
+  const removed = require(path.join(__dirname, 'clearstore.cjs')).resetStores([
+    'sessions',
+    'settings'
+  ])
+
   // The clipboard suite overwrites the OS clipboard; put the user's content
   // back on the way out so running the suite is not destructive.
   const savedClipboard = clipboard.readText()
@@ -41,7 +50,9 @@ async function main() {
   })
 
   const stores = mod.storeAccess()
-  console.log(`config dir: ${stores.configDir}\n`)
+  console.log(`config dir: ${stores.configDir}`)
+  if (removed.length) console.log(`cleared: ${removed.join(', ')}`)
+  console.log('')
 
   // ---- 1. credential store -----------------------------------------------
 

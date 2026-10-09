@@ -86,6 +86,9 @@ const api = {
   clearCredential: (sessionId: string): Promise<SessionTree> =>
     ipcRenderer.invoke('credential:clear', sessionId),
 
+  // ---- interface scale --------------------------------------------------
+  setUiScale: (scale: number): Promise<number> => ipcRenderer.invoke('ui:setScale', scale),
+
   // ---- fonts ------------------------------------------------------------
   listFonts: (): Promise<FontChoices> => ipcRenderer.invoke('fonts:list'),
 

@@ -382,6 +382,15 @@ export interface AppSettings {
   snippets: Snippet[]
   /** Id of the active theme; see `THEMES` in shared/themes. */
   theme: string
+  /**
+   * Interface scale, as a multiplier (1 = 100%).
+   *
+   * Applied with `webContents.setZoomFactor`, so every measurement — rail, side
+   * bar, dialogs, terminal font — scales together. Without it a dense desktop UI
+   * is uncomfortably small on a 2560px-wide display and there is nothing the user
+   * can do about it.
+   */
+  uiScale: number
 }
 
 /** Defaults live in the main process so they have a single source of truth. */
@@ -435,7 +444,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keybindings: DEFAULT_KEYBINDINGS,
   hostKeys: { policy: 'ask' },
   snippets: [],
-  theme: 'termius-dark'
+  theme: 'termius-dark',
+  uiScale: 1
 }
 
 // ---- renderer bridge ---------------------------------------------------
@@ -506,6 +516,9 @@ export interface TermDeckApi {
 
   // fonts
   listFonts(): Promise<FontChoices>
+
+  // interface scale
+  setUiScale(scale: number): Promise<number>
 
   // snippets (stored inside settings so they travel with a settings backup)
   saveSnippet(snippet: Partial<Snippet> & { label: string; command: string }): Promise<AppSettings>

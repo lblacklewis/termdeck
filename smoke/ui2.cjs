@@ -27,7 +27,18 @@ function report(checks) {
 }
 
 async function main() {
-  require(path.join(ROOT, 'out', 'main', 'smokeEntry.js')).registerIpc()
+  const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  mod.registerIpc()
+
+  // Start from empty stores. This suite counts open panes against listed rows,
+  // asserts the exact text a snippet put into the terminal, and checks that an
+  // edit renames in place — inheriting a session, a pane or a snippet from a
+  // previous run makes all three wrong, so it only ever passed on a fresh machine.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores([
+    'sessions',
+    'layout',
+    'settings'
+  ])
 
   const win = new BrowserWindow({
     width: 1500,
@@ -358,8 +369,33 @@ async function main() {
       // Make sure a local shell is the active terminal.
       const localBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
         .find((b) => /Local shell/i.test(b.textContent || ''))
+      push('a local shell button is available', !!localBtn)
+      if (!localBtn) return out
       localBtn.click()
       await new Promise((r) => setTimeout(r, 3500))
+
+      // The pane this click activated, so every read below targets it rather than
+      // whichever terminal happens to come first in the DOM. Clicking the button
+      // can focus an existing local shell instead of opening one, so this cannot
+      // rely on the session id being new — it picks by session kind.
+      const localBtnSession = () => {
+        const reg = window.__tdTerminals || {}
+        const entries = Object.values(reg).filter((e) => e && e.term)
+        const local = entries.filter((e) => e.session && e.session.kind === 'local')
+        const entry = (local.length ? local : entries)[0]
+        return entry ? { term: entry.term, element: entry.term.element } : null
+      }
+
+      // Start from a clean screen and read *this* pane. These two checks are about
+      // what this run sent; a previous run's unexecuted line stays on the prompt
+      // line, and a plain .xterm-rows query matches whichever pane comes first in
+      // the DOM, so both the buffer and the target have to be pinned down here.
+      const target = localBtnSession()
+      if (target) target.term.reset()
+      await new Promise((r) => setTimeout(r, 600))
+      const screenText = () => (target && target.element
+        ? (target.element.querySelector('.xterm-rows') || {}).textContent || ''
+        : '')
 
       const marker = 'echo TD_SNIPPET_' + Date.now()
       await window.termdeck.saveSnippet({
@@ -371,18 +407,16 @@ async function main() {
       push('new snippet button appears', !!button)
       if (!button) return out
 
-      const rowsBefore = (document.querySelector('.xterm-rows') || {}).textContent || ''
       button.click()
 
       let rows = ''
       for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 200))
-        rows = (document.querySelector('.xterm-rows') || {}).textContent || ''
+        rows = screenText()
         if (rows.includes(marker)) break
       }
       push('clicking a snippet sends it to the terminal', rows.includes(marker),
         JSON.stringify(rows.trim().slice(-50)))
-      void rowsBefore
 
       // sendEnter = false must only type, not run.
       const typed = 'echo TD_TYPED_' + Date.now()
@@ -395,7 +429,7 @@ async function main() {
       if (typeBtn) {
         typeBtn.click()
         await new Promise((r) => setTimeout(r, 1500))
-        const text = (document.querySelector('.xterm-rows') || {}).textContent || ''
+        const text = screenText()
         push('sendEnter=false types without running',
           text.includes(typed) && text.match(new RegExp(typed + '[^]*?TD_TYPED_\\\\d+\\\\s*\\\\n')) === null,
           JSON.stringify(text.trim().slice(-60)))

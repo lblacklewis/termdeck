@@ -64,6 +64,18 @@ export function useTerminal(
     term.loadAddon(new WebLinksAddon())
     term.open(container)
 
+    /*
+     * Stamp the session id onto the terminal's root element.
+     *
+     * Every pane renders the same markup, so without this there is no way to tell
+     * which `.xterm` belongs to which session from outside; a probe measuring
+     * "the terminal" was silently measuring whichever pane happened to come first
+     * in DOM order, and reported a healthy other pane while a broken one sat
+     * beside it.
+     */
+    const root = container.querySelector<HTMLElement>('.xterm')
+    if (root) root.dataset.terminalId = sessionId
+
     let disposed = false
     let rafId = 0
     let lastCols = 0

@@ -41,7 +41,17 @@ async function section(name, promise) {
 }
 
 async function main() {
-  require(path.join(ROOT, 'out', 'main', 'smokeEntry.js')).registerIpc()
+  const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  mod.registerIpc()
+
+  // Start from empty stores: this suite is about saved sessions with and without
+  // stored credentials, and inheriting a session from another run changes what it
+  // finds on the first screen.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores([
+    'sessions',
+    'layout',
+    'settings'
+  ])
 
   const win = new BrowserWindow({
     width: 1500,

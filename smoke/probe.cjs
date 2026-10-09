@@ -31,7 +31,14 @@ function report(checks) {
 }
 
 async function main() {
-  require(path.join(ROOT, 'out', 'main', 'smokeEntry.js')).registerIpc()
+  const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  mod.registerIpc()
+  // This suite opens real panes and leaves them behind, and the app restores a
+  // saved layout on launch. Without this reset a second run starts with the
+  // previous run's disconnected placeholders instead of the welcome pane, so the
+  // suite would only ever pass on a fresh machine.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
+  mod.storeAccess().layout.clear()
 
   const win = new BrowserWindow({
     width: 1440,

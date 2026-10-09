@@ -35,9 +35,44 @@ function writeJsonAtomic(path: string, value: unknown): void {
   renameSync(tmp, path)
 }
 
+/**
+ * The interface scale before the user has ever expressed a preference.
+ *
+ * 100% is right on a tablet-sized laptop panel, but the same 13px text on a
+ * 2560px desktop monitor looks miniature, so the first run starts larger on a
+ * wide screen. A zero here (no display yet, e.g. in tests) means "leave it
+ * alone". This only ever seeds the default: once settings.json carries a
+ * uiScale that the user picked, that value wins on every future start.
+ */
+let screenDefaultScale = 0
+
+export function setScreenDefaultScale(scale: number): void {
+  screenDefaultScale = clampScale(scale)
+}
+
+/**
+ * The first-run scale for a display this many logical pixels wide.
+ *
+ * 100% is right on a tablet-sized panel, but the same 13px text on a 2560px
+ * desktop monitor looks miniature. Logical width already folds in the OS scale
+ * factor, so a 4K panel running at 200% reports 1920 and stays at 100%. The
+ * steps are gentle: this only seeds the default, and the settings page is the
+ * real control.
+ */
+export function defaultScaleForWidth(logicalWidth: number): number {
+  if (!Number.isFinite(logicalWidth) || logicalWidth <= 0) return 1
+  if (logicalWidth >= 2200) return 1.15
+  if (logicalWidth >= 1800) return 1.05
+  return 1
+}
+
 /** Merge stored settings with defaults so new options appear for old files. */
 function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
-  if (!stored) return structuredClone(DEFAULT_SETTINGS)
+  if (!stored) {
+    const fresh = structuredClone(DEFAULT_SETTINGS)
+    if (screenDefaultScale > 0) fresh.uiScale = screenDefaultScale
+    return fresh
+  }
 
   const defaults = DEFAULT_SETTINGS
 
@@ -47,8 +82,20 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
     hostKeys: { ...defaults.hostKeys, ...(stored.hostKeys ?? {}) },
     keybindings: mergeKeybindings(stored.keybindings),
     snippets: sanitiseSnippets(stored.snippets),
-    theme: typeof stored.theme === 'string' && stored.theme ? stored.theme : defaults.theme
+    theme: typeof stored.theme === 'string' && stored.theme ? stored.theme : defaults.theme,
+    // Clamped here so a hand-edited file cannot leave the UI unusable
+    // (invisible at 0.1, unusable at 10).
+    uiScale: clampScale(stored.uiScale ?? screenDefaultScale)
   }
+}
+
+/** Keep the interface scale within a range that stays usable. */
+export function clampScale(value: unknown): number {
+  const n =
+    typeof value === 'number' && Number.isFinite(value) && value > 0
+      ? value
+      : DEFAULT_SETTINGS.uiScale
+  return Math.min(2, Math.max(0.7, Math.round(n * 100) / 100))
 }
 
 /**

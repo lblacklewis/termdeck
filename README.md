@@ -23,7 +23,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Docking | ✅ drag to edge = split, drag to centre = tab group, floating groups |
 | Host key verification | ✅ `known_hosts`, hashed entries, change/mismatch warning |
 | Credentials | ✅ saved per session, AES-256-GCM at rest, prompt with "remember" on connect |
-| Appearance | ✅ 11 themes with live preview, three-column shell, audited contrast |
+| Appearance | ✅ 11 themes with live preview, 80–150% interface scale, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
 | Known Hosts | ✅ browse every stored key and forget one |
 | Saved sessions | ✅ multi-level folders, tags, filtering, drag-to-move, per-session auth |
@@ -103,6 +103,40 @@ case would leak processes. If the saved session has since been deleted, the pane
 says so instead of failing quietly.
 
 ## Appearance
+
+**Interface scale.** Settings → Appearance → *Interface scale* offers 80% to
+150%. It is applied with `webContents.setZoomFactor`, so the rail, sidebar,
+dialogs, spacing and the terminal font all grow together instead of only the
+text. Picking one previews it immediately and the hint says it is a preview;
+closing the drawer by **any** route (Close, the header ✕, the backdrop, Escape)
+puts the stored value back, and only *Save settings* keeps it.
+
+Electron resets the zoom on every reload, so the value is stored in
+`settings.json` and applied by the **main process** before the window is first
+shown. The renderer deliberately does *not* re-send it on its first render:
+`setZoomFactor` updates zoom asynchronously, so a push landing inside the first
+layout pass made dockview re-measure mid-resize and cache a 100×100 placeholder
+as the size of its grid — every pane collapsed to about 65px with a blank
+terminal, while the buffer still held the shell's output.
+
+That failure mode has a second half worth knowing. A zoom change does **not**
+alter the container's CSS size, so the `ResizeObserver` watching it stays silent
+while dockview's grid is left at the placeholder — nothing in the app notices
+zoom moved. So every scale change (including the drawer's live preview, which is
+why the preview is applied through the shell rather than the dialog) re-asserts
+the layout once the zoom has landed. `smoke:repeat` alternates the plain launch
+with a mid-run scale change so neither path can regress quietly.
+
+On a first run the default follows the display: 100% up to 1800 logical pixels
+wide, 105% to 2200, and 115% above that — a 2560px desktop monitor makes the
+same 13px text look miniature next to a laptop panel. It uses *logical* width,
+so an OS-level 200% scale on a 4K panel is already accounted for. As soon as the
+user picks a value it is stored and used from then on.
+
+The initial **window size** likewise comes from the primary display's work area
+(82% of its width, 86% of its height, clamped to 1100–1900 × 700–1300) rather
+than a fixed 1440×900, which was cramped on a large monitor and oversized on a
+laptop panel.
 
 **Fonts.** Settings → Terminal → *Font family* lists the monospaced fonts
 actually installed on this machine, read from the platform. Clicking a chip
@@ -343,8 +377,10 @@ npm run smoke:ctxmenu   # context menu geometry inside a drawer
 npm run smoke:tabmenu   # pane-tab menu actions
 npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick connect
 npm run smoke:features3 # font picker, cursor blink, broadcast input
+npm run smoke:scale     # interface scale: applies, previsualises, persists, reverts
 npm run smoke:snippet   # snippets send verbatim; a line break is what runs them
 npm run smoke:layout    # layout persists across a real restart
+npm run smoke:repeat    # 6 alternating pane-geometry passes, incl. a scale change
 npm run smoke:contrast  # WCAG contrast audit across every theme and page
 npm run verify          # all of the above
 ```
@@ -398,8 +434,32 @@ rediscovered.
      makes this look like the pane being wrong. `useTerminal` now checks that the
      renderer has reported a cell before fitting, and retries until it has.
 
-  Both are covered by `smoke:repeat`, which runs the layout check repeatedly: a
-  fix that passes "sometimes" is not a fix, and single runs hid this one.
+  3. *Zoom does not change the container's CSS size.* A `setZoomFactor` change
+     leaves `host.clientWidth`/`clientHeight` identical, so the `ResizeObserver`
+     watching the container never fires — while dockview's grid is reset to its
+     100×100 placeholder. Nothing in the app notices that zoom moved, so every
+     scale change re-asserts the layout itself once the zoom has landed, and the
+     settings drawer's live preview is applied through the shell rather than
+     calling the bridge directly, because only the shell can reach the layout.
+
+  All three are covered by `smoke:repeat`, which alternates a plain launch with a
+  mid-run scale change: a fix that passes "sometimes" is not a fix, and single
+  runs hid every one of these.
+
+- **A probe reads the pane it means to read, or it grades the wrong one.** Every
+  terminal renders identical markup, so `document.querySelector('.xterm-rows')`
+  returns whichever pane comes first in DOM order; two suites were reporting a
+  healthy neighbouring pane while the pane under test was broken. `useTerminal`
+  now stamps `data-terminal-id` on the terminal root and the terminal object is
+  reachable as `window.__tdTerminals[sessionId]`, both so a probe can name its
+  target.
+
+- **Probes share the real `userData` directory, so they must reset it.** A suite
+  that asserts "this store contains exactly what I just created" passes on a fresh
+  machine and fails on the second run. `smoke/clearstore.cjs` deletes the store
+  files **before** the first `storeAccess()` (the stores are constructed lazily and
+  read their file in the constructor); deleting them afterwards would swap the file
+  out from under objects the app already holds.
 
 - **Inside a template literal, a regex needs double escaping.** `/\[\d{2}/`
   written directly inside an injected script becomes `/[d{2}/` once the template

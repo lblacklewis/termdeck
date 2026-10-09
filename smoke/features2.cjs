@@ -27,6 +27,7 @@ function report(checks) {
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
   mod.storeAccess().layout.clear()
 
   // ---- stub the save dialog ------------------------------------------------

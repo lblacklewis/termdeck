@@ -20,6 +20,12 @@ type Tab = 'appearance' | 'terminal' | 'clipboard' | 'shortcuts' | 'hostkeys' | 
 interface SettingsDialogProps {
   settings: AppSettings
   credentialStatus: CredentialStatus
+  /**
+   * Apply an interface scale. Owned by the shell rather than called here, because
+   * the docking layout has to be re-synced once the zoom lands and only the shell
+   * can reach it.
+   */
+  onApplyScale: (scale: number) => void
   onClose: () => void
   onSaved: (settings: AppSettings) => void
   onCredentialChanged: (status: CredentialStatus) => void
@@ -28,6 +34,7 @@ interface SettingsDialogProps {
 export function SettingsDialog({
   settings,
   credentialStatus,
+  onApplyScale,
   onClose,
   onSaved,
   onCredentialChanged
@@ -70,11 +77,54 @@ export function SettingsDialog({
     applyTheme(findTheme(id))
   }
 
+  /**
+   * Interface scale previews too: it is applied on change so the result can be
+   * judged rather than guessed, and closing without saving restores the stored
+   * value along with the theme.
+   */
+  const previewScale = (scale: number): void => {
+    setDraft((d) => ({ ...d, uiScale: scale }))
+    onApplyScale(scale)
+  }
+
   const dismiss = (): void => {
     // Revert an unsaved preview.
     if (draft.theme !== settings.theme) applyTheme(findTheme(settings.theme))
+    if (draft.uiScale !== settings.uiScale) onApplyScale(settings.uiScale)
     onClose()
   }
+
+  /**
+   * The drawer header's X and the backdrop close the drawer directly, without
+   * going through `dismiss`. Previewing a theme or a scale is a live change, so
+   * closing by any route has to put the stored values back — otherwise a preview
+   * the user never accepted would outlive the dialog that offered it.
+   *
+   * The refs keep this deliberately **unmount-only**. A plain effect cleanup also
+   * fires when the dependencies change, and saving does exactly that (the new
+   * settings arrive before the dialog closes), which would undo the very value
+   * that was just saved.
+   */
+  const lastAppliedRef = useRef({ theme: draft.theme, scale: draft.uiScale })
+  lastAppliedRef.current = { theme: draft.theme, scale: draft.uiScale }
+
+  const savedRef = useRef({ theme: settings.theme, scale: settings.uiScale })
+  savedRef.current = { theme: settings.theme, scale: settings.uiScale }
+
+  // `onApplyScale` is stable (the shell memoises it), so it is deliberately not
+  // a dependency: this must run only on unmount.
+  const applyScaleRef = useRef(onApplyScale)
+  applyScaleRef.current = onApplyScale
+
+  useEffect(
+    () => () => {
+      const applied = lastAppliedRef.current
+      const saved = savedRef.current
+      if (applied.theme !== saved.theme) applyTheme(findTheme(saved.theme))
+      if (applied.scale !== saved.scale) applyScaleRef.current(saved.scale)
+    },
+    []
+  )
 
   // ---- shortcut recording -------------------------------------------------
 
@@ -218,6 +268,9 @@ export function SettingsDialog({
                 activeTheme={draft.theme}
                 savedTheme={settings.theme}
                 onPick={previewTheme}
+                scale={draft.uiScale}
+                savedScale={settings.uiScale}
+                onScale={previewScale}
               />
             )}
 
@@ -379,13 +432,33 @@ export function SettingsDialog({
 function ThemeTab({
   activeTheme,
   savedTheme,
-  onPick
+  onPick,
+  scale,
+  savedScale,
+  onScale
 }: {
   activeTheme: string
   savedTheme: string
   onPick: (id: string) => void
+  scale: number
+  savedScale: number
+  onScale: (scale: number) => void
 }): JSX.Element {
   const previewing = activeTheme !== savedTheme
+
+  /**
+   * Presets rather than a free slider: these are the sizes people actually want,
+   * and a slider makes it easy to land somewhere that is neither.
+   */
+  const SCALES: Array<{ value: number; label: string }> = [
+    { value: 0.8, label: '80%' },
+    { value: 0.9, label: '90%' },
+    { value: 1, label: '100%' },
+    { value: 1.1, label: '110% (default for large screens)' },
+    { value: 1.25, label: '125%' },
+    { value: 1.5, label: '150%' }
+  ]
+
   return (
     <div className="td-field-stack">
       <div className="td-theme-head">
@@ -399,6 +472,7 @@ function ThemeTab({
           </span>
         )}
       </div>
+
       <div className="td-theme-grid" data-testid="theme-grid">
         {THEMES.map((theme) => (
           <button
@@ -421,6 +495,34 @@ function ThemeTab({
             {theme.id === savedTheme && <span className="td-theme-saved">saved</span>}
           </button>
         ))}
+      </div>
+
+      {/*
+        Interface scale. A dense desktop UI is uncomfortable on a wide monitor and
+        there was previously nothing the user could do about it; this scales every
+        measurement together rather than only the terminal font.
+      */}
+      <div className="td-field">
+        <span>Interface size</span>
+        <div className="td-scale-picks" data-testid="scale-picks">
+          {SCALES.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`td-scale-chip${Math.abs(option.value - scale) < 0.001 ? ' is-active' : ''}`}
+              data-scale={option.value}
+              aria-pressed={Math.abs(option.value - scale) < 0.001}
+              onClick={() => onScale(option.value)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <span className="td-hint" data-testid="scale-hint">
+          {Math.abs(scale - savedScale) < 0.001
+            ? `Currently ${Math.round(scale * 100)}%. Scales the rail, sidebar, dialogs and terminal together.`
+            : `Previewing ${Math.round(scale * 100)}% (saved: ${Math.round(savedScale * 100)}%). Press Save settings to keep it.`}
+        </span>
       </div>
     </div>
   )

@@ -6,6 +6,12 @@
  * A fix that passes "sometimes" is not a fix. Each run starts from a cleared
  * layout, opens a shell quickly (the timing that reproduced the bug), and the run
  * counts only if the pane reaches a real size and the terminal refits.
+ *
+ * Odd runs additionally change the interface scale with the pane already open.
+ * `setZoomFactor` updates zoom asynchronously, so a layout pass taken while that
+ * is in flight used to record a 100x100 placeholder as the size of dockview's
+ * grid, collapsing every pane to about 65px with an empty terminal. Alternating
+ * the two paths keeps both honest.
  */
 const path = require('node:path')
 const { app, BrowserWindow } = require('electron')
@@ -22,6 +28,8 @@ async function main() {
 
   for (let run = 1; run <= RUNS; run++) {
     mod.storeAccess().layout.clear()
+    mod.storeAccess().settings.save({ ...mod.storeAccess().settings.load(), uiScale: 1 })
+    const rescaleMidway = run % 2 === 1
 
     const win = new BrowserWindow({
       width: 1500,
@@ -48,25 +56,55 @@ async function main() {
       return true
     })()`)
 
+    if (rescaleMidway) {
+      await sleep(1200)
+      // Through the real control, not the bridge directly.
+      await win.webContents.executeJavaScript(`(async () => {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const open = [...document.querySelectorAll('button')]
+          .find((b) => (b.getAttribute('title') || '') === 'Settings')
+        open.click()
+        await wait(900)
+        document.querySelector('[data-testid="scale-picks"] [data-scale="1.25"]').click()
+        await wait(600)
+        document.querySelector('[data-testid="drawer-close"]').click()
+        return true
+      })()`)
+    }
+
     let ok = false
     let detail = ''
     for (let i = 0; i < 60; i++) {
       await sleep(250)
       const s = await win.webContents.executeJavaScript(`(() => {
         const h = document.querySelector('.td-terminal-host')
+        const pane = document.querySelector('.td-terminal')
+        const grid = document.querySelector('.dv-grid-view')
         const e = window.__tdTerminals ? Object.values(window.__tdTerminals)[0] : null
         const t = e ? e.term : null
-        return { hostH: h ? h.clientHeight : -1, rows: t ? t.rows : -1 }
+        const painted = t && t.element
+          ? [...t.element.querySelectorAll('.xterm-rows > div')].filter((d) => (d.textContent || '').trim()).length
+          : -1
+        return {
+          hostH: h ? h.clientHeight : -1,
+          paneH: pane ? Math.round(pane.getBoundingClientRect().height) : -1,
+          gridH: grid ? Math.round(grid.getBoundingClientRect().height) : -1,
+          rows: t ? t.rows : -1,
+          painted
+        }
       })()`)
-      detail = `host=${s.hostH} rows=${s.rows}`
-      if (s.hostH > 200 && s.rows > 24) {
+      detail =
+        `host=${s.hostH} pane=${s.paneH} grid=${s.gridH} rows=${s.rows} painted=${s.painted}`
+      // The pane must both be tall enough and have its rows actually painted: a
+      // buffer with no DOM rows is what a collapsed pane looks like.
+      if (s.hostH > 200 && s.rows > 24 && s.painted > 0) {
         ok = true
         break
       }
     }
 
     results.push({ run, ok, detail })
-    console.log(`run ${run}: ${ok ? 'OK  ' : 'STUCK'}  ${detail}`)
+    console.log(`run ${run}: ${ok ? 'OK  ' : 'STUCK'}  ${rescaleMidway ? 'scale changed mid-run  ' : 'plain launch        '}${detail}`)
     if (!ok) {
       const dockTrail = await win.webContents.executeJavaScript(
         `JSON.stringify((window.__tdDockTrail || []).slice(-4))`

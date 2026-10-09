@@ -24,7 +24,16 @@ function report(checks) {
 }
 
 async function main() {
-  require(path.join(ROOT, 'out', 'main', 'smokeEntry.js')).registerIpc()
+  const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  mod.registerIpc()
+  // Start from empty stores. This suite drives the shortcut list inside settings
+  // and asserts the row it edited changed and that the drawer stayed open; an
+  // edited keybinding or a stray session from another run changes what it finds.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores([
+    'sessions',
+    'layout',
+    'settings'
+  ])
 
   const win = new BrowserWindow({
     width: 1500,

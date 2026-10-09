@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Verification for the credential, theme and appearance work:
  *   1. a password typed in the session editor is saved encrypted, can be
  *      revealed, and is what the connection actually uses
@@ -27,6 +27,17 @@ function report(checks) {
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
+
+  // Start from empty stores. This suite asserts which sessions report a stored
+  // password and what the editor says about them; a session left by another run
+  // pollutes those counts (the store has no `clear`, so it has to go before the
+  // first access, which is what constructs it).
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores([
+    'sessions',
+    'layout',
+    'settings'
+  ])
+
   const stores = mod.storeAccess()
 
   const win = new BrowserWindow({

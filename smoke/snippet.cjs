@@ -23,6 +23,9 @@ function report(checks) {
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
+  // Start from empty stores: snippets live in settings and this suite asserts on
+  // the exact set of them.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
   mod.storeAccess().layout.clear()
 
   const win = new BrowserWindow({

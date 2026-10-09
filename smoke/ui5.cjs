@@ -78,7 +78,15 @@ process.env['TERMDECK_KNOWN_HOSTS'] = seeded.file
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
-  console.log('路 main process ready')
+
+  // Start from empty stores: this suite walks the pages and drawers from a known
+  // first screen, and state left by another run changes what is there.
+  require(path.join(__dirname, 'clearstore.cjs')).resetStores([
+    'sessions',
+    'layout',
+    'settings'
+  ])
+  console.log('- main process ready')
 
   const win = new BrowserWindow({
     width: 1500,
