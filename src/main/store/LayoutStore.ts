@@ -19,6 +19,7 @@ const DEFAULT_LAYOUT: LayoutState = {
   dockview: null,
   page: 'terminal',
   sidebarVisible: true,
+  sidebarCollapsed: false,
   snippetBarVisible: true
 }
 
@@ -37,6 +38,7 @@ function sanitise(input: unknown): LayoutState {
     dockview: typeof raw.dockview === 'string' && raw.dockview.length > 0 ? raw.dockview : null,
     page,
     sidebarVisible: raw.sidebarVisible !== false,
+    sidebarCollapsed: raw.sidebarCollapsed === true,
     snippetBarVisible: raw.snippetBarVisible !== false
   }
 }

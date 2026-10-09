@@ -78,6 +78,12 @@ editor, quick connect, snippet editor, settings and the connections window — s
 the list you were working in stays visible. They close on Escape, the close
 button, or a click on the backdrop.
 
+The session column **collapses to a 44px strip** (`«` in the header, `»` to
+expand). It is a strip rather than nothing because the primary actions stay one
+click away: new connection, local shell, broadcast, connection count and
+settings. Collapsing hands the width to the terminal — about 28 extra columns at
+a typical window size — and the state is remembered.
+
 **Known Hosts** lists every stored key with its fingerprint and lets you forget
 one. That is the fix for the case that bites people: a rebuilt (or impersonated)
 host no longer matches, and the only way forward used to be editing
@@ -140,6 +146,10 @@ The gutter is drawn as an overlay aligned to xterm's own measured row height
 rather than written into the buffer, so it can never end up inside a selection or
 in copied/saved output. Times are not persisted, because scrollback is not
 either.
+
+The gutter carries no border and no panel background, and sits at 72% opacity, so
+it reads as part of the terminal rather than as a boxed sidebar beside it.
+Right-click a pane tab to show or hide it — the choice saves immediately.
 
 ## Quick connect
 
@@ -367,12 +377,19 @@ rediscovered.
 - **Never edit source files with PowerShell.** `Set-Content -Encoding UTF8`
   writes a BOM (which broke `package.json` outright) and corrupts non-ASCII text.
   Use the editor tools.
+- **Size dockview *before* adding the first panel.** This one cost the most time,
+  so it is worth stating precisely. dockview measures its container on
+  construction and builds each panel's internal views from that model. If a panel
+  is added while the dock still believes it is 100×100, those views are created at
+  100×100 and **never grow again** — and `layout()`, even with `force`, does not
+  repair it afterwards, because the views were constructed against the stale
+  model. The symptom is a terminal permanently painting 456px tall inside a 791px
+  pane, stuck at xterm's default 80×24. The fix is one `dock.layout(w, h, true)`
+  immediately after construction, before `addPanel`. Reverting to a plain
+  `ResizeObserver` in `useTerminal` is not enough, and neither is a retry loop.
 - **A ResizeObserver alone does not size a terminal.** It only fires on a
-  *change*, and dockview attaches a panel before its group has been measured, so
-  the terminal kept xterm's default 80×24 and painted 456px tall inside a 791px
-  host — leaving a dead band at the bottom of the pane that the snippet bar
-  appeared to be covering. `useTerminal` now fits once immediately and again
-  after layout settles.
+  *change*, so `useTerminal` also fits once immediately and once more after layout
+  settles.
 - **Inside a template literal, a regex needs double escaping.** `/\[\d{2}/`
   written directly inside an injected script becomes `/[d{2}/` once the template
   is processed, which throws at runtime and surfaces only as "Script failed to

@@ -25,6 +25,8 @@ function report(checks) {
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
+  // Start from the default arrangement, so a collapsed sidebar left behind by an
+  // earlier run cannot change what this measures.
   mod.storeAccess().layout.clear()
 
   const win = new BrowserWindow({
@@ -44,14 +46,18 @@ async function main() {
   await win.reload()
   await sleep(2600)
 
-  // Open a pane first: there is nothing to measure without one.
+  // Open a pane first: there is nothing to measure without one. Both the full
+  // sidebar and the collapsed strip offer this, so the probe does not depend on
+  // which state the layout was left in.
   await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
+    const full = [...document.querySelectorAll('.td-sidebar .td-btn')]
       .find((b) => /Local shell/i.test(b.textContent || ''))
-    if (btn) btn.click()
+    const collapsed = document.querySelector('[data-testid="collapsed-local"]')
+    const target = full || collapsed
+    if (target) target.click()
     await wait(1500)
-    return !!btn
+    return !!target
   })()`)
 
   // Let dockview finish propagating its size before measuring: it attaches the
@@ -85,6 +91,8 @@ async function main() {
         }
         return false
       })()
+      push('the pane fitted itself without a manual nudge', equipped,
+        host() ? 'host=' + host().clientHeight + ' rows=' + (term() ? term().rows : '?') : 'no host')
 
       push('a shell pane was opened', !!term())
       push('the pane has a real box', !!host() && host().clientHeight > 200,
@@ -136,11 +144,22 @@ async function main() {
       const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
       push('the timestamp gutter is on by default', gutter)
       if (gutter) {
+        // A freshly opened shell has not printed anything yet, so wait for the
+        // prompt before asserting that lines are stamped. The pattern is built
+        // with the RegExp constructor rather than a literal, because a literal
+        // inside this template would lose a backslash and become /[d{2}/.
+        const stampedRe = new RegExp('\\\\[\\\\d{2}:\\\\d{2}')
+        for (let i = 0; i < 40; i++) {
+          const any = [...gutter.querySelectorAll('.td-terminal-stamp')]
+            .some((c) => stampedRe.test(c.textContent || ''))
+          if (any) break
+          await wait(250)
+        }
         const cells = [...gutter.querySelectorAll('.td-terminal-stamp')]
         push('the gutter matches the terminal row count',
           cells.length === term().rows,
-          \`cells=\${cells.length} rows=\${term().rows}\`)
-        const stamped = cells.map((c) => c.textContent).filter((s) => /\\[\\d{2}:\\d{2}/.test(s))
+          'cells=' + cells.length + ' rows=' + term().rows)
+        const stamped = cells.map((c) => c.textContent).filter((s) => stampedRe.test(s))
         push('stamps use the bracketed [HH:MM:SS] form',
           stamped.length > 0, JSON.stringify(stamped.slice(0, 3)))
         const cellH = cells[0] ? cells[0].getBoundingClientRect().height : 0

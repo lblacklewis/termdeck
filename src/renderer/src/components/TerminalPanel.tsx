@@ -193,7 +193,9 @@ export function TerminalPanel({
             // An explicit px height: a bare `lineHeight` multiplier would be
             // interpreted as pixels by CSS and collapse the rows.
             lineHeight: rowHeight > 0 ? `${rowHeight}px` : 'normal',
-            paddingTop: `${topOffset}px`
+            // Published as a variable so the stylesheet owns the padding while the
+            // measured offset still aligns row 1 with the terminal.
+            ['--td-stamp-top' as string]: `${topOffset}px`
           }}
         >
           {stampLines.map((label, i) => (

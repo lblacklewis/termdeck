@@ -3391,3 +3391,80 @@ html[data-theme-scheme='light'] .td-select {
   color: var(--td-text);
   box-shadow: var(--td-ring);
 }
+
+/* ======================================================================
+   Collapsed sidebar
+   ----------------------------------------------------------------------
+   A slim strip rather than nothing: the actions that are worth keeping one
+   click away stay, and the terminal reclaims most of the width.
+   ====================================================================== */
+
+.td-sidebar.is-collapsed {
+  width: 44px;
+  flex: 0 0 44px;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+}
+
+.td-sidebar.is-collapsed .td-icon-btn {
+  width: 30px;
+  height: 30px;
+}
+
+/* Sits between the actions and the ones pinned to the bottom. */
+.td-collapsed-spacer {
+  flex: 1 1 auto;
+}
+
+.td-icon-btn-accent {
+  color: var(--td-accent);
+  border-color: color-mix(in srgb, var(--td-accent) 40%, transparent);
+}
+
+/* Slightly larger glyph for the terminal-ish ">_" affordance. */
+.td-sidebar.is-collapsed [data-testid='collapsed-local'] {
+  font-size: 11px;
+  letter-spacing: -0.06em;
+}
+
+/*
+ * Timestamp gutter, blended.
+ *
+ * The gutter carries no border, no panel background and no separate type
+ * treatment: it reads as part of the terminal rather than as a boxed sidebar.
+ * Only the ink colour differs, which is what makes it recede.
+ */
+.td-terminal-stamps {
+  width: 4.4em;
+  /* The top offset is measured from the rendered xterm box, so row 1 of the
+     gutter lines up with row 1 of the terminal without hard-coding a value. */
+  padding: var(--td-stamp-top, 0px) 6px 0 8px;
+  border-right: none;
+  background: transparent;
+  color: var(--td-text-faint);
+  opacity: 0.72;
+}
+
+/* A hairline separator appears only on hover, when it is useful for tracking
+   a row across to the command. */
+.td-terminal:hover .td-terminal-stamps {
+  opacity: 1;
+}
+
+/* The collapsed strip already carries expand/connect/shell/broadcast at the top,
+   so the bottom cluster keeps only what is not duplicated there. */
+.td-sidebar.is-collapsed .td-sidebar-footer {
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 0 0;
+  border-top: 1px solid var(--td-border);
+}
+
+.td-sidebar.is-collapsed .td-sidebar-footer .td-badge {
+  position: absolute;
+  transform: translate(9px, -8px);
+  font-size: 9px;
+  padding: 0 3px;
+}

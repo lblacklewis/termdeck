@@ -68,6 +68,9 @@ export function useTerminal(
     let rafId = 0
     let lastCols = 0
     let lastRows = 0
+    /** The container box the last fit was computed against. */
+    let lastFitW = -1
+    let lastFitH = -1
 
     const api = window.termdeck
 
@@ -76,11 +79,15 @@ export function useTerminal(
       // An inactive dockview tab keeps its element in the DOM but at 0x0, and
       // fit() throws for a zero-size element — skip rather than spam errors.
       if (container.clientWidth === 0 || container.clientHeight === 0) return
+      const w = container.clientWidth
+      const h = container.clientHeight
       try {
         fit.fit()
       } catch {
         return
       }
+      lastFitW = w
+      lastFitH = h
       if (term.cols !== lastCols || term.rows !== lastRows) {
         lastCols = term.cols
         lastRows = term.rows
@@ -88,6 +95,16 @@ export function useTerminal(
       }
     }
 
+    /**
+     * Fit on the next frame, and keep fitting until the terminal matches the box
+     * it ended up with.
+     *
+     * A plain "schedule once" is not enough: dockview resizes a pane in steps
+     * (100x100 placeholder, then the real size), and `requestAnimationFrame`
+     * coalesces — so a fit computed against an intermediate box would be the last
+     * one that ever ran, leaving the terminal at xterm's 80x24 default. Looping
+     * until the measured box is stable makes that self-correcting.
+     */
     const scheduleFit = (): void => {
       if (rafId) cancelAnimationFrame(rafId)
       rafId = requestAnimationFrame(doFit)

@@ -92,6 +92,8 @@ export function App(): JSX.Element {
 
   const [appMeta, setAppMeta] = useState<Awaited<ReturnType<typeof api.appInfo>> | null>(null)
   const [sidebarVisible, setSidebarVisible] = useState(true)
+  /** Collapsed to a slim strip rather than hidden entirely. */
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -187,6 +189,14 @@ export function App(): JSX.Element {
   const savedIdForSessionRef = useRef<Map<string, string>>(new Map())
   /** Guards against the initial hydration being written straight back. */
   const hydratedRef = useRef(false)
+  /**
+   * Forces dockview to re-layout against its container's real size.
+   *
+   * A pane added before the dock has been measured inherits a 100x100
+   * placeholder and never grows, which leaves the terminal painting in a 65px
+   * box. `addSession` calls this after adding a panel.
+   */
+  const dockSyncRef = useRef<(() => void) | null>(null)
 
   const refreshTree = useCallback(async () => {
     const [next, tags] = await Promise.all([api.loadSessionTree(), api.allTags()])
@@ -209,6 +219,7 @@ export function App(): JSX.Element {
     void api.loadLayout().then((layout) => {
       setPage(layout.page)
       setSidebarVisible(layout.sidebarVisible)
+      setSidebarCollapsed(layout.sidebarCollapsed)
       setSnippetBarVisible(layout.snippetBarVisible)
       hydratedRef.current = true
     })
@@ -246,7 +257,28 @@ export function App(): JSX.Element {
     const container = dockRef.current
     if (!container) return
 
-    const dock = new DockviewComponent(container, {
+    /*
+     * A container with no size yet is not usable: dockview would measure 0x0 and
+     * every view it creates inherits that. Wait for a real box in that case.
+     */
+    if (container.clientWidth === 0 || container.clientHeight === 0) {
+      const waiter = new ResizeObserver(() => {
+        if (container.clientWidth > 0 && container.clientHeight > 0) {
+          waiter.disconnect()
+          start()
+        }
+      })
+      waiter.observe(container)
+      return () => waiter.disconnect()
+    }
+
+    return start()
+
+    function start(): (() => void) | undefined {
+    // Bound locally: TypeScript cannot carry the null-check above into a nested
+    // function, and this also pins the element the dock is built against.
+    const host = container as HTMLDivElement
+    const dock = new DockviewComponent(host, {
       createComponent: (options) => {
         if (options.name === 'terminal') {
           return new ReactContentRenderer((params: GroupPanelPartInitParameters) => {
@@ -281,6 +313,20 @@ export function App(): JSX.Element {
     })
 
     dockApiRef.current = dock.api
+
+    /*
+     * Size dockview before any panel exists.
+     *
+     * A panel created while the dock still believes it is 100x100 builds its
+     * internal views at that size and never grows them again: `layout()` does not
+     * repair it afterwards, because the views were constructed against the stale
+     * model. Laying out immediately after construction means the first panel is
+     * always built against the real box, which is what keeps the terminal from
+     * painting in a 65px tall container.
+     */
+    if (host.clientWidth > 0 && host.clientHeight > 0) {
+      dock.layout(host.clientWidth, host.clientHeight, true)
+    }
 
     if (window.localStorage.getItem('tdDebug') === '1') {
       ;(window as unknown as Record<string, unknown>)['__tdDockApi'] = dock.api
@@ -363,9 +409,34 @@ export function App(): JSX.Element {
       }
     })
 
+    /**
+     * Keep the docking layout in step with its container's real size.
+     *
+     * dockview measures itself when a panel is added, and at that moment the pane
+     * has not been laid out yet: its internal views stay at a 100x100 placeholder
+     * and never expand, so the terminal ends up painting in a 65px box. Asking
+     * dockview to re-layout whenever the container's size settles (and once more
+     * after mount) is what corrects it.
+     */
+    const syncLayout = (): void => {
+      if (host.clientWidth === 0 || host.clientHeight === 0) return
+      // `force` matters: without it dockview treats the size as unchanged and
+      // leaves its internal grid at the placeholder it measured on mount.
+      dock.layout(host.clientWidth, host.clientHeight, true)
+    }
+    // Reachable from addSession: a pane added before the dock has been measured
+    // would otherwise stay glued to the placeholder size forever.
+    dockSyncRef.current = syncLayout
+    const dockObserver = new ResizeObserver(syncLayout)
+    dockObserver.observe(host)
+    if (window.localStorage.getItem('tdDebug') === '1') {
+      ;(window as unknown as Record<string, unknown>)['__tdDockLayout'] = syncLayout
+    }
+
     return () => {
       cancelled = true
       window.clearTimeout(saveTimer)
+      dockObserver.disconnect()
       // Flush on teardown: the debounce window is wider than the gap between the
       // last change and app quit, so a pending save would otherwise be lost.
       if (dirty) persist()
@@ -373,6 +444,8 @@ export function App(): JSX.Element {
       removed.dispose()
       dock.dispose()
       dockApiRef.current = null
+      dockSyncRef.current = null
+    }
     }
   }, [removeSessionState])
 
@@ -382,8 +455,8 @@ export function App(): JSX.Element {
     // Skip until the saved layout has been applied, otherwise the first render
     // would overwrite it with defaults.
     if (!hydratedRef.current) return
-    void api.saveLayout({ page, sidebarVisible, snippetBarVisible })
-  }, [page, sidebarVisible, snippetBarVisible])
+    void api.saveLayout({ page, sidebarVisible, sidebarCollapsed, snippetBarVisible })
+  }, [page, sidebarVisible, sidebarCollapsed, snippetBarVisible])
 
   // ---- session creation ---------------------------------------------------
 
@@ -423,6 +496,27 @@ export function App(): JSX.Element {
         onEnded: (id: string) => endedRef.current(id)
       }
     })
+
+    /*
+     * Re-layout until the new pane has a real size.
+     *
+     * dockview measures itself when the panel is added. If that happens before
+     * the dock has been laid out — which is exactly what a session opened while
+     * the window is still settling does — the pane keeps a 100x100 placeholder
+     * and never grows, so its terminal paints in a 65px box. Retrying until the
+     * panel reports a plausible width makes that self-correcting instead of
+     * leaving a permanently broken pane.
+     */
+    let attempts = 0
+    const settle = (): void => {
+      dockSyncRef.current?.()
+      const panel = dockApi.getPanel(session.id)
+      const wide = panel ? panel.api.width : 0
+      if (attempts++ < 20 && wide < 200 && dockSyncRef.current) {
+        window.setTimeout(settle, 60)
+      }
+    }
+    settle()
   }, [])
 
   /**
@@ -879,6 +973,12 @@ export function App(): JSX.Element {
       { id: 'copyTitle', label: 'Copy tab name' },
       { id: 'copyText', label: 'Copy all output' },
       { id: 'saveText', label: 'Save output to file…' },
+      {
+        id: 'toggleTimestamps',
+        label: settings.terminal.showTimestamps ? 'Hide timestamps' : 'Show timestamps',
+        hint: settings.terminal.showTimestamps ? 'on' : 'off',
+        separatorBefore: true
+      },
       { id: 'close', label: 'Close', separatorBefore: true, disabled: closable.length === 0 },
       {
         id: 'closeOthers',
@@ -892,7 +992,7 @@ export function App(): JSX.Element {
       },
       { id: 'closeAll', label: 'Close all tabs', danger: true, separatorBefore: true }
     ]
-  }, [tabMenu])
+  }, [tabMenu, settings.terminal.showTimestamps])
 
   const runTabAction = useCallback(
     (actionId: string) => {
@@ -906,6 +1006,19 @@ export function App(): JSX.Element {
       if (actionId === 'copyTitle') {
         void api.copyToClipboard(tabMenu.title)
         setToast(`Copied “${tabMenu.title}”`)
+        return
+      }
+      if (actionId === 'toggleTimestamps') {
+        // Saved immediately so the choice survives a restart; the broadcast then
+        // updates every open pane through useSettings.
+        const next = !settings.terminal.showTimestamps
+        void api
+          .saveSettings({
+            ...settings,
+            terminal: { ...settings.terminal, showTimestamps: next }
+          })
+          .then(setSettings)
+        setToast(next ? 'Timestamps shown' : 'Timestamps hidden')
         return
       }
       if (actionId === 'copyText') {
@@ -925,7 +1038,7 @@ export function App(): JSX.Element {
         closePanels(panels.map((p) => p.id))
       }
     },
-    [tabMenu, closePanels, copyPanelOutput, savePanelOutput]
+    [tabMenu, closePanels, copyPanelOutput, savePanelOutput, settings]
   )
 
   // ---- shortcuts ----------------------------------------------------------
@@ -1022,11 +1135,79 @@ export function App(): JSX.Element {
         />
       )}
 
-      {sidebarVisible && (
+      {sidebarVisible && sidebarCollapsed && (
+        <aside className="td-sidebar is-collapsed" data-testid="sidebar-collapsed">
+          <button
+            className="td-icon-btn"
+            title="Expand the sidebar"
+            data-testid="sidebar-expand"
+            onClick={() => setSidebarCollapsed(false)}
+          >
+            »
+          </button>
+          <button
+            className="td-icon-btn td-icon-btn-accent"
+            title="New connection"
+            data-testid="collapsed-connect"
+            onClick={() => setDialogOpen(true)}
+          >
+            +
+          </button>
+          <button
+            className="td-icon-btn"
+            title="Open a local shell"
+            data-testid="collapsed-local"
+            disabled={!appMeta?.localShellAvailable}
+            onClick={() =>
+              void api.createLocalSession({}).then((r) => {
+                if (r.ok) addSession(r.session)
+                else setAlert({ message: r.error.message })
+              })
+            }
+          >
+            &gt;_
+          </button>
+          <button
+            className={`td-icon-btn${broadcasting ? ' is-active' : ''}`}
+            title={broadcasting ? `Broadcasting — ${broadcastSummary()}` : 'Broadcast input'}
+            aria-pressed={broadcasting}
+            onClick={() => setBroadcasting(toggleBroadcasting())}
+          >
+            ⇶
+          </button>
+          <span className="td-collapsed-spacer" />
+          <button
+            className="td-icon-btn"
+            title={`Open sessions (${sessions.length})`}
+            onClick={() => setConnectionsOpen(true)}
+          >
+            ⧉
+            {sessions.length > 0 && <span className="td-badge">{sessions.length}</span>}
+          </button>
+          <button
+            className="td-icon-btn"
+            title="Settings"
+            onClick={() => setSettingsOpen(true)}
+          >
+            ⚙
+          </button>
+        </aside>
+      )}
+
+      {sidebarVisible && !sidebarCollapsed && (
         <aside className="td-sidebar">
           <div className="td-brand">
             <span className="td-brand-mark">▚</span>
             <span className="td-brand-name">TermDeck</span>
+            <span className="td-spacer" />
+            <button
+              className="td-icon-btn"
+              title="Collapse the sidebar to a slim strip"
+              data-testid="sidebar-collapse"
+              onClick={() => setSidebarCollapsed(true)}
+            >
+              «
+            </button>
           </div>
 
           <div className="td-sidebar-actions">

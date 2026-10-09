@@ -193,6 +193,8 @@ export interface LayoutState {
   dockview: string | null
   page: PageId
   sidebarVisible: boolean
+  /** Slim strip rather than the full session list. */
+  sidebarCollapsed: boolean
   snippetBarVisible: boolean
 }
 
