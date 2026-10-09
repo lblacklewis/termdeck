@@ -191,7 +191,22 @@ async function main() {
         return out
       }
       await window.termdeck.writeSession(first.id, 'echo ' + marker + '\\r\\n')
-      await wait(2500)
+
+      // Wait for the output to be in the terminal's buffer before copying: a
+      // fixed delay raced the shell and copied an empty scrollback.
+      const bufferHas = () => {
+        const entry = window.__tdTerminals ? window.__tdTerminals[first.id] : null
+        if (!entry || !entry.term) return false
+        const buf = entry.term.buffer.active
+        for (let i = 0; i < buf.length; i++) {
+          const line = buf.getLine(i)
+          if (line && line.translateToString(true).includes(marker)) return true
+        }
+        return false
+      }
+      for (let i = 0; i < 40 && !bufferHas(); i++) await wait(250)
+      push('the marker reached the terminal', bufferHas())
+
       await rightClick(0)
       await clickItem('copyText')
       await wait(600)
