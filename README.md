@@ -377,19 +377,30 @@ rediscovered.
 - **Never edit source files with PowerShell.** `Set-Content -Encoding UTF8`
   writes a BOM (which broke `package.json` outright) and corrupts non-ASCII text.
   Use the editor tools.
-- **Size dockview *before* adding the first panel.** This one cost the most time,
-  so it is worth stating precisely. dockview measures its container on
-  construction and builds each panel's internal views from that model. If a panel
-  is added while the dock still believes it is 100×100, those views are created at
-  100×100 and **never grow again** — and `layout()`, even with `force`, does not
-  repair it afterwards, because the views were constructed against the stale
-  model. The symptom is a terminal permanently painting 456px tall inside a 791px
-  pane, stuck at xterm's default 80×24. The fix is one `dock.layout(w, h, true)`
-  immediately after construction, before `addPanel`. Reverting to a plain
-  `ResizeObserver` in `useTerminal` is not enough, and neither is a retry loop.
-- **A ResizeObserver alone does not size a terminal.** It only fires on a
-  *change*, so `useTerminal` also fits once immediately and once more after layout
-  settles.
+- **A pane can end up correct while its terminal stays at the default 80×24.**
+  Two independent races produced the same symptom — a terminal painting 456px tall
+  inside a 791px pane — and both are worth knowing:
+
+  1. *dockview's grid keeps the size it was constructed with.* Verified in
+     isolation: a `DockviewComponent` built while its container is a 100×100
+     placeholder keeps its grid pinned there, and the grid carries **inline**
+     `width`/`height`, so CSS alone cannot correct it. `dock.layout(w, h, true)`
+     releases it, but a `ResizeObserver` alone is not enough — on some runs the
+     container reaches its real size without a further event, so nothing asks for
+     the re-layout, and a short bounded polling window drives it instead.
+     dockview's own CSS also omits a height on `.dv-view`, so the pane collapses
+     to its content when that inline height is absent; `global.css` states it.
+
+  2. *`FitAddon.fit()` is a silent no-op before the renderer has measured.*
+     `proposeDimensions()` returns early when `dimensions.css.cell.height` is 0,
+     so calling `fit()` again in that window cannot help — it exits before
+     measuring anything. The pane's own height is already correct, which is what
+     makes this look like the pane being wrong. `useTerminal` now checks that the
+     renderer has reported a cell before fitting, and retries until it has.
+
+  Both are covered by `smoke:repeat`, which runs the layout check repeatedly: a
+  fix that passes "sometimes" is not a fix, and single runs hid this one.
+
 - **Inside a template literal, a regex needs double escaping.** `/\[\d{2}/`
   written directly inside an injected script becomes `/[d{2}/` once the template
   is processed, which throws at runtime and surfaces only as "Script failed to

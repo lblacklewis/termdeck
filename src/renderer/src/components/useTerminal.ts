@@ -74,11 +74,28 @@ export function useTerminal(
 
     const api = window.termdeck
 
+    /**
+     * Whether xterm's renderer has measured its cell yet.
+     *
+     * `FitAddon.proposeDimensions()` returns early when the rendered cell has no
+     * size, so `fit()` silently does nothing and the terminal stays at xterm's
+     * default 80x24 — while the pane around it is the correct 791px tall. Calling
+     * `fit()` again in that window cannot help, because the early return happens
+     * before any measurement; the fix is to wait until the renderer is ready.
+     */
+    const rendererReady = (): boolean => {
+      const dims = (term as unknown as {
+        _core?: { _renderService?: { dimensions?: { css?: { cell?: { height?: number } } } } }
+      })._core?._renderService?.dimensions?.css?.cell?.height
+      return typeof dims === 'number' && dims > 0
+    }
+
     const doFit = (): void => {
       if (disposed) return
       // An inactive dockview tab keeps its element in the DOM but at 0x0, and
       // fit() throws for a zero-size element — skip rather than spam errors.
       if (container.clientWidth === 0 || container.clientHeight === 0) return
+      if (!rendererReady()) return
       const w = container.clientWidth
       const h = container.clientHeight
       try {
@@ -96,19 +113,49 @@ export function useTerminal(
     }
 
     /**
-     * Fit on the next frame, and keep fitting until the terminal matches the box
-     * it ended up with.
+     * Keep the terminal fitted to its container.
      *
-     * A plain "schedule once" is not enough: dockview resizes a pane in steps
-     * (100x100 placeholder, then the real size), and `requestAnimationFrame`
-     * coalesces — so a fit computed against an intermediate box would be the last
-     * one that ever ran, leaving the terminal at xterm's 80x24 default. Looping
-     * until the measured box is stable makes that self-correcting.
+     * Event-driven fitting is not sufficient here. `ResizeObserver` only fires on
+     * a *change*, `requestAnimationFrame` coalesces, and the pane settles over
+     * several frames as dockview and the flex layout resolve — so the one fit that
+     * matters can be computed against an intermediate box and never repeated,
+     * leaving the pane 791px tall with the terminal still at xterm's 80x24
+     * default.
+     *
+     * A short bounded watchdog therefore drives the fit directly: it compares the
+     * height the rows need against the height available and refits while they
+     * disagree, then stops. It costs a comparison per tick and is independent of
+     * which layout event happens to arrive.
      */
+    const fitToBox = (): void => {
+      if (disposed) return
+      const h = container.clientHeight
+      const w = container.clientWidth
+      if (h <= 0 || w <= 0) return
+
+      doFit()
+
+      const screen = container.querySelector('.xterm-screen') as HTMLElement | null
+      const cell = screen && term.rows > 0 ? screen.getBoundingClientRect().height / term.rows : 0
+      if (cell > 0 && Math.abs(term.rows * cell - h) >= cell) scheduleFit()
+    }
+
     const scheduleFit = (): void => {
       if (rafId) cancelAnimationFrame(rafId)
-      rafId = requestAnimationFrame(doFit)
+      rafId = requestAnimationFrame(fitToBox)
     }
+
+    const watchdog = window.setInterval(() => {
+      if (disposed) return
+      const h = container.clientHeight
+      const screen = container.querySelector('.xterm-screen') as HTMLElement | null
+      const cell = screen && term.rows > 0 ? screen.getBoundingClientRect().height / term.rows : 0
+      // The renderer may not have measured its cell yet, in which case the fit did
+      // nothing and has to be retried; otherwise compare rows against the box.
+      const wrong = h > 0 && (!rendererReady() || cell === 0 || Math.abs(term.rows * cell - h) >= cell)
+      if (wrong) scheduleFit()
+    }, 120)
+    const watchdogStop = window.setTimeout(() => window.clearInterval(watchdog), 6000)
 
     const paste = (text: string): void => {
       // term.paste() respects bracketed-paste mode, which is what a shell
@@ -245,6 +292,8 @@ export function useTerminal(
       disposed = true
       if (rafId) cancelAnimationFrame(rafId)
       window.clearTimeout(settleTimer)
+      window.clearInterval(watchdog)
+      window.clearTimeout(watchdogStop)
       handleRef.current = null
       unregisterTerminal(sessionId)
       unregisterStamps(sessionId)

@@ -593,6 +593,23 @@ kbd {
   overflow: hidden;
 }
 
+/*
+ * Make dockview's panes fill their grid cell.
+ *
+ * dockview sets `width: 100%` on `.dv-view` itself but no height, relying on
+ * inline sizing for the rest. When that inline height is missing — which happens
+ * while a pane is still settling — the view collapses to its content: the grid is
+ * 826px tall while the view, and therefore every pane inside it, is pinned to the
+ * terminal's own content height (a 65px box, with the terminal stuck at xterm's
+ * default 80x24). Stating the height here removes the dependency on inline styles.
+ */
+.dv-view,
+.dv-view-container,
+.dv-groupview,
+.dv-content-container {
+  height: 100%;
+}
+
 .td-terminal-host {
   flex: 1 1 auto;
   min-height: 0;

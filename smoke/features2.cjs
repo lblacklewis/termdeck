@@ -98,7 +98,19 @@ async function main() {
       const sessionId = window.__tdDockApi.panels[0].id
       const marker = 'FEAT2_' + Date.now()
       await api.writeSession(sessionId, 'echo ' + marker + '\\r\\n')
-      await wait(2500)
+
+      // Wait for real output rather than a fixed delay: the timestamps below only
+      // exist for lines the terminal has actually received.
+      await waitFor(() => {
+        const e = window.__tdTerminals ? window.__tdTerminals[sessionId] : null
+        if (!e || !e.term) return false
+        const buf = e.term.buffer.active
+        for (let i = 0; i < buf.length; i++) {
+          const l = buf.getLine(i)
+          if (l && l.translateToString(true).includes(marker)) return true
+        }
+        return false
+      })
 
       // ---- timestamps ------------------------------------------------------
       const setStamp = async (on) => {
@@ -123,13 +135,34 @@ async function main() {
       push('enabling the setting shows the gutter', gutter,
         'showTimestamps=' + (await api.loadSettings()).terminal.showTimestamps)
       if (gutter) {
+        // The gutter's vertical offset is applied on the terminal's first render,
+        // so wait for a stamped line before measuring alignment. Asserting
+        // immediately raced that and reported an unaligned gutter.
+        const stampedRe = new RegExp('\\\\[\\\\d{2}:\\\\d{2}')
+        const stamped = () =>
+          [...gutter.querySelectorAll('.td-terminal-stamp')].filter((c) => stampedRe.test(c.textContent || ''))
+        for (let i = 0; i < 40 && stamped().length < 2; i++) {
+          await new Promise((r) => setTimeout(r, 250))
+        }
+
         const rows = [...gutter.querySelectorAll('.td-terminal-stamp')]
         push('the gutter has one cell per terminal row', rows.length > 10,
           'cells=' + rows.length + ' terminal rows=' + (window.__tdTerminals[sessionId]?.term?.rows ?? '?'))
 
-        const labelled = rows.filter((r) => new RegExp('\\\\[\\\\d{2}:\\\\d{2}').test(r.textContent || ''))
+        const labelled = stamped()
         push('written lines carry a bracketed HH:MM timestamp', labelled.length >= 2,
-          'labelled=' + labelled.length + ' first=' + JSON.stringify(rows[0]?.textContent))
+          'labelled=' + labelled.length + ' first=' + JSON.stringify(rows[0]?.textContent) +
+            ' | buffer=' + (() => {
+              const e = window.__tdTerminals ? window.__tdTerminals[sessionId] : null
+              if (!e || !e.term) return 'no terminal'
+              const buf = e.term.buffer.active
+              let nonEmpty = 0
+              for (let i = 0; i < buf.length; i++) {
+                const l = buf.getLine(i)
+                if (l && l.translateToString(true).length > 0) nonEmpty++
+              }
+              return 'nonEmptyLines=' + nonEmpty + ' bufLen=' + buf.length
+            })())
 
         // Alignment matters more than presence: compare each stamp cell's top
         // with the matching xterm row's top.

@@ -330,6 +330,9 @@ export function App(): JSX.Element {
 
     if (window.localStorage.getItem('tdDebug') === '1') {
       ;(window as unknown as Record<string, unknown>)['__tdDockApi'] = dock.api
+      // The component itself: `api.layout` is not the same function as
+      // `dock.layout`, and probes need the latter.
+      ;(window as unknown as Record<string, unknown>)['__tdDock'] = dock
     }
 
     const removed = dock.api.onDidRemovePanel((panel) => {
@@ -429,6 +432,20 @@ export function App(): JSX.Element {
     dockSyncRef.current = syncLayout
     const dockObserver = new ResizeObserver(syncLayout)
     dockObserver.observe(host)
+
+    /*
+     * Drive the re-layout for a short window after mount.
+     *
+     * Verified in isolation and in the app: a DockviewComponent constructed while
+     * its container is a 100x100 placeholder keeps its grid pinned at 100x100 even
+     * after the container grows, and `layout(w, h, true)` is what releases it.
+     * A ResizeObserver alone was not enough — on some runs the container reaches
+     * its real size without a further resize event reaching the observer, so
+     * nothing asks for the re-layout and every pane stays in a 100px box. Polling
+     * briefly is bounded, cheap, and independent of which event arrives.
+     */
+    const layoutWatchdog = window.setInterval(syncLayout, 100)
+    const layoutWatchdogStop = window.setTimeout(() => window.clearInterval(layoutWatchdog), 5000)
     if (window.localStorage.getItem('tdDebug') === '1') {
       ;(window as unknown as Record<string, unknown>)['__tdDockLayout'] = syncLayout
     }
@@ -436,6 +453,8 @@ export function App(): JSX.Element {
     return () => {
       cancelled = true
       window.clearTimeout(saveTimer)
+      window.clearInterval(layoutWatchdog)
+      window.clearTimeout(layoutWatchdogStop)
       dockObserver.disconnect()
       // Flush on teardown: the debounce window is wider than the gap between the
       // last change and app quit, so a pending save would otherwise be lost.
