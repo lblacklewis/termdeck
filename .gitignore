@@ -15,6 +15,8 @@ release/
 .DS_Store
 Thumbs.db
 
-# Scratch commit-message files
+# Scratch commit-message files (any name used to pass -F)
 commit-msg.txt
 commitmsg.txt
+commit-message.txt
+
