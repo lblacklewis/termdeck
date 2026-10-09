@@ -382,7 +382,7 @@ npm run smoke:snippet   # snippets send verbatim; a line break is what runs them
 npm run smoke:layout    # layout persists across a real restart
 npm run smoke:repeat    # 6 alternating pane-geometry passes, incl. a scale change
 npm run smoke:contrast  # WCAG contrast audit across every theme and page
-npm run verify          # all of the above
+npm run smoke:screen    # what display geometry and scaling the app is running undernpm run verify          # all of the above
 ```
 
 A note on the UI probes: several of them run the window with `show: true`. That is
