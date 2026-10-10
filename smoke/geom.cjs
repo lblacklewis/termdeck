@@ -46,15 +46,12 @@ async function main() {
   await win.reload()
   await sleep(2600)
 
-  // Open a pane first: there is nothing to measure without one. Both the full
-  // sidebar and the collapsed strip offer this, so the probe does not depend on
-  // which state the layout was left in.
+  // Open a pane first: there is nothing to measure without one. The layout was
+  // cleared above, so the rail is expanded and its drawer carries this button.
   await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    const full = [...document.querySelectorAll('.td-sidebar .td-btn')]
+    const target = [...document.querySelectorAll('.td-sidebar .td-btn')]
       .find((b) => /Local shell/i.test(b.textContent || ''))
-    const collapsed = document.querySelector('[data-testid="collapsed-local"]')
-    const target = full || collapsed
     if (target) target.click()
     await wait(1500)
     return !!target

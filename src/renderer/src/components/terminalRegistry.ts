@@ -69,24 +69,19 @@ export function applyCursorBlink(container: HTMLElement, blink: boolean, periodM
 
 // ---- per-line timestamps -------------------------------------------------
 
-const SECOND = 1000
-const MINUTE = 60 * SECOND
-const HOUR = 60 * MINUTE
-
 /**
- * `[HH:MM:SS]`, or `[HH:MM]` once the line is more than an hour old.
+ * `[HH:MM:SS]`, always the same width.
  *
  * Bracketed and fixed-width to match the convention the reference client
  * (WindTerm) uses, so the column reads as a gutter rather than as part of the
- * command output.
+ * command output. Lines older than an hour used to drop the seconds, which made
+ * the column change width while scrolling — the gutter now owns that saving
+ * instead by being sized for the full form and letting the faint ink recede.
  */
-function formatStamp(at: number, now: number): string {
+function formatStamp(at: number): string {
   const d = new Date(at)
   const pad = (n: number): string => String(n).padStart(2, '0')
-  const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  // Older lines lose the seconds, so the column stays narrow while scrolling
-  // back and gains detail for anything recent.
-  return now - at > HOUR ? `[${clock.slice(0, 5)}]` : `[${clock}]`
+  return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}]`
 }
 
 /**
@@ -134,7 +129,7 @@ export class LineTimestamps {
   /** Timestamp for a buffer line, or null when the line was never written. */
   at(line: number): string | null {
     const t = this.times[line]
-    return t === null || t === undefined ? null : formatStamp(t, Date.now())
+    return t === null || t === undefined ? null : formatStamp(t)
   }
 
   /** Total buffer lines, so a gutter can match the terminal's row count. */

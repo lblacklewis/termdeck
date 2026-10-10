@@ -588,9 +588,29 @@ kbd {
   background: var(--td-bg);
 }
 
-.td-terminal-stamp {
+/*
+ * One stamp, and the hidden cell used to measure a full one.
+ *
+ * They share a rule rather than a class: a probe that counts `.td-terminal-stamp`
+ * cells should not have to know about the measurer, and giving it the same class
+ * made it look like a rendered row (it is, after all, a valid-looking timestamp).
+ */
+.td-terminal-stamp,
+.td-terminal-stamp-measure {
   white-space: pre;
   overflow: hidden;
+}
+
+/*
+ * The measuring stamp.
+ *
+ * Laid out (so it reports a real width) but clipped to an empty box, which keeps
+ * it out of the gutter's own width calculation and out of any screenshot.
+ */
+.td-terminal-stamp-measure {
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /*
@@ -1472,6 +1492,23 @@ kbd {
   cursor: not-allowed;
 }
 
+/*
+ * Drag feedback.
+ *
+ * The chip being dragged dims, and whatever it would land on takes the accent as
+ * an outline: reordering a row of chips needs to show the gap it will drop into,
+ * not just that a drag is happening.
+ */
+.td-snippet.is-dragging {
+  opacity: 0.4;
+}
+
+.td-snippet.is-drop,
+.td-snippet-group.is-drop {
+  border-color: var(--td-accent);
+  box-shadow: inset 2px 0 0 var(--td-accent);
+}
+
 .td-snippet-empty {
   color: var(--td-text-faint);
   font-size: 12px;
@@ -2238,9 +2275,17 @@ body {
 
 /* ---- sidebar ----------------------------------------------------------- */
 
+/*
+ * Split from the icon rail by a shadow rather than a border.
+ *
+ * Both halves share one background, so a hairline between them read as two
+ * separate panels; a soft inner shadow reads as the drawer sitting on top of the
+ * rail, which is what it is.
+ */
 .td-sidebar {
   padding: 14px 11px 10px;
   gap: 9px;
+  box-shadow: inset 10px 0 14px -12px rgba(0, 0, 0, 0.55);
 }
 
 .td-brand {
@@ -2536,13 +2581,34 @@ body {
    Window layout is: rail | list column | main area.
    ====================================================================== */
 
+/*
+ * The rail and its list are one column.
+ *
+ * They share a background and the border sits on the right of whichever is
+ * showing, so the pair reads as a single sidebar with an icon strip on its left
+ * rather than as two unrelated columns with a seam between them.
+ */
 .td-rail {
-  flex: 0 0 68px;
+  flex: 0 0 auto;
+  width: 76px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   padding: 10px 6px;
   background: var(--td-bg-raised);
+  /* The border belongs to the drawer beside it, so that collapsing the rail
+     leaves one edge rather than an orphaned hairline. */
+  border-right: none;
+  /* The width animates so shrinking reads as the column narrowing rather than
+     as one column disappearing and another appearing. */
+  transition: width 160ms ease;
+}
+
+.td-rail.is-collapsed {
+  width: 54px;
+  padding: 10px 4px;
+  /* The rail is the last column standing when the drawer is hidden, so the edge
+     moves here. */
   border-right: 1px solid var(--td-border);
 }
 
@@ -2550,8 +2616,49 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   height: 34px;
   margin-bottom: 4px;
+  overflow: hidden;
+}
+
+.td-rail-brand-name,
+.td-rail-label {
+  font-size: 9.5px;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+}
+
+.td-rail-brand-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text);
+}
+
+/* Hidden in icon-only mode; the rail keeps its glyphs and the drawer carries no
+   separate collapse control of its own. */
+.td-rail.is-collapsed .td-rail-label,
+.td-rail.is-collapsed .td-rail-brand-name {
+  display: none;
+}
+
+.td-rail.is-collapsed .td-rail-brand {
+  justify-content: center;
+}
+
+.td-rail-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden auto;
+}
+
+.td-rail-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--td-border);
 }
 
 .td-rail-group {
@@ -2562,6 +2669,8 @@ body {
 
 .td-rail-bottom {
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
 }
 
@@ -2597,10 +2706,61 @@ body {
   line-height: 1;
 }
 
-.td-rail-label {
-  font-size: 9.5px;
-  letter-spacing: 0.1px;
-  white-space: nowrap;
+/*
+ * The shrink control.
+ *
+ * A track-and-knob switch rather than a chevron: it shows the two states at a
+ * glance, and its direction matches the column it narrows.
+ */
+.td-rail-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 2px 6px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--td-radius);
+  color: var(--td-text-dim);
+  font: inherit;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.td-rail-toggle:hover {
+  background: var(--td-surface);
+  color: var(--td-text);
+}
+
+.td-rail-toggle-track {
+  position: relative;
+  width: 26px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--td-surface);
+  border: 1px solid var(--td-border);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+.td-rail-toggle-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--td-text-dim);
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.td-rail-toggle[data-collapsed='true'] .td-rail-toggle-track {
+  background: color-mix(in srgb, var(--td-accent) 30%, transparent);
+  border-color: var(--td-accent);
+}
+
+.td-rail-toggle[data-collapsed='true'] .td-rail-toggle-knob {
+  transform: translateX(12px);
+  background: var(--td-accent);
 }
 
 .td-rail-badge {
@@ -3371,10 +3531,11 @@ html[data-theme-scheme='light'] .td-field textarea {
   border-radius: var(--td-radius-full);
 }
 
-/* The rail is chrome, so it gets a slightly inset look than the content. */
-.td-rail {
-  border-right: 1px solid var(--td-border);
-}
+/*
+ * No border on the rail: its drawer carries the edge, and a hairline between two
+ * halves of the same background made them read as separate panels. Collapsed, the
+ * rail is the last column standing and `.td-rail.is-collapsed` supplies the edge.
+ */
 
 /* Inputs are recessed rather than outlined: a soft inner shadow reads as depth. */
 .td-field input,
@@ -3453,14 +3614,34 @@ html[data-theme-scheme='light'] .td-select {
  * Only the ink colour differs, which is what makes it recede.
  */
 .td-terminal-stamps {
-  width: 4.4em;
+  /*
+   * A fallback only. The component measures a real rendered stamp and sets an
+   * inline width, because the gutter's font is smaller than the terminal's and an
+   * em estimate came out narrower than `[HH:MM:SS]` — which clipped the closing
+   * bracket on every line. `overflow: hidden` turned that into a silently
+   * truncated timestamp rather than an obvious layout error.
+   */
+  width: 6.6em;
   /* The top offset is measured from the rendered xterm box, so row 1 of the
      gutter lines up with row 1 of the terminal without hard-coding a value. */
-  padding: var(--td-stamp-top, 0px) 6px 0 8px;
+  padding: var(--td-stamp-top, 0px) 6px 0 4px;
   border-right: none;
   background: transparent;
   color: var(--td-text-faint);
   opacity: 0.72;
+}
+
+/*
+ * The measuring stamp.
+ *
+ * Laid out (so it reports a real width) but clipped to an empty box, which keeps
+ * it out of the gutter's own width calculation and out of any screenshot.
+ */
+.td-terminal-stamp-measure {
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  pointer-events: none;
 }
 
 /* A hairline separator appears only on hover, when it is useful for tracking

@@ -94,12 +94,23 @@ export function App(): JSX.Element {
    * an empty terminal. The layout sync is re-asserted once the zoom has landed.
    */
   const scaleAppliedRef = useRef(false)
+  /**
+   * Re-arm the docking geometry watchdog.
+   *
+   * Set by the dockview bootstrap. A zoom change is the one thing that can move
+   * the container's CSS size without a resize event reaching dockview, so the
+   * watchdog has to be restarted after every one of them.
+   */
+  const rearmLayoutRef = useRef<() => void>(() => {})
   const applyUiScale = useCallback((scale: number): void => {
     const sync = (): void => {
       // Two frames: one for the zoom to be applied, one for the viewport to
       // settle at the new size before dockview is asked to re-measure.
       window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => dockSyncRef.current?.())
+        window.requestAnimationFrame(() => {
+          rearmLayoutRef.current()
+          dockSyncRef.current?.()
+        })
       })
     }
     void api
@@ -134,9 +145,15 @@ export function App(): JSX.Element {
   const [tagFilter, setTagFilter] = useState<string[]>([])
 
   const [appMeta, setAppMeta] = useState<Awaited<ReturnType<typeof api.appInfo>> | null>(null)
-  const [sidebarVisible, setSidebarVisible] = useState(true)
-  /** Collapsed to a slim strip rather than hidden entirely. */
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  /**
+   * The rail's list drawer is hidden and only icons remain.
+   *
+   * The rail and its list are one column, so this single flag covers what used to
+   * be "sidebar visible" and "sidebar collapsed" separately.
+   */
+  const [railCollapsed, setRailCollapsed] = useState(false)
+  /** True once the stored layout has been applied and may be written back. */
+  const [layoutReady, setLayoutReady] = useState(false)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -214,6 +231,9 @@ export function App(): JSX.Element {
   // the current tree through a ref rather than a captured value.
   const treeRef = useRef<Tree>(EMPTY_TREE)
   treeRef.current = tree
+  /** Latest settings, so callbacks created once can read the current list. */
+  const settingsRef = useRef(settings)
+  settingsRef.current = settings
 
   /**
    * Layout is read once, before the dockview bootstrap effect runs, and read
@@ -256,15 +276,20 @@ export function App(): JSX.Element {
     void refreshTree()
     void refreshCredentials()
 
-    // Restore the saved arrangement: which rail section, and whether the side
-    // bar and snippet bar were showing. The docking layout itself is applied by
-    // the dockview bootstrap effect, which reads it from the same ref.
+    // Restore the saved arrangement: which rail section, and whether the rail was
+    // shrunk and the snippet bar was showing. The docking layout itself is applied
+    // by the dockview bootstrap effect, which reads it from the same ref.
+    //
+    // Until this lands, the rail is *disabled*. The restore is asynchronous, so a
+    // click that arrives before it is silently overwritten a moment later by the
+    // stored value — the first toggle after launch would just not take, which is
+    // exactly the kind of bug that reads as "the button is broken sometimes".
     void api.loadLayout().then((layout) => {
       setPage(layout.page)
-      setSidebarVisible(layout.sidebarVisible)
-      setSidebarCollapsed(layout.sidebarCollapsed)
+      setRailCollapsed(layout.railCollapsed)
       setSnippetBarVisible(layout.snippetBarVisible)
       hydratedRef.current = true
+      setLayoutReady(true)
     })
 
     // Adopt settings saved from anywhere (another window, or the settings
@@ -474,30 +499,49 @@ export function App(): JSX.Element {
      */
     let settleFrame = 0
 
+    const gridSize = (): { w: number; h: number } | null => {
+      const grid = document.querySelector('.dv-grid-view') as HTMLElement | null
+      return grid ? { w: grid.clientWidth, h: grid.clientHeight } : null
+    }
+
+    const applyLayout = (): void => {
+      const width = host.clientWidth
+      const height = host.clientHeight
+      if (width === 0 || height === 0) return
+      // `force` matters: without it dockview treats the size as unchanged and
+      // leaves its internal grid at the placeholder it measured on mount.
+      dock.layout(width, height, true)
+
+      if (window.localStorage.getItem('tdDebug') === '1') {
+        const trail = ((window as unknown as Record<string, unknown>)['__tdDockTrail'] ??=
+          []) as Array<Record<string, unknown>>
+        const grid = document.querySelector('.dv-grid-view')
+        const group = document.querySelector('.dv-groupview')
+        trail.push({
+          at: Math.round(performance.now()),
+          dpr: window.devicePixelRatio,
+          asked: `${width}x${height}`,
+          grid: grid ? `${grid.clientWidth}x${grid.clientHeight}` : null,
+          group: group ? `${group.clientWidth}x${group.clientHeight}` : null
+        })
+        if (trail.length > 60) trail.shift()
+      }
+    }
+
+    /**
+     * Apply on the next frame, coalescing a burst of resize events.
+     *
+     * `requestAnimationFrame` is throttled — or not delivered at all — when the
+     * window is not being painted, which is exactly when a pane can be left
+     * collapsed. The watchdog below therefore calls `applyLayout` directly rather
+     * than through here; this path is for the observer, where the coalescing is
+     * the point.
+     */
     const syncLayout = (): void => {
       if (settleFrame) window.cancelAnimationFrame(settleFrame)
       settleFrame = window.requestAnimationFrame(() => {
         settleFrame = 0
-        const width = host.clientWidth
-        const height = host.clientHeight
-        if (width === 0 || height === 0) return
-        // `force` matters: without it dockview treats the size as unchanged and
-        // leaves its internal grid at the placeholder it measured on mount.
-        dock.layout(width, height, true)
-        if (window.localStorage.getItem('tdDebug') === '1') {
-          const trail = ((window as unknown as Record<string, unknown>)['__tdDockTrail'] ??=
-            []) as Array<Record<string, unknown>>
-          const grid = document.querySelector('.dv-grid-view')
-          const group = document.querySelector('.dv-groupview')
-          trail.push({
-            at: Math.round(performance.now()),
-            dpr: window.devicePixelRatio,
-            asked: `${width}x${height}`,
-            grid: grid ? `${grid.clientWidth}x${grid.clientHeight}` : null,
-            group: group ? `${group.clientWidth}x${group.clientHeight}` : null
-          })
-          if (trail.length > 60) trail.shift()
-        }
+        applyLayout()
       })
     }
     // Reachable from addSession: a pane added before the dock has been measured
@@ -507,18 +551,40 @@ export function App(): JSX.Element {
     dockObserver.observe(host)
 
     /*
-     * Drive the re-layout for a short window after mount.
+     * Drive the re-layout until the grid actually agrees with its container.
      *
      * Verified in isolation and in the app: a DockviewComponent constructed while
      * its container is a 100x100 placeholder keeps its grid pinned at 100x100 even
      * after the container grows, and `layout(w, h, true)` is what releases it.
-     * A ResizeObserver alone was not enough — on some runs the container reaches
-     * its real size without a further resize event reaching the observer, so
-     * nothing asks for the re-layout and every pane stays in a 100px box. Polling
-     * briefly is bounded, cheap, and independent of which event arrives.
+     *
+     * Neither a ResizeObserver nor a fixed polling window is enough on its own.
+     * The observer is not delivered on some runs at all, and a fixed window
+     * expires while the arrangement is still settling — which is what happens when
+     * something else changed the zoom first: the grid then keeps an *inline* size
+     * the container never had, and because the container never changes again
+     * nothing notices. A pane in that grid is 65px tall with a blank terminal.
+     *
+     * Calling `dock.layout` **directly** here rather than on the next frame is
+     * load-bearing. `requestAnimationFrame` is throttled, or not delivered at all,
+     * when the window is not being painted — so a deferred layout call can simply
+     * never run, leaving the pane collapsed for as long as the window exists. That
+     * is what made the same failure appear and disappear between runs.
      */
-    const layoutWatchdog = window.setInterval(syncLayout, 100)
-    const layoutWatchdogStop = window.setTimeout(() => window.clearInterval(layoutWatchdog), 5000)
+    const layoutWatchdog = window.setInterval(() => {
+      /*
+       * Guarded: an exception from `dock.layout` would escape the interval
+       * callback, and a throwing interval is silently terminated — the watchdog
+       * would stop for good and every pane would stay collapsed with no error
+       * anywhere. Retrying on the next tick is the useful behaviour.
+       */
+      try {
+        applyLayout()
+      } catch {
+        /* the next tick tries again */
+      }
+    }, 100)
+    rearmLayoutRef.current = syncLayout
+    syncLayout()
     if (window.localStorage.getItem('tdDebug') === '1') {
       ;(window as unknown as Record<string, unknown>)['__tdDockLayout'] = syncLayout
     }
@@ -528,7 +594,6 @@ export function App(): JSX.Element {
       window.clearTimeout(saveTimer)
       if (settleFrame) window.cancelAnimationFrame(settleFrame)
       window.clearInterval(layoutWatchdog)
-      window.clearTimeout(layoutWatchdogStop)
       dockObserver.disconnect()
       // Flush on teardown: the debounce window is wider than the gap between the
       // last change and app quit, so a pending save would otherwise be lost.
@@ -546,10 +611,12 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     // Skip until the saved layout has been applied, otherwise the first render
-    // would overwrite it with defaults.
-    if (!hydratedRef.current) return
-    void api.saveLayout({ page, sidebarVisible, sidebarCollapsed, snippetBarVisible })
-  }, [page, sidebarVisible, sidebarCollapsed, snippetBarVisible])
+    // would overwrite it with defaults. Gated on the rendered flag as well as the
+    // ref: the ref is set synchronously inside the load callback while the state
+    // lands later, and a write in between would store the pre-restore values.
+    if (!hydratedRef.current || !layoutReady) return
+    void api.saveLayout({ page, railCollapsed, snippetBarVisible })
+  }, [page, railCollapsed, snippetBarVisible, layoutReady])
 
   // ---- session creation ---------------------------------------------------
 
@@ -878,6 +945,22 @@ export function App(): JSX.Element {
     []
   )
 
+  /**
+   * Move a snippet to another group without opening the editor.
+   *
+   * `saveSnippet` is merge-per-field, so passing the two required fields keeps
+   * the description and creation time while changing only the group.
+   */
+  const setSnippetGroup = useCallback(async (id: string, group: string) => {
+    const snippet = settingsRef.current.snippets.find((s) => s.id === id)
+    if (!snippet) return
+    try {
+      setSettings(await api.saveSnippet({ id, label: snippet.label, command: snippet.command, group }))
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
   const deleteSnippet = useCallback(async (id: string) => {
     try {
       setSettings(await api.deleteSnippet(id))
@@ -1053,6 +1136,64 @@ export function App(): JSX.Element {
     [closeSession]
   )
 
+  /**
+   * Re-establish a pane's session, in place.
+   *
+   * This is the recovery path for a terminal that is still on screen but no
+   * longer usable — the common case being an idle SSH connection the server has
+   * timed out. A saved session reconnect replaces the placeholder params exactly
+   * as the pane's own Reconnect button does; a pane with no saved session behind
+   * it (a quick connect, or a local shell) gets a fresh session and the pane is
+   * repointed at it, because there is nothing to reconnect *to*.
+   */
+  const reloadPanel = useCallback(
+    (panelId: string) => {
+      const dockApi = dockApiRef.current
+      const panel = dockApi?.getPanel(panelId)
+      if (!dockApi || !panel) return
+
+      const params = panel.api.getParameters<TerminalPanelMeta>() ?? {}
+      const savedSessionId = params.savedSessionId
+      const title = panel.title || params.title || 'Session'
+
+      const saved = savedSessionId
+        ? treeRef.current.sessions.find((s) => s.id === savedSessionId)
+        : undefined
+      if (saved) {
+        setToast(`Reconnecting “${title}”…`)
+        void connectSavedRef.current(saved)
+        return
+      }
+
+      setToast(`Reloading “${title}”…`)
+      void api.createLocalSession({ title }).then((result) => {
+        if (!result.ok) {
+          setAlert({ message: result.error.message })
+          return
+        }
+        const next = result.session
+        // Drop the old PTY, keep the pane: removing the panel would lose its
+        // position in the arrangement, which is exactly what a reload must not do.
+        const previous = params.session?.id
+        if (previous) {
+          api.closeSession(previous)
+          removeSessionState(previous)
+        }
+        setSessions((prev) => [...prev.filter((s) => s.id !== previous), next])
+        panel.api.updateParameters({
+          session: next,
+          disconnected: false,
+          savedSessionId: undefined,
+          title: next.title
+        })
+        refreshPanelParams(panel.id)
+        panel.api.setTitle(next.title)
+        panel.api.setActive()
+      })
+    },
+    [removeSessionState]
+  )
+
   const tabMenuItems = useMemo((): MenuItem[] => {
     if (!tabMenu) return []
     const dockApi = dockApiRef.current
@@ -1063,7 +1204,12 @@ export function App(): JSX.Element {
     const closable = panels.filter((p) => p.id !== 'welcome')
 
     return [
-      { id: 'copyTitle', label: 'Copy tab name' },
+      {
+        id: 'reload',
+        label: 'Reload / reconnect',
+        hint: 'fresh session',
+      },
+      { id: 'copyTitle', label: 'Copy tab name', separatorBefore: true },
       { id: 'copyText', label: 'Copy all output' },
       { id: 'saveText', label: 'Save output to file…' },
       {
@@ -1096,6 +1242,10 @@ export function App(): JSX.Element {
       const panels = group ? group.panels : []
       const index = panels.findIndex((p) => p.id === tabMenu.panelId)
 
+      if (actionId === 'reload') {
+        reloadPanel(tabMenu.panelId)
+        return
+      }
       if (actionId === 'copyTitle') {
         void api.copyToClipboard(tabMenu.title)
         setToast(`Copied “${tabMenu.title}”`)
@@ -1131,7 +1281,7 @@ export function App(): JSX.Element {
         closePanels(panels.map((p) => p.id))
       }
     },
-    [tabMenu, closePanels, copyPanelOutput, savePanelOutput, settings]
+    [tabMenu, closePanels, copyPanelOutput, savePanelOutput, settings, reloadPanel]
   )
 
   // ---- shortcuts ----------------------------------------------------------
@@ -1154,7 +1304,8 @@ export function App(): JSX.Element {
       const active = dockApiRef.current?.activePanel
       if (active && active.id !== 'welcome') closeSession(active.id)
     },
-    openSettings: () => setSettingsOpen(true),    toggleSidebar: () => setSidebarVisible((v) => !v),
+    openSettings: () => setSettingsOpen(true),
+    toggleSidebar: () => setRailCollapsed((v) => !v),
     openConnections: () => setConnectionsOpen(true),
     toggleSnippets: () => setSnippetBarVisible((v) => !v),
     toggleBroadcast: () => setBroadcasting(toggleBroadcasting()),
@@ -1185,6 +1336,9 @@ export function App(): JSX.Element {
     <div className="td-root">
       <NavRail
         active={page}
+        collapsed={railCollapsed}
+        ready={layoutReady}
+        onToggleCollapsed={() => setRailCollapsed((v) => !v)}
         onSelect={(next) => {
           // Settings is drawer-only: it has no page of its own, so selecting it
           // opens the drawer over whatever page is showing.
@@ -1193,9 +1347,17 @@ export function App(): JSX.Element {
             return
           }
           setSettingsOpen(false)
-          setPage(next)
-          // The terminal page is the only one that wants the session list.
-          if (next === 'terminal') setSidebarVisible(true)
+          /*
+           * The rail and its list are one column, so the same icon shows and hides
+           * the list: clicking the section you are already on toggles the drawer,
+           * and icons stay reachable either way. Picking a different section always
+           * brings the drawer back, because that is what was asked for.
+           */
+          if (next === page) setRailCollapsed((v) => !v)
+          else {
+            setPage(next)
+            setRailCollapsed(false)
+          }
         }}
         badges={{ terminal: sessions.length }}
         appInfo={appMeta}
@@ -1228,81 +1390,15 @@ export function App(): JSX.Element {
         />
       )}
 
-      {sidebarVisible && sidebarCollapsed && (
-        <aside className="td-sidebar is-collapsed" data-testid="sidebar-collapsed">
-          <button
-            className="td-icon-btn"
-            title="Expand the sidebar"
-            data-testid="sidebar-expand"
-            onClick={() => setSidebarCollapsed(false)}
-          >
-            »
-          </button>
-          <button
-            className="td-icon-btn td-icon-btn-accent"
-            title="New connection"
-            data-testid="collapsed-connect"
-            onClick={() => setDialogOpen(true)}
-          >
-            +
-          </button>
-          <button
-            className="td-icon-btn"
-            title="Open a local shell"
-            data-testid="collapsed-local"
-            disabled={!appMeta?.localShellAvailable}
-            onClick={() =>
-              void api.createLocalSession({}).then((r) => {
-                if (r.ok) addSession(r.session)
-                else setAlert({ message: r.error.message })
-              })
-            }
-          >
-            &gt;_
-          </button>
-          <button
-            className={`td-icon-btn${broadcasting ? ' is-active' : ''}`}
-            title={broadcasting ? `Broadcasting — ${broadcastSummary()}` : 'Broadcast input'}
-            aria-pressed={broadcasting}
-            onClick={() => setBroadcasting(toggleBroadcasting())}
-          >
-            ⇶
-          </button>
-          <span className="td-collapsed-spacer" />
-          <button
-            className="td-icon-btn"
-            title={`Open sessions (${sessions.length})`}
-            onClick={() => setConnectionsOpen(true)}
-          >
-            ⧉
-            {sessions.length > 0 && <span className="td-badge">{sessions.length}</span>}
-          </button>
-          <button
-            className="td-icon-btn"
-            title="Settings"
-            onClick={() => setSettingsOpen(true)}
-          >
-            ⚙
-          </button>
-        </aside>
-      )}
-
-      {sidebarVisible && !sidebarCollapsed && (
+      {/*
+        The rail's list drawer. It is part of the same column as the rail rather
+        than a separate one, and shrinks away entirely when the rail is collapsed
+        so the window reads as "icons, or icons + list".
+      */}
+      {!railCollapsed && (
         <aside className="td-sidebar">
-          <div className="td-brand">
-            <span className="td-brand-mark">▚</span>
-            <span className="td-brand-name">TermDeck</span>
-            <span className="td-spacer" />
-            <button
-              className="td-icon-btn"
-              title="Collapse the sidebar to a slim strip"
-              data-testid="sidebar-collapse"
-              onClick={() => setSidebarCollapsed(true)}
-            >
-              «
-            </button>
-          </div>
-
+          {/* No brand here: the rail carries it, and repeating it made the pair
+              read as two separate panels. */}
           <div className="td-sidebar-actions">
             <button className="td-btn td-btn-primary" onClick={() => setDialogOpen(true)}>
               + Connect
@@ -1452,6 +1548,8 @@ export function App(): JSX.Element {
             onEdit={(snippet) => setSnippetEditor({ snippet, group: snippet.group })}
             onNew={(group) => setSnippetEditor({ snippet: null, group })}
             onDelete={(id) => void deleteSnippet(id)}
+            onSetGroup={(id, group) => void setSnippetGroup(id, group)}
+            onReorder={(ids) => void api.reorderSnippets(ids).then(setSettings)}
             onHide={() => setSnippetBarVisible(false)}
           />
         )}

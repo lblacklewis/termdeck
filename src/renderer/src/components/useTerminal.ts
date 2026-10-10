@@ -157,17 +157,36 @@ export function useTerminal(
       rafId = requestAnimationFrame(fitToBox)
     }
 
+    /*
+     * Keep fitting until the terminal matches its box, then stop.
+     *
+     * This used to stop after six seconds regardless. That is enough while the
+     * pane settles during startup, but a pane added into an arrangement that is
+     * still resolving can take longer than that to reach its final height — and
+     * once the watchdog had stopped, nothing was left to notice: the terminal
+     * stayed at xterm's 80x24 default with an empty screen while the pane around
+     * it was the correct 791px tall. A fix that passes on the runs where the pane
+     * happened to settle quickly is not a fix.
+     *
+     * Success is the exit condition, not elapsed time. It is still bounded by a
+     * tick count so a box that can never be satisfied cannot spin forever.
+     */
+    let ticks = 0
     const watchdog = window.setInterval(() => {
       if (disposed) return
+      ticks++
       const h = container.clientHeight
       const screen = container.querySelector('.xterm-screen') as HTMLElement | null
       const cell = screen && term.rows > 0 ? screen.getBoundingClientRect().height / term.rows : 0
+      const ready = rendererReady() && cell > 0
       // The renderer may not have measured its cell yet, in which case the fit did
       // nothing and has to be retried; otherwise compare rows against the box.
-      const wrong = h > 0 && (!rendererReady() || cell === 0 || Math.abs(term.rows * cell - h) >= cell)
+      const wrong = h > 0 && (!ready || Math.abs(term.rows * cell - h) >= cell)
       if (wrong) scheduleFit()
+      // A terminal with real rows in it has been fitted; anything more is drift.
+      else if (ready && term.rows > 24) window.clearInterval(watchdog)
+      if (ticks > 900) window.clearInterval(watchdog)
     }, 120)
-    const watchdogStop = window.setTimeout(() => window.clearInterval(watchdog), 6000)
 
     const paste = (text: string): void => {
       // term.paste() respects bracketed-paste mode, which is what a shell
@@ -207,7 +226,13 @@ export function useTerminal(
     setContainer(container)
 
     // Per-line timestamps for the optional gutter beside the terminal.
+    //
+    // Synced from `onWriteParsed`, not right after `write()`: xterm parses a
+    // write asynchronously, so a sync taken immediately after sees the buffer as
+    // it was *before* the chunk — every line then stays unstamped forever, and
+    // the gutter renders its full height of blank rows next to real output.
     const stamps = new LineTimestamps(term)
+    const writeParsedSub = term.onWriteParsed(() => stamps.sync())
     applyCursorBlink(container, optionsRef.current.terminal.cursorBlink, optionsRef.current.terminal.cursorBlinkMs)
 
     // Test hook: lets the smoke harness drive a real selection, which is what
@@ -257,7 +282,6 @@ export function useTerminal(
       if (seq <= seenSeq) return
       seenSeq = seq
       term.write(chunk)
-      stamps.sync()
     })
 
     void api
@@ -305,7 +329,6 @@ export function useTerminal(
       if (rafId) cancelAnimationFrame(rafId)
       window.clearTimeout(settleTimer)
       window.clearInterval(watchdog)
-      window.clearTimeout(watchdogStop)
       handleRef.current = null
       unregisterTerminal(sessionId)
       unregisterStamps(sessionId)
@@ -321,6 +344,7 @@ export function useTerminal(
       window.removeEventListener('termdeck:panel-shown', onShown)
       dataSub.dispose()
       selectionSub.dispose()
+      writeParsedSub.dispose()
       offData()
       offError()
       offExit()

@@ -356,6 +356,34 @@ async function main() {
           !!document.querySelector('[data-snippet-label="whoami-check"]'))
       }
 
+      // ---- drag to regroup ------------------------------------------------
+      // Dropping a chip on a group tab is the only way to regroup without
+      // opening the editor, so it is checked through the real drag sequence.
+      await api.saveSnippet({ label: 'drag-me', command: 'uptime', group: '', sendEnter: true })
+      await new Promise((r) => setTimeout(r, 500))
+      // Show every group, otherwise the target tab for the move may be filtered out.
+      document.querySelector('.td-snippet-group[data-group="__all__"]').click()
+      await new Promise((r) => setTimeout(r, 300))
+
+      const chip = document.querySelector('[data-snippet-label="drag-me"]')
+      const targetTab = [...document.querySelectorAll('.td-snippet-group')]
+        .find((b) => b.textContent.startsWith('probe-group'))
+      push('a chip starts in the ungrouped list', !!chip && chip.dataset.group === 'Ungrouped',
+        chip ? 'group=' + chip.dataset.group : 'no chip')
+
+      if (chip && targetTab) {
+        const drag = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }))
+        drag(chip, 'dragstart')
+        await new Promise((r) => setTimeout(r, 100))
+        drag(targetTab, 'dragover')
+        drag(targetTab, 'drop')
+        await new Promise((r) => setTimeout(r, 800))
+        const moved = (await api.loadSettings()).snippets.find((s) => s.label === 'drag-me')
+        push('dropping a chip on a group tab moves it there',
+          !!moved && moved.group === 'probe-group',
+          moved ? 'group=' + JSON.stringify(moved.group) : 'missing')
+      }
+
       return out
     })()`)
   )
@@ -456,12 +484,26 @@ async function main() {
       push('snippet menu opens', !!menu)
       if (!menu) return out
 
-      const actions = [...menu.querySelectorAll('[data-action]')].map((b) => b.getAttribute('data-action'))
-      push('snippet menu has send/edit/duplicate/delete',
-        ['send', 'edit', 'duplicate', 'delete'].every((a) => actions.includes(a)), actions.join(','))
+      const actions = [...menu.querySelectorAll('[data-menu-id]')].map((b) => b.getAttribute('data-menu-id'))
+      push('snippet menu has send/edit/duplicate/ungroup/delete',
+        ['send', 'edit', 'duplicate', 'ungroup', 'delete'].every((a) => actions.includes(a)),
+        actions.join(','))
+      push('the menu is portalled out of the bar so it cannot be clipped',
+        menu.parentElement === document.body, menu.parentElement ? menu.parentElement.tagName : 'detached')
+      // The bar scrolls horizontally, so a menu drawn inside it was cut off at the
+      // bar's edge. Geometry, because a portalled popup's computed visibility read
+      // unreliably in this harness.
+      const mbox = menu.getBoundingClientRect()
+      push('the whole menu is inside the viewport',
+        mbox.top >= 0 && mbox.left >= 0 &&
+          mbox.bottom <= window.innerHeight + 1 && mbox.right <= window.innerWidth + 1,
+        JSON.stringify({
+          box: [Math.round(mbox.left), Math.round(mbox.top), Math.round(mbox.width), Math.round(mbox.height)],
+          viewport: [window.innerWidth, window.innerHeight]
+        }))
 
       // Edit prefills the existing values.
-      menu.querySelector('[data-action="edit"]').click()
+      menu.querySelector('[data-menu-id="edit"]').click()
       await new Promise((r) => setTimeout(r, 500))
       const label = document.querySelector('[aria-label="snippet-label"]')
       const command = document.querySelector('[aria-label="snippet-command"]')
@@ -491,12 +533,43 @@ async function main() {
       if (renamed) {
         renamed.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
         await new Promise((r) => setTimeout(r, 300))
-        document.querySelector('[data-testid="snippet-menu"] [data-action="delete"]').click()
+        document.querySelector('[data-testid="snippet-menu"] [data-menu-id="delete"]').click()
         await new Promise((r) => setTimeout(r, 800))
         const final = await api.loadSettings()
         push('delete removes the snippet',
           !final.snippets.some((s) => s.label === 'whoami-renamed'),
           final.snippets.map((s) => s.label).join(','))
+      }
+
+      // ---- drag to reorder -------------------------------------------------
+      // Dropping a chip on another chip is what moves it within the bar.
+      await api.saveSnippet({ label: 'first', command: 'one', group: 'order', sendEnter: true })
+      await api.saveSnippet({ label: 'second', command: 'two', group: 'order', sendEnter: true })
+      await api.saveSnippet({ label: 'third', command: 'three', group: 'order', sendEnter: true })
+      await new Promise((r) => setTimeout(r, 600))
+      document.querySelector('.td-snippet-group[data-group="__all__"]').click()
+      await new Promise((r) => setTimeout(r, 300))
+
+      const labels = () =>
+        [...document.querySelectorAll('.td-snippet')].map((el) => el.getAttribute('data-snippet-label'))
+      const orderBefore = labels()
+      const third = document.querySelector('[data-snippet-label="third"]')
+      const firstChip = document.querySelector('[data-snippet-label="first"]')
+      if (third && firstChip) {
+        const drag = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }))
+        drag(third, 'dragstart')
+        await new Promise((r) => setTimeout(r, 100))
+        drag(firstChip, 'dragover')
+        drag(firstChip, 'drop')
+        await new Promise((r) => setTimeout(r, 900))
+        const orderAfter = labels()
+        push('dragging a chip onto another reorders the bar',
+          orderAfter.indexOf('third') < orderAfter.indexOf('first'),
+          orderBefore.join('>') + '  ->  ' + orderAfter.join('>'))
+        push('the new order is persisted',
+          JSON.stringify((await api.loadSettings()).snippets.map((s) => s.label)) ===
+            JSON.stringify(orderAfter),
+          (await api.loadSettings()).snippets.map((s) => s.label).join('>'))
       }
 
       return out

@@ -41,7 +41,12 @@ async function main() {
   })
 
   await win.loadFile(path.join(ROOT, 'out', 'renderer', 'index.html'))
+  const consoleErrors = []
+  win.webContents.on('console-message', (_e, level, message) => {
+    if (level >= 2) consoleErrors.push(message)
+  })
   await win.webContents.executeJavaScript(`localStorage.setItem('tdDebug','1'); true`)
+
   await win.reload()
   await sleep(2600)
 
@@ -50,10 +55,34 @@ async function main() {
     const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
       .find((b) => /Local shell/i.test(b.textContent || ''))
     if (btn) btn.click()
-    await wait(3000)
+    /*
+     * Wait for the pane to be *sized*, not for a fixed number of milliseconds.
+     * A fixed sleep made every assertion below depend on how fast the shell
+     * happened to start: on a slow run the terminal was still at xterm's 80x24
+     * default, so the gutter had no rows to stamp and the collapse comparison had
+     * nothing to compare.
+     */
+    const live = () => {
+      const e = window.__tdTerminals ? Object.values(window.__tdTerminals)[0] : null
+      return e && e.term ? e.term : null
+    }
+    for (let i = 0; i < 60; i++) {
+      await wait(250)
+      const t = live()
+      if (t && t.rows > 24 && t.cols > 80) break
+    }
+    // Give the shell something to timestamp: the gutter can only be judged
+    // against real output.
+    const t = live()
+    if (t) t.write('echo stamp-check-one\\r\\necho stamp-check-two\\r\\n')
+    for (let i = 0; i < 40; i++) {
+      await wait(200)
+      const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
+      if (gutter && gutter.textContent && /\\d{2}:\\d{2}:\\d{2}/.test(gutter.textContent)) break
+    }
     return true
   })()`)
-  await sleep(3000)
+  await sleep(1200)
 
   const probe = `
     (async () => {
@@ -70,29 +99,43 @@ async function main() {
         return e && e.term ? e.term : null
       }
 
-      // ---- 1. collapse the sidebar ----------------------------------------
+      // ---- 1. the rail and its drawer are one column ----------------------
       const expandedSidebar = w('.td-sidebar')
+      const expandedRail = w('.td-rail')
       const colsBefore = term() ? term().cols : null
 
-      const collapse = document.querySelector('[data-testid="sidebar-collapse"]')
-      push('the sidebar offers a collapse control', collapse)
-      if (!collapse) return out
-      collapse.click()
+      const toggle = document.querySelector('[data-testid="rail-toggle"]')
+      push('the rail offers a shrink control', toggle)
+      if (!toggle) return out
+      push('the drawer sits beside the rail, sharing its background',
+        expandedSidebar !== null && expandedRail !== null,
+        'rail=' + expandedRail + 'px drawer=' + expandedSidebar + 'px')
+      push('the seam between them is not a border on both sides',
+        getComputedStyle(document.querySelector('.td-rail')).borderRightStyle === 'none',
+        'rail border-right=' + getComputedStyle(document.querySelector('.td-rail')).borderRightStyle)
+
+      toggle.click()
       await wait(2000)
 
-      const strip = document.querySelector('[data-testid="sidebar-collapsed"]')
-      push('collapsing shows the slim strip', strip)
-      push('the strip is narrow', !!strip && w('.td-sidebar') <= 56,
-        'strip=' + w('.td-sidebar') + 'px (was ' + expandedSidebar + 'px)')
+      push('the drawer goes away entirely, leaving icons only',
+        !document.querySelector('.td-sidebar') &&
+          document.querySelector('.td-rail').classList.contains('is-collapsed'),
+        'drawer=' + w('.td-sidebar') + 'px rail=' + w('.td-rail') + 'px')
+      push('the icons stay reachable while collapsed',
+        !!document.querySelector('[data-testid="rail-terminal"]') &&
+          !!document.querySelector('[data-testid="rail-snippets"]'))
 
       const colsAfter = term() ? term().cols : null
-      push('collapsing gives width back to the terminal',
+      push('shrinking gives width back to the terminal',
         colsAfter !== null && colsBefore !== null && colsAfter > colsBefore,
         'cols ' + colsBefore + ' -> ' + colsAfter)
 
-      push('the strip keeps the primary actions one click away',
-        !!document.querySelector('[data-testid="collapsed-connect"]') &&
-          !!document.querySelector('[data-testid="collapsed-local"]'))
+      // Clicking the section you are already on toggles the drawer back.
+      document.querySelector('[data-testid="rail-terminal"]').click()
+      await wait(1200)
+      push('clicking the active icon brings the drawer back',
+        !!document.querySelector('.td-sidebar') &&
+          !document.querySelector('.td-rail').classList.contains('is-collapsed'))
 
       // ---- 2. gutter is blended, not boxed --------------------------------
       const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
@@ -113,6 +156,46 @@ async function main() {
         push('the gutter is dimmed so it recedes',
           Number(cs.opacity) < 1 || cs.color !== getComputedStyle(document.querySelector('.xterm')).color,
           'opacity=' + cs.opacity + ' color=' + cs.color)
+
+        /*
+         * The stamps must actually be there and must not be clipped. They were
+         * both blank (the sync ran before xterm had parsed the write) and cut
+         * short (the column was narrower than a full HH:MM:SS stamp), and neither
+         * showed up as anything but "the gutter exists".
+         *
+         * The measuring cell carries its own class, so a plain stamp query already
+         * returns only rendered rows.
+         */
+        const rows = [...gutter.querySelectorAll('.td-terminal-stamp')]
+        const filled = rows.filter((el) => (el.textContent || '').trim().length > 0)
+        push('the gutter shows a timestamp on written lines', filled.length > 0,
+          filled.length + ' of ' + rows.length + ' rows filled, first=' +
+            JSON.stringify((filled[0] || {}).textContent || null))
+        const filledTexts = filled.map((el) => (el.textContent || '').trim())
+        /*
+         * Character checks rather than a regular expression.
+         *
+         * This code lives inside a template literal that the main process
+         * evaluates before sending it to the renderer, and a backslash escape
+         * there does not survive reliably — a pattern written with escapes
+         * arrived as a plain character class and silently matched nothing, which
+         * looked exactly like the product bug it was meant to catch.
+         */
+        const isStamp = (t) =>
+          t.length === 10 &&
+          t[0] === '[' &&
+          t[9] === ']' &&
+          t[3] === ':' &&
+          t[6] === ':' &&
+          [1, 2, 4, 5, 7, 8].every((i) => t[i] >= '0' && t[i] <= '9')
+        const odd = filledTexts.filter((t) => !isStamp(t))
+        push('every stamp is a full bracketed time',
+          filled.length > 0 && odd.length === 0,
+          'filled=' + filled.length + ' odd=' + odd.length +
+            ' values=' + JSON.stringify(filledTexts.slice(0, 3)))
+        push('the stamps are not clipped by the column',
+          filled.length > 0 && filled.every((el) => el.scrollWidth <= el.clientWidth + 1),
+          filled.length ? filled[0].scrollWidth + 'px of ' + filled[0].clientWidth + 'px' : 'none')
       }
 
       // ---- 3. right-click toggles timestamps ------------------------------
@@ -162,7 +245,11 @@ async function main() {
       }
 
       // ---- the collapsed state survives a reload --------------------------
-      push('the sidebar is still collapsed', !!document.querySelector('[data-testid="sidebar-collapsed"]'))
+      // Collapse once more here: the earlier toggle was undone on purpose, and
+      // this is the state that has to come back.
+      document.querySelector('[data-testid="rail-toggle"]').click()
+      await wait(1200)
+      push('the rail is collapsed again', !document.querySelector('.td-sidebar'))
       return out
     })()
   `
@@ -178,16 +265,20 @@ async function main() {
   await sleep(3000)
   report(
     await win.webContents.executeJavaScript(`(() => {
-      const strip = document.querySelector('[data-testid="sidebar-collapsed"]')
+      const rail = document.querySelector('.td-rail')
+      const collapsed = !!rail && rail.classList.contains('is-collapsed')
       return [{
-        name: 'the collapsed sidebar is restored after a reload',
-        ok: !!strip,
-        detail: strip ? 'slim strip present' : 'sidebar came back expanded'
+        name: 'the collapsed rail is restored after a reload',
+        ok: collapsed && !document.querySelector('.td-sidebar'),
+        detail: collapsed ? 'drawer hidden, icons only' : 'rail came back expanded'
       }]
     })()`)
   )
 
   const failed = all.filter((c) => !c.ok)
+  if (consoleErrors.length > 0) {
+    console.log('\nrenderer errors:\n  ' + consoleErrors.slice(0, 10).join('\n  '))
+  }
   console.log(`\n${all.length - failed.length}/${all.length} checks passed`)
   app.exit(failed.length === 0 ? 0 : 1)
 }

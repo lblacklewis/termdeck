@@ -139,13 +139,35 @@ async function main() {
 
       const ids = [...menu.querySelectorAll('[data-menu-id]')].map((i) => i.getAttribute('data-menu-id'))
       push('the expected actions are offered',
-        ['copyTitle', 'copyText', 'saveText', 'close', 'closeOthers', 'closeRight', 'closeAll']
+        ['reload', 'copyTitle', 'copyText', 'saveText', 'close', 'closeOthers', 'closeRight', 'closeAll']
           .every((id) => ids.includes(id)),
         ids.join(','))
 
       push('close is enabled on a real tab', state('close') === false)
       push('close others is enabled with four tabs', state('closeOthers') === false)
       push('close to the right is enabled on the first tab', state('closeRight') === false)
+
+      // ---- reload ----------------------------------------------------------
+      // An idle SSH connection the server has dropped is the case this exists
+      // for: the pane is still on screen but its session is gone. Reload must
+      // give the pane a live session again without moving it in the arrangement.
+      const panelsBefore = panels()
+      const titlesBefore = tabs().map((t) => (t.textContent || '').trim()).join('|')
+      await rightClick(0)
+      await clickItem('reload')
+      await new Promise((r) => setTimeout(r, 4000))
+      const panel = window.__tdDockApi.panels[0]
+      const params = panel ? panel.api.getParameters() : null
+      push('reload leaves the pane in place',
+        panels() === panelsBefore && tabs().length === panelsBefore,
+        'panels ' + panelsBefore + ' -> ' + panels() + ', tabs=' +
+          tabs().map((t) => (t.textContent || '').trim()).join('|'))
+      push('reload gives the pane a live session',
+        !!(params && params.session && params.session.id),
+        params && params.session ? 'session=' + params.session.id : 'no session on the panel')
+      push('reload keeps the tab title',
+        tabs().map((t) => (t.textContent || '').trim()).join('|') === titlesBefore,
+        titlesBefore + ' -> ' + tabs().map((t) => (t.textContent || '').trim()).join('|'))
 
       // ---- close to the right --------------------------------------------
       await rightClick(1)

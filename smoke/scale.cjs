@@ -11,6 +11,7 @@
  *      route — the Close button, the header X and the backdrop
  */
 const path = require('node:path')
+const fs = require('node:fs')
 const { app, BrowserWindow } = require('electron')
 
 const ROOT = path.join(__dirname, '..')
@@ -46,9 +47,21 @@ async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
   mod.storeAccess().layout.clear()
-  // Start from 100% regardless of what earlier runs left behind: the whole probe
-  // is about the change from the starting value.
-  mod.storeAccess().settings.save({ ...mod.storeAccess().settings.load(), uiScale: 1 })
+
+  /*
+   * Start from a genuinely cold profile.
+   *
+   * The launch scale is applied to the webContents before the page loads and
+   * survives a reload, so a leftover `uiScale` from an earlier run would decide
+   * what this probe starts at. A real launch applies the stored scale once, before
+   * the window exists; setting it after the first load instead makes the renderer
+   * observe a zoom change during its own boot, which is a state no real launch
+   * reaches and which pinned dockview's grid at a size the container never had.
+   */
+  const profile = process.argv.find((a) => a.startsWith('--user-data-dir='))
+  if (profile) {
+    fs.rmSync(profile.slice('--user-data-dir='.length), { recursive: true, force: true })
+  }
 
   const win = new BrowserWindow({
     width: 1500,
@@ -64,9 +77,6 @@ async function main() {
 
   await win.loadFile(path.join(ROOT, 'out', 'renderer', 'index.html'))
   await win.webContents.executeJavaScript(`localStorage.setItem('tdDebug','1'); true`)
-  // Electron keeps the zoom factor across `reload`, so set the launch value the
-  // way `createWindow` does rather than inheriting whatever the last run left.
-  win.webContents.setZoomFactor(1)
   await win.reload()
   await sleep(2800)
 
@@ -232,18 +242,62 @@ async function main() {
       }
     })()`)
 
-  await win.webContents.executeJavaScript(`(async () => {
+  const scaleDbg = await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     const before = Object.keys(window.__tdTerminals || {})
     const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
       .find((b) => /Local shell/i.test(b.textContent || ''))
     if (btn) btn.click()
-    await wait(2600)
+    /*
+     * Wait for the new pane to be *sized*, not for a fixed delay. Selecting by
+     * key order is not enough either: the registry can hand back an older pane
+     * that is still at xterm's 24-row default, which then reads as a collapsed
+     * pane when nothing is wrong.
+     */
+    const newest = () => {
+      const reg = window.__tdTerminals || {}
+      const ids = Object.keys(reg).filter((id) => !before.includes(id))
+      return ids.length ? reg[ids[ids.length - 1]] : null
+    }
+    for (let i = 0; i < 60; i++) {
+      await wait(250)
+      const entry = newest()
+      if (entry && entry.term && entry.term.rows > 24) break
+    }
     const after = Object.keys(window.__tdTerminals || {})
     window.__tdTracked = after.find((id) => !before.includes(id)) || after[after.length - 1] || null
     return window.__tdTracked
   })()`)
+  void scaleDbg
   const trackedSessionId = await win.webContents.executeJavaScript(`window.__tdTracked || null`)
+  const gridOk = await win.webContents.executeJavaScript(`(() => {
+    const g = document.querySelector('.dv-grid-view')
+    const h = document.querySelector('.td-dockview')
+    return !!g && !!h && Math.abs(g.clientHeight - h.clientHeight) <= 2
+  })()`)
+  if (!gridOk) {
+    console.error(
+      'COLLAPSED zoom=' +
+        zoom(win) +
+        ' dpr=' +
+        (await win.webContents.executeJavaScript('window.devicePixelRatio')) +
+        ' ' +
+        (await win.webContents.executeJavaScript(`(() => {
+          const g = document.querySelector('.dv-grid-view')
+          const h = document.querySelector('.td-dockview')
+          return JSON.stringify({
+            grid: g
+              ? g.clientWidth + 'x' + g.clientHeight + ' inline=' + (g.getAttribute('style') || '')
+              : null,
+            host: h ? h.clientWidth + 'x' + h.clientHeight : null,
+            trail: (window.__tdDockTrail || []).slice(-5),
+            scaleTrail: window.__tdScaleTrail || null,
+            beats: window.__tdBeat ? window.__tdBeat.n : null,
+            beatErr: window.__tdBeat ? window.__tdBeat.err : null
+          })
+        })()`))
+    )
+  }
   await sleep(1200)
 
   const withTerminal = await measurePane()

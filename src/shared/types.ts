@@ -192,9 +192,8 @@ export interface LayoutState {
    */
   dockview: string | null
   page: PageId
-  sidebarVisible: boolean
-  /** Slim strip rather than the full session list. */
-  sidebarCollapsed: boolean
+  /** Icon-only rail rather than the wider rail plus its list drawer. */
+  railCollapsed: boolean
   snippetBarVisible: boolean
 }
 

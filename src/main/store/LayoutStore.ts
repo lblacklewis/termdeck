@@ -18,8 +18,7 @@ export type { LayoutState }
 const DEFAULT_LAYOUT: LayoutState = {
   dockview: null,
   page: 'terminal',
-  sidebarVisible: true,
-  sidebarCollapsed: false,
+  railCollapsed: false,
   snippetBarVisible: true
 }
 
@@ -27,18 +26,31 @@ const PAGES: PageId[] = ['terminal', 'hosts', 'known-hosts', 'snippets', 'logs',
 
 function sanitise(input: unknown): LayoutState {
   if (!input || typeof input !== 'object') return { ...DEFAULT_LAYOUT }
-  const raw = input as Partial<LayoutState>
+  const raw = input as Partial<LayoutState> & {
+    /** Pre-drawer-merge files. Read so an upgrade does not lose the choice. */
+    sidebarVisible?: boolean
+    sidebarCollapsed?: boolean
+  }
 
   // `settings` has no page of its own, so it is never a restored destination.
   const page = PAGES.includes(raw.page as PageId) && raw.page !== 'settings'
     ? (raw.page as PageId)
     : 'terminal'
 
+  /*
+   * The drawer used to be a separate column with its own visibility flag. It is
+   * now the rail's own panel, so either old field means the same thing: a hidden
+   * or slimmed sidebar is a collapsed rail.
+   */
+  const collapsed =
+    typeof raw.railCollapsed === 'boolean'
+      ? raw.railCollapsed
+      : raw.sidebarVisible === false || raw.sidebarCollapsed === true
+
   return {
     dockview: typeof raw.dockview === 'string' && raw.dockview.length > 0 ? raw.dockview : null,
     page,
-    sidebarVisible: raw.sidebarVisible !== false,
-    sidebarCollapsed: raw.sidebarCollapsed === true,
+    railCollapsed: collapsed,
     snippetBarVisible: raw.snippetBarVisible !== false
   }
 }

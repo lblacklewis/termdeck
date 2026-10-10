@@ -113,6 +113,51 @@ async function main() {
         return false
       })
 
+      /*
+       * Then wait for the pane to be *geometrically settled*.
+       *
+       * xterm starts at 24 rows and the fit lands a moment later. The gutter only
+       * has room for the stamped lines inside its viewport, and its row height is
+       * measured from the screen box, so asserting while either is still moving
+       * makes this pass or fail on how quickly the app happened to settle.
+       *
+       * The predicate is deliberately the pane's own geometry — the terminal fills
+       * its host and the stamps are a whole row tall. An earlier version also
+       * required the gutter's cell height to match the row height, which the
+       * alignment assertion below then re-checks; when that extra clause was
+       * unsatisfiable the wait simply expired and the assertions ran against a
+       * half-fitted terminal, which is a probe bug masquerading as a product one.
+       */
+      const settledOk = await waitFor(() => {
+        const e = window.__tdTerminals ? window.__tdTerminals[sessionId] : null
+        const term = e && e.term
+        if (!term || term.rows <= 24) return false
+        const screen = term.element ? term.element.querySelector('.xterm-screen') : null
+        const host = document.querySelector('.td-terminal-host')
+        if (!screen || !host) return false
+        const screenBox = screen.getBoundingClientRect()
+        if (screenBox.height < host.clientHeight - 2) return false
+        const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
+        if (!gutter) return false
+        return !!gutter.querySelector('.td-terminal-stamp')
+      })
+      if (!settledOk) {
+        console.error(
+          'NOTSETTLED ' +
+            JSON.stringify({
+              rows: (() => {
+                const e = window.__tdTerminals ? window.__tdTerminals[sessionId] : null
+                return e && e.term ? e.term.rows : -1
+              })(),
+              host: (() => {
+                const h = document.querySelector('.td-terminal-host')
+                return h ? h.clientHeight : -1
+              })(),
+              gutter: !!document.querySelector('[data-testid="timestamp-gutter"]')
+            })
+        )
+      }
+
       // ---- timestamps ------------------------------------------------------
       const setStamp = async (on) => {
         const s = await api.loadSettings()
@@ -139,9 +184,15 @@ async function main() {
         // The gutter's vertical offset is applied on the terminal's first render,
         // so wait for a stamped line before measuring alignment. Asserting
         // immediately raced that and reported an unaligned gutter.
-        const stampedRe = new RegExp('\\\\[\\\\d{2}:\\\\d{2}')
+        //
+        // Counting non-empty cells rather than matching a time pattern: the
+        // measurer used to carry the same class and matched, and the pattern was
+        // written for the old HH:MM-only form. A stamp cell is either filled or
+        // it is not.
         const stamped = () =>
-          [...gutter.querySelectorAll('.td-terminal-stamp')].filter((c) => stampedRe.test(c.textContent || ''))
+          [...gutter.querySelectorAll('.td-terminal-stamp')].filter(
+            (c) => (c.textContent || '').trim().length > 0
+          )
         for (let i = 0; i < 40 && stamped().length < 2; i++) {
           await new Promise((r) => setTimeout(r, 250))
         }
@@ -151,9 +202,13 @@ async function main() {
           'cells=' + rows.length + ' terminal rows=' + (window.__tdTerminals[sessionId]?.term?.rows ?? '?'))
 
         const labelled = stamped()
-        push('written lines carry a bracketed HH:MM timestamp', labelled.length >= 2,
+        push('written lines carry a full bracketed timestamp', labelled.length >= 2,
           'labelled=' + labelled.length + ' first=' + JSON.stringify(rows[0]?.textContent) +
-            ' | buffer=' + (() => {
+            ' | rows=' + rows.length +
+            ' | samples=' + JSON.stringify(rows.slice(0, 6).map((r) => (r.textContent || '').trim())) +
+            ' | termRows=' + (window.__tdTerminals[sessionId]?.term?.rows ?? '?') +
+            ' | stampsLen=' + (window.__tdTerminals[sessionId]?.stamps?.lineCount ?? '?') +
+            ' | buf=' + (() => {
               const e = window.__tdTerminals ? window.__tdTerminals[sessionId] : null
               if (!e || !e.term) return 'no terminal'
               const buf = e.term.buffer.active
@@ -165,16 +220,37 @@ async function main() {
               return 'nonEmptyLines=' + nonEmpty + ' bufLen=' + buf.length
             })())
 
-        // Alignment matters more than presence: compare each stamp cell's top
-        // with the matching xterm row's top.
-        const term = window.__tdTerminals[sessionId]?.term
-        const screen = document.querySelector('.xterm-screen')
-        if (term && screen) {
-          const screenBox = screen.getBoundingClientRect()
-          const rowHeight = screenBox.height / term.rows
+        // Alignment matters more than presence: compare each stamp cell's top with
+        // the matching xterm row's top. Read through the pane's own terminal rather
+        // than the first xterm-screen in the document; the terminal is selected by
+        // session id everywhere else, so it is here too.
+        const stampedTerm = window.__tdTerminals[sessionId]?.term
+        const termScreen =
+          stampedTerm && stampedTerm.element
+            ? stampedTerm.element.querySelector('.xterm-screen')
+            : null
+        if (stampedTerm && termScreen) {
+          const screenBox = termScreen.getBoundingClientRect()
+          const rowHeight = screenBox.height / stampedTerm.rows
           const cellBox = rows[0].getBoundingClientRect()
           const cellHeight = cellBox.height
           const driftPerRow = Math.abs(cellHeight - rowHeight)
+          console.error(
+            'CELLDBG ' +
+              JSON.stringify({
+                rows: rows.length,
+                firstClass: rows[0].className,
+                firstText: JSON.stringify(rows[0].textContent),
+                firstH: Math.round(cellHeight * 100) / 100,
+                lastH:
+                  Math.round(rows[rows.length - 1].getBoundingClientRect().height * 100) / 100,
+                measurers: gutter.querySelectorAll('.td-terminal-stamp-measure').length,
+                inline: rows[0].getAttribute('style'),
+                cellLineHeight: getComputedStyle(rows[0]).lineHeight,
+                termRows: stampedTerm.rows,
+                screenH: Math.round(screenBox.height * 100) / 100
+              })
+          )
           push('gutter line height matches the terminal row height',
             driftPerRow < 1.5,
             'cell=' + cellHeight.toFixed(2) + 'px row=' + rowHeight.toFixed(2) +
@@ -225,7 +301,7 @@ async function main() {
   try {
     report(await win.webContents.executeJavaScript(probe))
   } catch (err) {
-    report([{ name: 'feature probe', ok: false, detail: String((err && err.message) || err) }])
+    report([{ name: 'feature probe', ok: false, detail: String((err && err.stack) || err) }])
   }
 
   // Whatever the app named the file is what must be on disk.
@@ -294,10 +370,34 @@ async function main() {
 
     const before = (await api.loadSessionTree()).sessions.length
 
-    document.querySelector('[data-testid="rail-terminal"]').click()
-    await wait(400)
+    /*
+     * Make sure the drawer is showing before looking for its buttons. Clicking
+     * the rail's Terminal icon while already on Terminal now *toggles* the drawer
+     * (the rail and its list are one column), so it cannot be used as an
+     * unconditional "show me the list" — it has to be conditional on the state.
+     */
+    if (!document.querySelector('.td-sidebar')) {
+      document.querySelector('[data-testid="rail-toggle"]').click()
+      await wait(600)
+    }
+    if (!document.querySelector('.td-sidebar')) {
+      return [{
+        name: 'the terminal drawer reopens for the quick-connect section',
+        ok: false,
+        detail: 'rail=' + document.querySelector('.td-rail').className +
+          ' sidebar=' + !!document.querySelector('.td-sidebar')
+      }]
+    }
     const connectBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
       .find((b) => /\\+ Connect/i.test(b.textContent || ''))
+    if (!connectBtn) {
+      return [{
+        name: 'the quick-connect button is present',
+        ok: false,
+        detail: [...document.querySelectorAll('.td-sidebar .td-btn')]
+          .map((b) => (b.textContent || '').trim()).join(' | ')
+      }]
+    }
     connectBtn.click()
     await waitFor(() => document.querySelector('[data-testid="drawer"] [aria-label="ssh-host"]'))
     await wait(400)

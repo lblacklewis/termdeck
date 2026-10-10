@@ -112,6 +112,17 @@ export function TerminalPanel({
   /** Vertical gap between the pane top and xterm's first row. */
   const [topOffset, setTopOffset] = useState(0)
   const [stampLines, setStampLines] = useState<Array<string | null>>([])
+  /**
+   * Width of the stamp column, measured from a real stamp.
+   *
+   * Not an `em` value: the gutter sets a smaller font size than the terminal, and
+   * a column narrower than `[HH:MM:SS]` clips the closing bracket on every line.
+   * Measuring the rendered string makes the column fit whatever font and size are
+   * actually in use.
+   */
+  const [stampWidth, setStampWidth] = useState(0)
+  /** The gutter element, so its row offset can be corrected without a render. */
+  const gutterRef = useRef<HTMLDivElement | null>(null)
   useEffect(() => {
     if (!showTimestamps || !session) {
       setStampLines([])
@@ -120,6 +131,25 @@ export function TerminalPanel({
     // Driven by the terminal's own render event rather than a rAF loop: a loop
     // started here can have its first frame cancelled by this effect's cleanup,
     // which left the gutter permanently empty.
+    /**
+     * Recompute the gutter's row offset from freshly measured geometry.
+     *
+     * xterm insets its own screen box inside the pane (its viewport wrapper plus
+     * the host padding), so the gutter needs the same offset to line up with row 1.
+     * It is written straight onto the element as well as into state: state needs a
+     * render to arrive, and in between the gutter can paint a row higher than the
+     * terminal — visible, and intermittently visible to the alignment check.
+     */
+    const syncGutterOffset = (): void => {
+      const screen = container?.querySelector('.xterm-screen') as HTMLElement | null
+      const pane = container?.closest('.td-terminal') as HTMLElement | null
+      if (!screen || !pane) return
+      const offset = screen.getBoundingClientRect().top - pane.getBoundingClientRect().top
+      if (offset < 0) return
+      gutterRef.current?.style.setProperty('--td-stamp-top', `${offset}px`)
+      setTopOffset((prev) => (Math.abs(prev - offset) < 0.5 ? prev : offset))
+    }
+
     const repaint = (): void => {
       const term = getTerminal(session.id)
       const stamps = getStamps(session.id)
@@ -134,23 +164,40 @@ export function TerminalPanel({
       setStampLines((prev) =>
         prev.length === lines.length && prev.every((v, i) => v === lines[i]) ? prev : lines
       )
+      /*
+       * Size the column from a stamp that is actually rendered, not from an `em`
+       * multiple: the gutter's font is smaller than the terminal's, so an em
+       * estimate came out narrower than `[HH:MM:SS]` and clipped the closing
+       * bracket on every line. The measurer is a real stamp element, so it carries
+       * the same font, letter-spacing and padding.
+       */
+      const measurer = container?.querySelector('.td-terminal-stamp-measure') as HTMLElement | null
+      if (measurer) {
+        // `scrollWidth` is the text's own width, so the padding the gutter already
+        // carries is not counted twice.
+        const width = measurer.scrollWidth + 2
+        if (width > 0) setStampWidth((prev) => (Math.abs(prev - width) < 0.5 ? prev : width))
+      }
       const screen = container?.querySelector('.xterm-screen') as HTMLElement | null
       if (screen) {
         const next = screen.getBoundingClientRect().height / term.rows
         if (next > 1) setRowHeight((prev) => (Math.abs(prev - next) < 0.05 ? prev : next))
-        // xterm insets its own screen box inside the pane (its viewport wrapper
-        // plus the host padding), so the gutter needs the same offset to line up
-        // with row 1.
-        const pane = container?.closest('.td-terminal') as HTMLElement | null
-        if (pane) {
-          const offset = screen.getBoundingClientRect().top - pane.getBoundingClientRect().top
-          if (offset >= 0) setTopOffset((prev) => (Math.abs(prev - offset) < 0.5 ? prev : offset))
-        }
       }
+      syncGutterOffset()
     }
-    // Paint once immediately, then follow every terminal render.
+    // Paint once immediately, then follow every terminal render. The screen box
+    // also moves when the pane is refitted without producing a render, so its
+    // geometry is watched directly — but only the offset is recomputed there, so
+    // this cannot feed back into the layout it is measuring.
     repaint()
-    return onTerminalRender(session.id, repaint)
+    const offRender = onTerminalRender(session.id, repaint)
+    const screenEl = container?.querySelector('.xterm-screen')
+    const geometry = screenEl ? new ResizeObserver(syncGutterOffset) : null
+    if (screenEl && geometry) geometry.observe(screenEl)
+    return () => {
+      offRender()
+      geometry?.disconnect()
+    }
   }, [showTimestamps, session, container])
 
   // A pane restored from a saved layout has no backend session: nothing is
@@ -188,6 +235,7 @@ export function TerminalPanel({
           className="td-terminal-stamps"
           data-testid="timestamp-gutter"
           aria-hidden="true"
+          ref={gutterRef}
           style={{
             fontSize: `${Math.max(9, terminal.fontSize - 3)}px`,
             // An explicit px height: a bare `lineHeight` multiplier would be
@@ -195,7 +243,9 @@ export function TerminalPanel({
             lineHeight: rowHeight > 0 ? `${rowHeight}px` : 'normal',
             // Published as a variable so the stylesheet owns the padding while the
             // measured offset still aligns row 1 with the terminal.
-            ['--td-stamp-top' as string]: `${topOffset}px`
+            ['--td-stamp-top' as string]: `${topOffset}px`,
+            // Measured in the effect above; 0 means "not measured yet".
+            ...(stampWidth > 0 ? { width: `${stampWidth}px` } : {})
           }}
         >
           {stampLines.map((label, i) => (
@@ -203,6 +253,11 @@ export function TerminalPanel({
               {label ?? '\u00a0'}
             </div>
           ))}
+          {/* Renders one full-width stamp to measure against. Inset far off the
+              gutter's own box so it can never paint, but still laid out. */}
+          <div className="td-terminal-stamp-measure" aria-hidden="true">
+            [00:00:00]
+          </div>
         </div>
       )}
       <div className="td-terminal-host" ref={containerRef} />

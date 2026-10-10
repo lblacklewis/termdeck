@@ -11,6 +11,7 @@ import { LocalShellBackend, isLocalShellAvailable } from './sessions/LocalShellB
 import { SshShellBackend, HostKeyRequiredError } from './sessions/SshShellBackend'
 import { CredentialStore } from './store/CredentialStore'
 import { SettingsStore, SessionStore, clampScale, defaultScaleForWidth } from './store/Stores'
+import { LayoutStore } from './store/LayoutStore'
 import { KnownHosts, fingerprint } from './ssh/KnownHosts'
 
 export {
@@ -24,6 +25,7 @@ export {
   CredentialStore,
   SettingsStore,
   SessionStore,
+  LayoutStore,
   clampScale,
   defaultScaleForWidth,
   KnownHosts,

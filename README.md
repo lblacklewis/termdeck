@@ -55,34 +55,43 @@ just to add a credential. There is no master password and no unlock step.
 
 ### Shell layout
 
-The window is three columns:
+Two columns, one of which can shrink to icons:
 
 ```
 ┌──────┬────────────────┬──────────────────────────────┐
 │ rail │ list column    │ main area                    │
-│      │                │                              │
-│ Term │ Sessions tree  │ dockview: the terminal page  │
-│ Hosts│ or the page    │ (splits, tab groups)         │
-│ Keys │ for the rail   │                              │
-│ …    │ selection      │                              │
+│      │ (the rail's    │                              │
+│ Term │  drawer)       │ dockview: the terminal page  │
+│ Hosts│                │ (splits, tab groups)         │
+│ Keys │ Sessions tree  │                              │
+│ …    │ or the page    │                              │
+│ ◦    │ for the rail   │                              │
 └──────┴────────────────┴──────────────────────────────┘
         └ snippet bar (terminal page only) ┘
 ```
 
-The rail switches which list/main pair is showing: **Terminal** (the dockview
-workspace), **Hosts**, **Known Hosts**, **Snippets** and **Logs**. Settings is a
-drawer rather than a page, since it has no list of its own.
+The rail and its list are **one column, not two**: they share a background, the
+edge is drawn once (by whichever is last), and the drawer sits against the rail
+with a soft inner shadow rather than a hairline between them. A border on both
+made the pair read as two unrelated panels, which is exactly how it looked.
+
+The rail switches what the drawer shows: **Terminal** (the dockview workspace),
+**Hosts**, **Known Hosts**, **Snippets** and **Logs**. Settings is a drawer rather
+than a page, since it has no list of its own.
+
+**Clicking the section you are already on toggles the drawer**, and so does the
+small switch at the rail's bottom-left: the drawer collapses away entirely and
+the rail keeps its icons, so the same control both hides and shows the list.
+`Ctrl+B` does the same thing, and the state is remembered. Picking a *different*
+section always brings the drawer back, because that is what was asked for.
 
 Editing flows open as **drawers** sliding in from the right — the session
 editor, quick connect, snippet editor, settings and the connections window — so
 the list you were working in stays visible. They close on Escape, the close
 button, or a click on the backdrop.
 
-The session column **collapses to a 44px strip** (`«` in the header, `»` to
-expand). It is a strip rather than nothing because the primary actions stay one
-click away: new connection, local shell, broadcast, connection count and
-settings. Collapsing hands the width to the terminal — about 28 extra columns at
-a typical window size — and the state is remembered.
+Collapsing hands the terminal the drawer's width — about 30 extra columns at a
+typical window size.
 
 **Known Hosts** lists every stored key with its fingerprint and lets you forget
 one. That is the fix for the case that bites people: a rebuilt (or impersonated)
@@ -93,8 +102,13 @@ hostname genuinely cannot be recovered from them.
 ## Layout persistence
 
 The window reopens the way you left it: pane splits and tab groups, which rail
-section was showing, and whether the sidebar and snippet bar were visible.
-The arrangement is written to `layout.json` in the app's user-data directory.
+section was showing, whether the rail was shrunk, and whether the snippet bar was
+visible. The arrangement is written to `layout.json` in the app's user-data
+directory.
+
+An older file that predates the rail/drawer merge is still understood: the
+retired `sidebarVisible` / `sidebarCollapsed` pair is read as "whether the rail
+was collapsed", so upgrading does not silently reopen a sidebar you had hidden.
 
 **Sessions are deliberately not reconnected.** A restored pane comes back as a
 placeholder with a **Reconnect** button, because silently spawning local shells
@@ -174,12 +188,19 @@ strip ANSI escape codes, so a saved file is plain readable text.
 A timestamp gutter beside each pane is **on by default**; Settings → Terminal →
 *Show a timestamp column beside each pane* turns it off. Each line is stamped as
 it arrives, in the bracketed `[HH:MM:SS]` form the reference client (WindTerm)
-uses. Lines older than an hour drop the seconds so the column stays narrow.
+uses, and the format never changes width.
 
 The gutter is drawn as an overlay aligned to xterm's own measured row height
 rather than written into the buffer, so it can never end up inside a selection or
 in copied/saved output. Times are not persisted, because scrollback is not
 either.
+
+Its width is **measured from a rendered stamp**, not derived from an `em`
+multiple, and the stamps are recorded from xterm's `onWriteParsed` rather than
+straight after `write()`. Both were wrong in ways that produced the same
+symptom — a full-height gutter with nothing in it, or a stamp with its closing
+bracket cut off — and neither showed up as anything but "the gutter exists".
+`smoke:chrome` now asserts that written lines carry a complete, unclipped stamp.
 
 The gutter carries no border and no panel background, and sits at 72% opacity, so
 it reads as part of the terminal rather than as a boxed sidebar beside it.
@@ -208,6 +229,24 @@ whether the shell runs it depends on whether your text ends with a line break:
 Use `\r\n` as the terminator: a bare `\n` is accepted by the terminal but does
 not submit a line in `cmd.exe`. The editor states which case the command is in,
 so the behaviour is visible before you save it.
+
+In the snippet bar, **right-click** opens a menu (send, edit, duplicate, move to
+Ungrouped, delete) and **left-drag** moves a chip: drop it on another chip to
+reorder, or on a group tab to change its group without opening the editor.
+
+The menu is the shared portalled context menu, not an absolutely-positioned child
+of the bar. The bar scrolls horizontally, and a menu drawn inside it was clipped
+at the bar's edge — which is what "the display is broken" was.
+
+## Reconnecting
+
+A pane that is still on screen but no longer usable — the usual case being an
+idle SSH connection the server has timed out — can be recovered from the pane
+tab's right-click menu: **Reload / reconnect**. The pane is re-pointed at a fresh
+session in place, so its position in the arrangement and its tab title survive.
+A pane backed by a saved session reconnects to that session; one with nothing
+behind it (a quick connect, or a local shell) gets a new session and the old
+process is closed.
 
 ## Themes
 
@@ -422,8 +461,13 @@ rediscovered.
      placeholder keeps its grid pinned there, and the grid carries **inline**
      `width`/`height`, so CSS alone cannot correct it. `dock.layout(w, h, true)`
      releases it, but a `ResizeObserver` alone is not enough — on some runs the
-     container reaches its real size without a further event, so nothing asks for
-     the re-layout, and a short bounded polling window drives it instead.
+     container reaches its real size with no event reaching the observer at all.
+     So the sync polls **real geometry**: it stops the moment dockview's own grid
+     matches the container and otherwise gives up after a bounded run of ticks.
+     A fixed polling window was not enough either, because it expires while the
+     window is still settling — which is what a zoom change causes. The watchdog
+     is therefore re-armed after every scale change, since zoom is the one thing
+     that can move the container's CSS size without dockview hearing about it.
      dockview's own CSS also omits a height on `.dv-view`, so the pane collapses
      to its content when that inline height is absent; `global.css` states it.
 
@@ -460,6 +504,22 @@ rediscovered.
   files **before** the first `storeAccess()` (the stores are constructed lazily and
   read their file in the constructor); deleting them afterwards would swap the file
   out from under objects the app already holds.
+
+- **A probe must not create states the app cannot reach.** `smoke:scale` used to
+  set the zoom factor after the first page load, so the renderer observed a zoom
+  change during its own boot — something a real launch never does, because the
+  main process applies the stored scale once before the window exists. That
+  artificial state pinned dockview's grid, and the probe was then reporting a
+  product bug that only its own setup could produce. It now starts from a wiped
+  profile and lets the app boot normally.
+
+- **A probe's injected script is a template literal, so escaping is not safe.**
+  `\d` written there arrives as a bare letter (a regex that silently matches
+  nothing, which looks exactly like the bug it was meant to catch) and a backtick
+  inside a comment ends the literal early — a parse error whose only symptom is a
+  suite that hangs until it is killed. Probes use character comparisons instead of
+  escaped regexes, and `scripts/checkprobes.cjs` parses every probe before the
+  suites run so that failure is immediate and named.
 
 - **Inside a template literal, a regex needs double escaping.** `/\[\d{2}/`
   written directly inside an injected script becomes `/[d{2}/` once the template
