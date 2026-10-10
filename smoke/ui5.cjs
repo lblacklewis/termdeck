@@ -206,6 +206,9 @@ async function main() {
       push('host rows offer Connect and a row menu',
         !!connectBtn && !!document.querySelector('[data-action="menu"]'),
         'connect=' + !!connectBtn + ' menu=' + !!document.querySelector('[data-action="menu"]'))
+      push('hosts has no session drawer beside it',
+        !document.querySelector('.td-sidebar'),
+        'drawer=' + !!document.querySelector('.td-sidebar'))
 
       await go('snippets')
       push('snippets page renders', !!document.querySelector('[data-testid="snippets-page"]'))
@@ -213,6 +216,19 @@ async function main() {
         /rail-snippet/.test(document.body.textContent || ''))
       push('snippets page shows the command text',
         /echo rail/.test(document.body.textContent || ''))
+      /*
+       * Only the Terminal page has the rail's list drawer. Hosts, Known Hosts and
+       * Snippets are their own full-page lists, so a drawer beside them is a
+       * second, narrower copy of what is already on screen.
+       */
+      push('snippets has no session drawer beside it',
+        !document.querySelector('.td-sidebar'),
+        'drawer=' + !!document.querySelector('.td-sidebar'))
+
+      await go('known-hosts')
+      push('known hosts has no session drawer beside it',
+        !document.querySelector('.td-sidebar'),
+        'drawer=' + !!document.querySelector('.td-sidebar'))
 
       await go('logs')
       push('logs page renders', !!document.querySelector('[data-testid="logs-page"]'))

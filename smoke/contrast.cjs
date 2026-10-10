@@ -131,9 +131,11 @@ async function main() {
   })()`)
   await sleep(800)
 
-  // Read the theme list once, from the settings drawer.
+  // Read the theme list once, from the settings drawer. The drawer is reached
+  // through the rail rather than the sidebar footer: the footer button only exists
+  // on the Terminal page, since only that page has the list drawer beside it.
   const themes = await win.webContents.executeJavaScript(`(async () => {
-    document.querySelector('[data-testid="open-settings"]').click()
+    document.querySelector('[data-testid="rail-settings"]').click()
     await new Promise((r) => setTimeout(r, 600))
     const ids = [...document.querySelectorAll('[data-testid="theme-grid"] .td-theme-card')]
       .map((c) => c.getAttribute('data-theme-id'))

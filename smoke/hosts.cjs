@@ -83,6 +83,12 @@ async function main() {
       const wait = (ms) => new Promise((r) => setTimeout(r, ms))
       const api = window.termdeck
       const drag = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }))
+      /** Set a controlled input the way React observes it. */
+      const setValue = (el, value) => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        setter.call(el, value)
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+      }
 
       // ---- open the Hosts page --------------------------------------------
       document.querySelector('[data-testid="rail-hosts"]').click()
@@ -94,6 +100,11 @@ async function main() {
       push('hosts has no drawer of its own', !document.querySelector('.td-sidebar'))
       push('the drawer buttons are gone from hosts',
         !document.querySelector('[data-testid="open-connections"]'))
+
+      // ---- state of the new manager controls -------------------------------
+      push('the page offers New group and New host',
+        !!document.querySelector('[data-testid="hosts-new-group"]') &&
+          !!document.querySelector('[data-testid="hosts-new-host"]'))
 
       // ---- the two shapes --------------------------------------------------
       const rows = () => [...document.querySelectorAll('[data-host-row]')]
@@ -140,12 +151,84 @@ async function main() {
             !!menu.querySelector('[data-menu-id="delete"]'),
           menu ? [...menu.querySelectorAll('[data-menu-id]')].map((b) => b.getAttribute('data-menu-id')).join(',') : 'no menu')
 
-        // prompt() is stubbed below for the rename.
+        /*
+         * Rename through the real control.
+         *
+         * It used to call the browser prompt, which Electron's renderer refuses —
+         * the menu item closed and nothing happened. Now it opens an inline field,
+         * so the check drives that: open, type, save, and confirm the new name is
+         * actually in the tree.
+         */
         if (menu) {
-          menu.querySelector('[data-menu-id="delete"]').click()
-          await wait(800)
-          push('a group can be deleted', !groupNames().includes('New group'),
-            groupNames().join(','))
+          menu.querySelector('[data-menu-id="rename"]').click()
+          await wait(500)
+          const form = document.querySelector('[data-testid="hosts-rename-form"]')
+          push('rename opens an inline field rather than a browser prompt', form,
+            'form=' + !!form)
+          if (form) {
+            const input = form.querySelector('[aria-label="group-name"]')
+            setValue(input, 'Renamed group')
+            await wait(200)
+            form.querySelector('[data-testid="hosts-rename-save"]').click()
+            await wait(900)
+            const tree = await api.loadSessionTree()
+            push('the renamed group is saved',
+              tree.folders.some((f) => f.name === 'Renamed group') &&
+                !tree.folders.some((f) => f.name === 'New group'),
+              tree.folders.map((f) => f.name).join(','))
+            push('the page shows the new name', groupNames().includes('Renamed group'),
+              groupNames().join(','))
+          }
+        }
+      }
+
+      // ---- the page background has its own menu ---------------------------
+      // Somewhere to click that is neither a host nor a group was previously dead,
+      // which is where "add a host" is most naturally reached from.
+      {
+        const body = document.querySelector('[data-testid="hosts-body"]')
+        const box = body.getBoundingClientRect()
+        body.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, button: 2,
+          clientX: Math.round(box.x + box.width / 2),
+          clientY: Math.round(box.y + box.height - 30)
+        }))
+        await wait(400)
+        const pageMenu = document.querySelector('[data-testid="hosts-menu"]')
+        const ids = pageMenu
+          ? [...pageMenu.querySelectorAll('[data-menu-id]')].map((b) => b.getAttribute('data-menu-id'))
+          : []
+        push('right-clicking the page background opens a menu',
+          ids.includes('newHost') && ids.includes('newGroup'), ids.join(','))
+
+        // The menu must be fully on screen and wide enough for its labels: it was
+        // reported as showing only part of each item.
+        if (pageMenu) {
+          const mb = pageMenu.getBoundingClientRect()
+          const items = [...pageMenu.querySelectorAll('.td-menu-item')]
+          const clipped = items.filter((item) => {
+            const label = item.querySelector('span')
+            return label ? label.scrollWidth > label.clientWidth + 1 : false
+          })
+          push('the menu fits inside the viewport',
+            mb.left >= 0 && mb.top >= 0 &&
+              mb.right <= window.innerWidth + 1 && mb.bottom <= window.innerHeight + 1,
+            JSON.stringify({ w: Math.round(mb.width), h: Math.round(mb.height) }))
+          push('no menu label is cut off', clipped.length === 0,
+            'clipped=' + clipped.length + '/' + items.length +
+              ' widths=' + items.map((i) => Math.round(i.getBoundingClientRect().width)).join(','))
+          push('every menu item shows its own text',
+            items.length > 0 && items.every((i) => (i.textContent || '').trim().length > 0),
+            items.map((i) => (i.querySelector('span') || {}).textContent).join(' | '))
+        }
+
+        // Choosing New group from the page menu must actually create one.
+        const before = groupNames().length
+        if (pageMenu && pageMenu.querySelector('[data-menu-id="newGroup"]')) {
+          pageMenu.querySelector('[data-menu-id="newGroup"]').click()
+          await wait(900)
+          push('the page menu can create a group', groupNames().length === before + 1,
+            before + ' -> ' + groupNames().length + ': ' + groupNames().join(','))
         }
       }
 

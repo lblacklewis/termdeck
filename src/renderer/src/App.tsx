@@ -45,6 +45,7 @@ import {
   broadcastSummary,
   isBroadcasting,
   onBroadcastChange,
+  setVisibleSessions,
   sinkIds,
   toggleBroadcasting,
   writesBySink
@@ -454,6 +455,24 @@ export function App(): JSX.Element {
       // from the layout rather than from the session list, because a restored
       // placeholder is a pane too and the two must not disagree.
       setPanelCount(dock.api.panels.length)
+      /*
+       * Publish which panes are actually on screen.
+       *
+       * `panel.api.isVisible` is dockview's own answer, and it excludes the
+       * non-selected tabs of a group — those are open sessions with live
+       * backends, but typing into them would be typing into something the user
+       * cannot see.
+       */
+      setVisibleSessions(
+        dock.api.panels
+          .filter((panel) => panel.api.isVisible)
+          .map((panel) => {
+            // A live pane's panel id *is* its session id; a restored placeholder
+            // carries the saved id instead and has no session to write to.
+            const params = panel.api.getParameters<TerminalPanelMeta>() ?? {}
+            return params.session?.id ?? panel.id
+          })
+      )
       window.clearTimeout(saveTimer)
       saveTimer = window.setTimeout(persist, 400)
     })
@@ -931,6 +950,17 @@ export function App(): JSX.Element {
   const moveSessionTo = useCallback(async (sessionId: string, parentId: string | null) => {
     try {
       await api.moveSession(sessionId, parentId)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  /** Move a whole group, which is how nesting is rearranged on the Hosts page. */
+  const moveFolderTo = useCallback(async (folderId: string, parentId: string | null) => {
+    const folder = treeRef.current.folders.find((f) => f.id === folderId)
+    if (!folder) return
+    try {
+      await api.saveFolder({ id: folderId, name: folder.name, parentId })
     } catch (err) {
       setToast(err instanceof Error ? err.message : String(err))
     }
@@ -1513,12 +1543,12 @@ export function App(): JSX.Element {
           setSettingsOpen(false)
           /*
            * The rail and its list are one column, so the same icon shows and hides
-           * the list: clicking the section you are already on toggles it. That is
-           * measured on whether the drawer is *showing*, not on whether the rail is
-           * nominally expanded — Hosts has no drawer of its own, so a collapsed
-           * flag alone would make the first click there do nothing visible.
+           * the list: clicking the section you are already on toggles it. Measured
+           * on whether the drawer is *showing*, not on whether the rail is
+           * nominally expanded — the drawer only exists on the Terminal page, so a
+           * collapsed flag alone would make the first click there do nothing.
            */
-          const drawerShowing = !railCollapsed && page !== 'hosts'
+          const drawerShowing = !railCollapsed && page === 'terminal'
           if (next === page) setRailCollapsed(drawerShowing)
           else {
             setPage(next)
@@ -1568,6 +1598,7 @@ export function App(): JSX.Element {
           onRenameGroup={(id, name) => void api.saveFolder({ id, name })}
           onDeleteGroup={(id) => void api.deleteFolder(id)}
           onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
+          onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
         />
       )}
 
@@ -1576,10 +1607,13 @@ export function App(): JSX.Element {
         than a separate one, and shrinks away entirely when the rail is collapsed
         so the window reads as "icons, or icons + list".
 
-        Hosts has no list of its own: its page is the list, so the drawer would
-        only be a narrower copy of what is already on screen.
+        Only the Terminal page has it. Hosts, Known Hosts and Snippets each render
+        their own full-page list, so the drawer beside them is a second, narrower
+        copy of what is already on screen — and on Hosts it also carried Connect
+        and Local shell, which belong to the terminal workflow rather than to a
+        host manager.
       */}
-      {!railCollapsed && page !== 'hosts' && (
+      {!railCollapsed && page === 'terminal' && (
         <aside className="td-sidebar">
           {/* No brand here: the rail carries it, and repeating it made the pair
               read as two separate panels. */}

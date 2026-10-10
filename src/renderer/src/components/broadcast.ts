@@ -13,6 +13,24 @@
 type Sink = (data: string) => void
 
 const sinksBySession = new Map<string, Sink>()
+/**
+ * Which panes are on screen right now.
+ *
+ * Broadcast reaches the *visible* sessions, not every open one. With a tab group,
+ * a hidden tab is still an open session with a live backend, and sending a command
+ * to it would type into something the user cannot see — which is exactly what
+ * "some panes do not take the input" feels like from the other side. The docking
+ * layer republishes this whenever the arrangement changes.
+ */
+let visibleSessions = new Set<string>()
+
+export function setVisibleSessions(ids: string[]): void {
+  visibleSessions = new Set(ids)
+}
+
+export function visibleSessionIds(): string[] {
+  return [...visibleSessions]
+}
 let broadcast = false
 const listeners = new Set<(on: boolean) => void>()
 
@@ -70,6 +88,8 @@ export function routeInput(sourceSessionId: string, data: string): boolean {
   if (!broadcast) return false
   for (const [sessionId, sink] of sinksBySession) {
     if (sessionId === sourceSessionId) continue
+    // Only what is on screen: a hidden tab must not receive keystrokes.
+    if (visibleSessions.size > 0 && !visibleSessions.has(sessionId)) continue
     writesBySink.set(sessionId, (writesBySink.get(sessionId) ?? 0) + 1)
     sink(data)
   }

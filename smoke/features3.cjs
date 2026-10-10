@@ -313,6 +313,40 @@ async function main() {
         new Set(splitIds).size === splitIds.length,
         splitIds.join(' | '))
 
+      // ---- 5. broadcast must not reach a pane that is not on screen ---------
+      // A hidden tab is still an open session with a live backend, so writing to
+      // it types into something the user cannot see. The control says "typing to
+      // all N panes", and N has to mean the visible ones.
+      const visible = window.__tdDockApi.panels.filter((p) => p.api.isVisible).map((p) => p.id)
+      const hidden = splitIds.filter((id) => !visible.includes(id))
+      push('the arrangement has a hidden tab to test with',
+        hidden.length > 0 && visible.length >= 2,
+        'visible=' + visible.length + ' hidden=' + hidden.length)
+
+      if (hidden.length > 0) {
+        // Clear the hidden pane's buffer, so a stale marker cannot be mistaken for
+        // one this broadcast delivered.
+        const hiddenEntry = window.__tdTerminals[hidden[0]]
+        if (hiddenEntry && hiddenEntry.term) hiddenEntry.term.reset()
+        await wait(500)
+
+        if (document.querySelector('[data-testid="toggle-broadcast"]').getAttribute('aria-pressed') !== 'true') {
+          document.querySelector('[data-testid="toggle-broadcast"]').click()
+          await wait(700)
+        }
+        const hiddenMarker = 'HIDDEN_' + Date.now()
+        typeInto(visible[0], 'echo ' + hiddenMarker)
+        await wait(5000)
+
+        push('broadcast does not reach a hidden tab',
+          !textFor(hidden[0]).includes(hiddenMarker),
+          'hidden pane tail=' + JSON.stringify(textFor(hidden[0]).trim().slice(-40)))
+        push('broadcast does reach the other visible panes',
+          visible.slice(1).some((id) => textFor(id).includes(hiddenMarker)),
+          'visible=' + visible.length +
+            ' reached=' + visible.filter((id) => textFor(id).includes(hiddenMarker)).length)
+      }
+
       return out
     })()
   `
