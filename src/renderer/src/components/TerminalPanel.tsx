@@ -158,24 +158,32 @@ export function TerminalPanel({
       const lines: Array<string | null> = []
       for (let r = 0; r < term.rows; r++) {
         // `viewportY` is the buffer line at the top of the viewport, so this
-        // follows scrolling rather than assuming a fixed offset.
-        lines.push(stamps.at(buffer.viewportY + r))
+        // follows scrolling rather than assuming a fixed offset. `labelAt` blanks
+        // the repeats inside one second, so the column shows transitions.
+        lines.push(stamps.labelAt(buffer.viewportY + r))
       }
       setStampLines((prev) =>
         prev.length === lines.length && prev.every((v, i) => v === lines[i]) ? prev : lines
       )
       /*
-       * Size the column from a stamp that is actually rendered, not from an `em`
-       * multiple: the gutter's font is smaller than the terminal's, so an em
-       * estimate came out narrower than `[HH:MM:SS]` and clipped the closing
-       * bracket on every line. The measurer is a real stamp element, so it carries
-       * the same font, letter-spacing and padding.
+       * Size the column from what is actually rendered, not from an `em` multiple:
+       * the gutter's font is smaller than the terminal's, so an em estimate came
+       * out narrower than the stamp and clipped the closing bracket. The measurer
+       * is a real stamp element, so it carries the same font, letter-spacing and
+       * padding.
+       *
+       * `scrollWidth` is the text alone, and the element is `border-box`, so the
+       * gutter's own left/right padding has to be added back or the inline width
+       * would squeeze the text by exactly that much. Two pixels of slack on top,
+       * because the gutter clips its overflow: one pixel short cuts a glyph rather
+       * than looking slightly tight.
        */
       const measurer = container?.querySelector('.td-terminal-stamp-measure') as HTMLElement | null
       if (measurer) {
-        // `scrollWidth` is the text's own width, so the padding the gutter already
-        // carries is not counted twice.
-        const width = measurer.scrollWidth + 2
+        const styles = getComputedStyle(measurer)
+        const padding =
+          parseFloat(styles.paddingLeft || '0') + parseFloat(styles.paddingRight || '0')
+        const width = measurer.scrollWidth + padding + 2
         if (width > 0) setStampWidth((prev) => (Math.abs(prev - width) < 0.5 ? prev : width))
       }
       const screen = container?.querySelector('.xterm-screen') as HTMLElement | null

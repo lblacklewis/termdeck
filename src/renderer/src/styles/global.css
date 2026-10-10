@@ -1224,11 +1224,77 @@ kbd {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* The terminal toolbar is positioned against this. */
+  position: relative;
 }
 
 .td-content .td-main {
   flex: 1 1 auto;
   min-height: 0;
+}
+
+/*
+ * The terminal's own toolbar.
+ *
+ * Broadcast is a property of the workspace — how many panes a keystroke reaches —
+ * so its control sits over the panes rather than in the sidebar, where it was
+ * both easy to miss and easy to leave on by accident. It is absolutely positioned
+ * so it never takes a row away from the terminal.
+ */
+.td-terminal-tools {
+  position: absolute;
+  top: 12px;
+  right: 18px;
+  z-index: 6;
+  display: flex;
+  gap: 6px;
+}
+
+.td-content {
+  position: relative;
+}
+
+.td-broadcast {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  background: var(--td-bg-raised);
+  border: 1px solid var(--td-border-strong);
+  border-radius: var(--td-radius-full);
+  color: var(--td-text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: var(--td-shadow-sm);
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.td-broadcast:hover {
+  color: var(--td-text);
+  border-color: var(--td-accent);
+}
+
+/* Filled with the accent while on: typing into several hosts at once is not a
+   state to be unsure about. */
+.td-broadcast.is-on {
+  background: var(--td-accent);
+  border-color: var(--td-accent);
+  color: var(--td-on-accent);
+}
+
+.td-broadcast-count {
+  min-width: 16px;
+  padding: 0 5px;
+  background: color-mix(in srgb, var(--td-text) 14%, transparent);
+  border-radius: var(--td-radius-full);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+}
+
+.td-broadcast.is-on .td-broadcast-count {
+  background: color-mix(in srgb, var(--td-on-accent) 24%, transparent);
 }
 
 /* ---- context menu ------------------------------------------------------ */
@@ -3085,13 +3151,55 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   margin-top: 20px;
 }
 
+/*
+ * A group header is a drop target and carries its own actions, so it is a row
+ * rather than a bare heading. Everything but the name and its count is spaced to
+ * the right, keeping the headers aligned down the page.
+ */
 .td-host-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 8px;
+  padding: 2px 4px 2px 0;
   color: var(--td-text-dim);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.8px;
+  border-radius: var(--td-radius);
+  transition: background 120ms ease;
+}
+
+.td-host-group-head h2 {
+  margin: 0;
+  font: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+
+.td-host-group-head[draggable='true'] {
+  cursor: grab;
+}
+
+.td-host-group.is-drop {
+  border-radius: var(--td-radius);
+  box-shadow: 0 0 0 1px var(--td-accent) inset;
+}
+
+.td-host-group-count {
+  padding: 0 6px;
+  background: var(--td-surface);
+  border-radius: var(--td-radius-full);
+  color: var(--td-text-faint);
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.td-host-group-head .td-icon-btn {
+  width: 22px;
+  height: 22px;
+  font-size: 14px;
 }
 
 .td-host-group-empty {
@@ -3172,6 +3280,82 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   flex: 0 0 auto;
   display: flex;
   gap: 6px;
+}
+
+/*
+ * Cards.
+ *
+ * The same rows, laid out as a grid of tiles: the two shapes answer different
+ * questions — rows for scanning a long list by name, cards for picking one host
+ * out of a handful. Nothing about the data changes, only the arrangement.
+ */
+.td-host-list.is-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(224px, 1fr));
+  gap: 8px;
+}
+
+.td-host-row.is-cards {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 13px;
+  min-height: 108px;
+}
+
+.td-host-row.is-cards .td-host-status {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.td-host-row.is-cards {
+  position: relative;
+}
+
+.td-host-row.is-cards .td-host-name {
+  font-size: 14px;
+}
+
+.td-host-row.is-cards .td-host-actions {
+  margin-top: auto;
+  justify-content: flex-end;
+}
+
+.td-host-row.is-dragging {
+  opacity: 0.45;
+}
+
+/* The view switch is a pair of joined buttons rather than two loose ones. */
+.td-view-switch {
+  display: flex;
+  border: 1px solid var(--td-border-strong);
+  border-radius: var(--td-radius-md);
+  overflow: hidden;
+}
+
+.td-seg-btn {
+  padding: 7px 11px;
+  background: var(--td-bg-sunken);
+  border: none;
+  color: var(--td-text-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.td-seg-btn:hover {
+  color: var(--td-text);
+}
+
+.td-seg-btn.is-active {
+  background: color-mix(in srgb, var(--td-accent) 20%, transparent);
+  color: var(--td-text);
+}
+
+.td-seg-btn + .td-seg-btn {
+  border-left: 1px solid var(--td-border-strong);
 }
 
 /* ---- snippets page ----------------------------------------------------- */
@@ -3617,14 +3801,16 @@ html[data-theme-scheme='light'] .td-select {
   /*
    * A fallback only. The component measures a real rendered stamp and sets an
    * inline width, because the gutter's font is smaller than the terminal's and an
-   * em estimate came out narrower than `[HH:MM:SS]` — which clipped the closing
-   * bracket on every line. `overflow: hidden` turned that into a silently
-   * truncated timestamp rather than an obvious layout error.
+   * em estimate came out narrower than the stamp — which clipped the closing
+   * bracket. `overflow: hidden` turned that into a silently truncated timestamp
+   * rather than an obvious layout error.
    */
-  width: 6.6em;
+  width: 7.2em;
   /* The top offset is measured from the rendered xterm box, so row 1 of the
-     gutter lines up with row 1 of the terminal without hard-coding a value. */
-  padding: var(--td-stamp-top, 0px) 6px 0 4px;
+     gutter lines up with row 1 of the terminal without hard-coding a value. The
+     right padding is only breathing room: it comes out of the element's width, so
+     the measured inline width the component applies already excludes it. */
+  padding: var(--td-stamp-top, 0px) 4px 0 6px;
   border-right: none;
   background: transparent;
   color: var(--td-text-faint);

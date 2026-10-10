@@ -38,4 +38,33 @@ function resetStores(names) {
   return removed
 }
 
-module.exports = { resetStores }
+/**
+ * Delete a probe's whole userData directory.
+ *
+ *   const { wipeProfile } = require('./clearstore')
+ *   wipeProfile()          // before registerIpc() / storeAccess()
+
+ * `resetStores` deletes the store *files*, which is only enough while the stores
+ * have not been constructed yet — they read their file in the constructor, so
+ * deleting it afterwards leaves the old contents in memory and the next write puts
+ * them straight back on disk. That is a trap: the reset reports success, the run
+ * looks clean, and the second run silently starts with the first run's data.
+ *
+ * This removes the directory itself, so there is nothing to have been cached and
+ * nothing to be resurrected. Call it at the very top of `main`, before anything
+ * touches a store, and before the window is created.
+ */
+function wipeProfile() {
+  const dir = app.getPath('userData')
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3 })
+    return dir
+  } catch {
+    // A file still held open by a previous run: fall back to the per-file
+    // reset, which is enough when the stores have not been constructed yet.
+    return null
+  }
+}
+
+module.exports = { resetStores, wipeProfile }
+

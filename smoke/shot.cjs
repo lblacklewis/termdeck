@@ -16,6 +16,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  // Wipe the profile before anything constructs a store. The stores cache
+  // their contents in memory, so deleting their files afterwards leaves the
+  // previous run's data in place and the next write puts it back on disk.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   mod.registerIpc()
   fs.mkdirSync(OUT, { recursive: true })
   require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'layout', 'settings'])
@@ -117,6 +121,32 @@ async function main() {
   })()`)
   await sleep(500)
   await save('05-snippet-menu')
+
+  // The Hosts manager page, which is now the host editor as well as a list.
+  await win.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    await window.termdeck.saveFolder({ name: 'prod' })
+    await window.termdeck.saveSession({
+      name: 'web-1', host: '10.0.0.11', port: 22, username: 'deploy',
+      authMethod: 'password', tags: ['web']
+    })
+    await window.termdeck.saveSession({
+      name: 'db-1', host: '10.0.0.12', port: 22, username: 'root',
+      authMethod: 'password', tags: []
+    })
+    await wait(600)
+    document.querySelector('[data-testid="rail-hosts"]').click()
+    await wait(1400)
+    return true
+  })()`)
+  await sleep(900)
+  await save('06-hosts-rows')
+
+  await win.webContents.executeJavaScript(
+    `document.querySelector('[data-testid="hosts-view-cards"]').click(); true`
+  )
+  await sleep(800)
+  await save('07-hosts-cards')
 
   app.exit(0)
 }

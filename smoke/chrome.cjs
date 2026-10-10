@@ -22,6 +22,10 @@ function report(checks) {
 
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  // Wipe the profile before anything constructs a store. The stores cache
+  // their contents in memory, so deleting their files afterwards leaves the
+  // previous run's data in place and the next write puts it back on disk.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   mod.registerIpc()
   // Timestamps are asserted to start *on*, and the sidebar to start expanded, so
   // a settings file left by another run has to go.
@@ -50,39 +54,36 @@ async function main() {
   await win.reload()
   await sleep(2600)
 
+  // Open a fitted shell first: a collapsed pane leaves the "give width back"
+  // comparison nothing real to compare. `openFittedShell` retries a fresh boot,
+  // because the stuck state does not clear on its own (see smoke/panestep.cjs).
+  const fitted = await require(path.join(__dirname, 'panestep.cjs')).openFittedShell(win)
+  report([
+    {
+      name: 'a fitted shell pane is open',
+      ok: fitted,
+      detail: fitted
+        ? 'rows > 24'
+        : 'the first terminal never grew past 24 rows; ' +
+          (await win.webContents.executeJavaScript(
+            `JSON.stringify({ grid: (() => { const g = document.querySelector('.dv-grid-view'); ` +
+              `return g ? g.clientWidth + 'x' + g.clientHeight : null })(), ` +
+              `dock: (() => { const d = document.querySelector('.td-dockview'); ` +
+              `return d ? d.clientWidth + 'x' + d.clientHeight : null })() })`
+          ))
+    }
+  ])
+
+  // Give the shell something to timestamp: the gutter can only be judged against
+  // real output, and the stamps only exist for lines the terminal has received.
   await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /Local shell/i.test(b.textContent || ''))
-    if (btn) btn.click()
-    /*
-     * Wait for the pane to be *sized*, not for a fixed number of milliseconds.
-     * A fixed sleep made every assertion below depend on how fast the shell
-     * happened to start: on a slow run the terminal was still at xterm's 80x24
-     * default, so the gutter had no rows to stamp and the collapse comparison had
-     * nothing to compare.
-     */
-    const live = () => {
-      const e = window.__tdTerminals ? Object.values(window.__tdTerminals)[0] : null
-      return e && e.term ? e.term : null
-    }
-    for (let i = 0; i < 60; i++) {
-      await wait(250)
-      const t = live()
-      if (t && t.rows > 24 && t.cols > 80) break
-    }
-    // Give the shell something to timestamp: the gutter can only be judged
-    // against real output.
-    const t = live()
-    if (t) t.write('echo stamp-check-one\\r\\necho stamp-check-two\\r\\n')
-    for (let i = 0; i < 40; i++) {
-      await wait(200)
-      const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
-      if (gutter && gutter.textContent && /\\d{2}:\\d{2}:\\d{2}/.test(gutter.textContent)) break
-    }
+    const e = window.__tdTerminals ? Object.values(window.__tdTerminals)[0] : null
+    if (e && e.term) e.term.write('echo stamp-check-one\\r\\necho stamp-check-two\\r\\n')
+    await wait(1500)
     return true
   })()`)
-  await sleep(1200)
+  await sleep(800)
 
   const probe = `
     (async () => {
@@ -137,9 +138,24 @@ async function main() {
         !!document.querySelector('.td-sidebar') &&
           !document.querySelector('.td-rail').classList.contains('is-collapsed'))
 
-      // ---- 2. gutter is blended, not boxed --------------------------------
+      // ---- 2. the gutter is off by default, and blends when shown ----------
+      /*
+       * Timestamps are off by default now: in a split they cost horizontal room in
+       * every pane at once. So this enables them explicitly and then asserts the
+       * toggle takes them away again — which is also the honest test of the
+       * right-click control.
+       */
+      push('timestamps default to off',
+        (await api.loadSettings()).terminal.showTimestamps === false &&
+          !document.querySelector('[data-testid="timestamp-gutter"]'),
+        'gutter=' + !!document.querySelector('[data-testid="timestamp-gutter"]'))
+
+      let s = await api.loadSettings()
+      await api.saveSettings({ ...s, terminal: { ...s.terminal, showTimestamps: true } })
+      await wait(1400)
+
       const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
-      push('the timestamp gutter is present', gutter)
+      push('turning them on shows the gutter', gutter)
       if (gutter) {
         const cs = getComputedStyle(gutter)
         const paneCs = getComputedStyle(document.querySelector('.td-terminal'))
@@ -225,23 +241,32 @@ async function main() {
       push('the gutter disappears from the pane',
         !document.querySelector('[data-testid="timestamp-gutter"]'))
 
-      // Re-open and turn them back on, confirming it is a real toggle.
-      const tab2 = document.querySelector('.dv-tab')
-      const r2 = tab2.getBoundingClientRect()
-      tab2.dispatchEvent(new MouseEvent('contextmenu', {
+      // And back on, through the same menu, so the control is proven both ways.
+      await api.saveSettings({
+        ...afterHide,
+        terminal: { ...afterHide.terminal, showTimestamps: true }
+      })
+      await wait(1200)
+      const tabAgain = document.querySelector('.dv-tab')
+      const rAgain = tabAgain.getBoundingClientRect()
+      tabAgain.dispatchEvent(new MouseEvent('contextmenu', {
         bubbles: true, cancelable: true, button: 2,
-        clientX: Math.round(r2.x + r2.width / 2), clientY: Math.round(r2.y + r2.height / 2)
+        clientX: Math.round(rAgain.x + rAgain.width / 2),
+        clientY: Math.round(rAgain.y + rAgain.height / 2)
       }))
       await wait(500)
-      const menu2 = document.querySelector('[data-testid="tab-menu"] [data-menu-id="toggleTimestamps"]')
-      push('re-opening offers to show them again',
-        !!menu2 && /show/i.test(menu2.textContent || ''), menu2 ? JSON.stringify(menu2.textContent) : 'missing')
-      if (menu2) {
-        menu2.click()
-        await wait(1600)
-        push('choosing it turns timestamps back on',
-          (await api.loadSettings()).terminal.showTimestamps === true)
-        push('the gutter returns', !!document.querySelector('[data-testid="timestamp-gutter"]'))
+      const backItem = document.querySelector(
+        '[data-testid="tab-menu"] [data-menu-id="toggleTimestamps"]'
+      )
+      push('re-opening offers to hide them again',
+        !!backItem && /hide/i.test(backItem.textContent || ''),
+        backItem ? JSON.stringify(backItem.textContent) : 'missing')
+      if (backItem) {
+        backItem.click()
+        await wait(1500)
+        push('choosing it removes the gutter again',
+          !document.querySelector('[data-testid="timestamp-gutter"]') &&
+            (await api.loadSettings()).terminal.showTimestamps === false)
       }
 
       // ---- the collapsed state survives a reload --------------------------

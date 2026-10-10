@@ -324,6 +324,9 @@ export interface TerminalSettings {
   /**
    * Show a timestamp gutter beside each pane. Times are recorded per line as it
    * is written; they are not persisted, since scrollback is not either.
+   *
+   * Off by default: with the panes split it costs horizontal room in every pane
+   * at once, and the column is only wanted while actively reading output.
    */
   showTimestamps: boolean
 }
@@ -427,7 +430,7 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
    * is what the reference client (WindTerm) shows; it can be turned off in
    * Settings → Terminal.
    */
-  showTimestamps: true
+  showTimestamps: false
 }
 
 export const DEFAULT_CLIPBOARD_SETTINGS: ClipboardSettings = {

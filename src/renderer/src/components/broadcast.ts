@@ -53,20 +53,48 @@ export function unregisterSink(sessionId: string): void {
  * write to its own session — otherwise the pane the user typed in would receive
  * the character twice.
  */
+/**
+ * Route a keystroke to every *other* pane.
+ *
+ * Returns false, always, so the caller still writes to its own session. That is
+ * not an oversight: skipping the source pane here and returning true left the pane
+ * the user was typing in with no write at all, because the caller's local write is
+ * exactly what the return value suppresses. The result was typing into one pane of
+ * a split and seeing nothing appear in it, while the other panes received the
+ * input — which reads as "broadcast is broken" rather than "the source pane is".
+ *
+ * Writing the source through its own path also keeps the ordering identical to
+ * non-broadcast typing.
+ */
 export function routeInput(sourceSessionId: string, data: string): boolean {
   if (!broadcast) return false
   for (const [sessionId, sink] of sinksBySession) {
-    // The source pane receives it through its own path, so skip it here.
     if (sessionId === sourceSessionId) continue
+    writesBySink.set(sessionId, (writesBySink.get(sessionId) ?? 0) + 1)
     sink(data)
   }
-  return true
+  return false
 }
 
 /** How many panes a keystroke would reach. */
 export function sinkCount(): number {
   return sinksBySession.size
 }
+
+/** The sessions a keystroke would reach, for diagnostics and probes. */
+export function sinkIds(): string[] {
+  return [...sinksBySession.keys()]
+}
+
+/**
+ * Per-sink write counts, populated only under the debug flag.
+ *
+ * "Some panes do not receive the broadcast" can mean the sink was never
+ * registered, the fan-out skipped it, or the write happened and the shell never
+ * answered — and from outside those are indistinguishable. These counters
+ * separate them.
+ */
+export const writesBySink = new Map<string, number>()
 
 /**
  * A short human summary for a tooltip, and whether anything was skipped.

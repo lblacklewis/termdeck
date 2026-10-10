@@ -45,9 +45,12 @@ import {
   broadcastSummary,
   isBroadcasting,
   onBroadcastChange,
-  toggleBroadcasting
+  sinkIds,
+  toggleBroadcasting,
+  writesBySink
 } from './components/broadcast'
 import { useShortcuts } from './components/useShortcuts'
+import { refitAll } from './components/terminalRegistry'
 import { useTheme } from './components/useTheme'
 
 const api = window.termdeck
@@ -154,6 +157,8 @@ export function App(): JSX.Element {
   const [railCollapsed, setRailCollapsed] = useState(false)
   /** True once the stored layout has been applied and may be written back. */
   const [layoutReady, setLayoutReady] = useState(false)
+  /** How many dockview panes are open; drives the broadcast control's visibility. */
+  const [panelCount, setPanelCount] = useState(0)
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [connectError, setConnectError] = useState<string | null>(null)
@@ -326,8 +331,14 @@ export function App(): JSX.Element {
     if (!container) return
 
     /*
-     * A container with no size yet is not usable: dockview would measure 0x0 and
-     * every view it creates inherits that. Wait for a real box in that case.
+     * Build as soon as there is any box at all.
+     *
+     * A "wait until it looks settled" test was tried here — including one that
+     * waited for two identical ticks — and it made things worse rather than
+     * better: while the dock does not exist, the watchdog that corrects sizes
+     * cannot run either, so a container that never settles leaves no dock at all.
+     * Building immediately and letting the watchdog converge is the version that
+     * works.
      */
     if (container.clientWidth === 0 || container.clientHeight === 0) {
       const waiter = new ResizeObserver(() => {
@@ -401,6 +412,12 @@ export function App(): JSX.Element {
       // The component itself: `api.layout` is not the same function as
       // `dock.layout`, and probes need the latter.
       ;(window as unknown as Record<string, unknown>)['__tdDock'] = dock
+      // Broadcast fan-out state, so a probe can tell "this pane was never
+      // registered" apart from "it was written to and the shell stayed quiet".
+      ;(window as unknown as Record<string, unknown>)['__tdBroadcast'] = {
+        sinks: sinkIds,
+        writes: writesBySink
+      }
     }
 
     const removed = dock.api.onDidRemovePanel((panel) => {
@@ -433,6 +450,10 @@ export function App(): JSX.Element {
 
     const disposition = dock.api.onDidLayoutChange(() => {
       dirty = true
+      // How many panes a keystroke would reach, for the broadcast control. Counted
+      // from the layout rather than from the session list, because a restored
+      // placeholder is a pane too and the two must not disagree.
+      setPanelCount(dock.api.panels.length)
       window.clearTimeout(saveTimer)
       saveTimer = window.setTimeout(persist, 400)
     })
@@ -461,6 +482,7 @@ export function App(): JSX.Element {
           restored = false
         }
       }
+      setPanelCount(dock.api.panels.length)
 
       if (restored) {
         for (const panel of dock.api.panels) {
@@ -508,9 +530,34 @@ export function App(): JSX.Element {
       const width = host.clientWidth
       const height = host.clientHeight
       if (width === 0 || height === 0) return
+      /*
+       * No "is it big enough?" guard here, deliberately.
+       *
+       * One was tried — skip anything under 200px, on the theory that a
+       * placeholder-sized container must not be handed to `dock.layout` — and it
+       * caused the very failure it was meant to prevent. `dock.layout()` does not
+       * only read the container: it *resizes the docking surface to the numbers it
+       * is given*. Once that surface is collapsed, the container reads the
+       * collapsed size too, so the guard skipped every call from then on and the
+       * state became permanent — 65px panes with blank terminals, surviving
+       * reloads and window resizes. Without the guard the next tick lays out the
+       * real size again as soon as the surface is released.
+       */
       // `force` matters: without it dockview treats the size as unchanged and
       // leaves its internal grid at the placeholder it measured on mount.
       dock.layout(width, height, true)
+
+      /*
+       * Then ask every terminal to re-measure.
+       *
+       * Correcting the layout is only half the job: a terminal that was fitted
+       * against the collapsed box keeps that size, and its own watchdog may have
+       * stopped by then — so the pane stays 65px with a blank terminal even though
+       * the container is now right. One idempotent refit per tick is cheap next to
+       * the terminal's own rendering, and it is what makes the correction actually
+       * visible.
+       */
+      refitAll()
 
       if (window.localStorage.getItem('tdDebug') === '1') {
         const trail = ((window as unknown as Record<string, unknown>)['__tdDockTrail'] ??=
@@ -521,6 +568,7 @@ export function App(): JSX.Element {
           at: Math.round(performance.now()),
           dpr: window.devicePixelRatio,
           asked: `${width}x${height}`,
+          dock: `${host.clientWidth}x${host.clientHeight}`,
           grid: grid ? `${grid.clientWidth}x${grid.clientHeight}` : null,
           group: group ? `${group.clientWidth}x${group.clientHeight}` : null
         })
@@ -544,9 +592,16 @@ export function App(): JSX.Element {
         applyLayout()
       })
     }
-    // Reachable from addSession: a pane added before the dock has been measured
-    // would otherwise stay glued to the placeholder size forever.
-    dockSyncRef.current = syncLayout
+    /*
+     * Reachable from `addSession` and from a scale change: a pane added before the
+     * dock has been measured would otherwise stay glued to the placeholder size.
+     *
+     * This is `applyLayout`, not the coalesced `syncLayout`, and deliberately
+     * synchronous. `requestAnimationFrame` is throttled when the window is not
+     * being painted, and a deferred call that never runs is exactly how a pane ends
+     * up 65px tall with a blank terminal.
+     */
+    dockSyncRef.current = applyLayout
     const dockObserver = new ResizeObserver(syncLayout)
     dockObserver.observe(host)
 
@@ -666,15 +721,18 @@ export function App(): JSX.Element {
      * and never grows, so its terminal paints in a 65px box. Retrying until the
      * panel reports a plausible width makes that self-correcting instead of
      * leaving a permanently broken pane.
+     *
+     * The retry continues while the *pane* is small, not only while the width is
+     * small: a pane whose width is right but whose height collapsed is the same
+     * bug, and it used to stop retrying right there.
      */
     let attempts = 0
     const settle = (): void => {
       dockSyncRef.current?.()
       const panel = dockApi.getPanel(session.id)
-      const wide = panel ? panel.api.width : 0
-      if (attempts++ < 20 && wide < 200 && dockSyncRef.current) {
-        window.setTimeout(settle, 60)
-      }
+      const tiny =
+        !panel || panel.api.width < 200 || panel.api.height < 200
+      if (attempts++ < 30 && tiny) window.setTimeout(settle, 100)
     }
     settle()
   }, [])
@@ -869,9 +927,18 @@ export function App(): JSX.Element {
     }
   }, [])
 
-  const createFolder = useCallback(async (parentId: string | null) => {
+  /** Move one session into a folder (or out of every folder with null). */
+  const moveSessionTo = useCallback(async (sessionId: string, parentId: string | null) => {
     try {
-      await api.saveFolder({ name: 'New folder', parentId })
+      await api.moveSession(sessionId, parentId)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  const createFolder = useCallback(async (parentId: string | null, name = 'New folder') => {
+    try {
+      await api.saveFolder({ name, parentId })
     } catch (err) {
       setToast(err instanceof Error ? err.message : String(err))
     }
@@ -1194,6 +1261,94 @@ export function App(): JSX.Element {
     [removeSessionState]
   )
 
+  /**
+   * Open a second connection to the same host, in its own floating window.
+   *
+   * "Duplicate this channel" rather than "duplicate this tab": the useful thing
+   * is another live login to the same box, which then behaves independently — and
+   * a floating group keeps it out of the way of the arrangement while still being
+   * one window. Falls back to a normal tab when dockview will not float it, so the
+   * action can never silently do nothing.
+   */
+  const duplicateConnection = useCallback(
+    (panelId: string) => {
+      const dockApi = dockApiRef.current
+      const panel = dockApi?.getPanel(panelId)
+      if (!dockApi || !panel) return
+
+      const params = panel.api.getParameters<TerminalPanelMeta>() ?? {}
+      const title = panel.title || params.title || 'Session'
+
+      const open = (session: SessionInfo): void => {
+        // `floating` is an undocumented-by-types member of the API here; the cast
+        // is deliberate and the tab path below is the supported fallback.
+        const api = dockApi as unknown as {
+          addFloatingGroup?: (
+            item: unknown,
+            options: Record<string, unknown>
+          ) => void
+        }
+        if (typeof api.addFloatingGroup === 'function') {
+          try {
+            api.addFloatingGroup(
+              {
+                id: session.id,
+                component: 'terminal',
+                title: session.title,
+                params: { session, onEnded: (id: string) => endedRef.current(id) }
+              },
+              { width: 620, height: 420, position: { left: 120, top: 90 } }
+            )
+            dockSyncRef.current?.()
+            return
+          } catch {
+            // Fall through to a plain tab rather than losing the action.
+          }
+        }
+        dockApi.addPanel({
+          id: session.id,
+          component: 'terminal',
+          title: session.title,
+          params: { session, onEnded: (id: string) => endedRef.current(id) }
+        })
+        dockSyncRef.current?.()
+        setToast(`Opened “${session.title}” in a new tab`)
+      }
+
+      const savedSessionId = params.savedSessionId
+      const saved = savedSessionId
+        ? treeRef.current.sessions.find((s) => s.id === savedSessionId)
+        : undefined
+
+      if (saved) {
+        // Reconnect through the same path the pane uses, so credentials come from
+        // the encrypted store rather than being re-typed.
+        setToast(`Opening a second channel to “${title}”…`)
+        void connectSavedRef.current(saved)
+        return
+      }
+
+      if (params.session?.kind === 'ssh' && params.session.title) {
+        const match = treeRef.current.sessions.find((s) => s.name === params.session?.title)
+        if (match) {
+          setToast(`Opening a second channel to “${title}”…`)
+          void connectSavedRef.current(match)
+          return
+        }
+      }
+
+      setToast(`Opening a new local shell, because “${title}” has no saved host`)
+      void api.createLocalSession({ title: `${title} (2)` }).then((result) => {
+        if (!result.ok) {
+          setAlert({ message: result.error.message })
+          return
+        }
+        addSession(result.session)
+      })
+    },
+    [addSession]
+  )
+
   const tabMenuItems = useMemo((): MenuItem[] => {
     if (!tabMenu) return []
     const dockApi = dockApiRef.current
@@ -1204,6 +1359,11 @@ export function App(): JSX.Element {
     const closable = panels.filter((p) => p.id !== 'welcome')
 
     return [
+      {
+        id: 'duplicateConnection',
+        label: 'Duplicate connection',
+        hint: 'new window',
+      },
       {
         id: 'reload',
         label: 'Reload / reconnect',
@@ -1242,6 +1402,10 @@ export function App(): JSX.Element {
       const panels = group ? group.panels : []
       const index = panels.findIndex((p) => p.id === tabMenu.panelId)
 
+      if (actionId === 'duplicateConnection') {
+        duplicateConnection(tabMenu.panelId)
+        return
+      }
       if (actionId === 'reload') {
         reloadPanel(tabMenu.panelId)
         return
@@ -1281,7 +1445,7 @@ export function App(): JSX.Element {
         closePanels(panels.map((p) => p.id))
       }
     },
-    [tabMenu, closePanels, copyPanelOutput, savePanelOutput, settings, reloadPanel]
+    [tabMenu, closePanels, copyPanelOutput, savePanelOutput, settings, reloadPanel, duplicateConnection]
   )
 
   // ---- shortcuts ----------------------------------------------------------
@@ -1349,11 +1513,13 @@ export function App(): JSX.Element {
           setSettingsOpen(false)
           /*
            * The rail and its list are one column, so the same icon shows and hides
-           * the list: clicking the section you are already on toggles the drawer,
-           * and icons stay reachable either way. Picking a different section always
-           * brings the drawer back, because that is what was asked for.
+           * the list: clicking the section you are already on toggles it. That is
+           * measured on whether the drawer is *showing*, not on whether the rail is
+           * nominally expanded — Hosts has no drawer of its own, so a collapsed
+           * flag alone would make the first click there do nothing visible.
            */
-          if (next === page) setRailCollapsed((v) => !v)
+          const drawerShowing = !railCollapsed && page !== 'hosts'
+          if (next === page) setRailCollapsed(drawerShowing)
           else {
             setPage(next)
             setRailCollapsed(false)
@@ -1385,8 +1551,23 @@ export function App(): JSX.Element {
           tree={tree}
           sessions={sessions}
           knownTags={knownTags}
-          onConnect={(s) => void connectSaved(s)}
+          /*
+           * Connecting from Hosts switches to Terminal first. The connection's
+           * pane lives in the workspace, so staying on Hosts would open a session
+           * the user cannot see and has to go looking for.
+           */
+          onConnect={(s) => {
+            setPage('terminal')
+            void connectSaved(s)
+          }}
           onEdit={(s) => openEditor(s, s.parentId)}
+          onDelete={(id) => void api.deleteSession(id)}
+          onDuplicate={(s) => void duplicateSession(s)}
+          onNewHost={(parentId) => openEditor(null, parentId)}
+          onCreateGroup={(name, parentId) => void createFolder(parentId, name)}
+          onRenameGroup={(id, name) => void api.saveFolder({ id, name })}
+          onDeleteGroup={(id) => void api.deleteFolder(id)}
+          onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
         />
       )}
 
@@ -1394,8 +1575,11 @@ export function App(): JSX.Element {
         The rail's list drawer. It is part of the same column as the rail rather
         than a separate one, and shrinks away entirely when the rail is collapsed
         so the window reads as "icons, or icons + list".
+
+        Hosts has no list of its own: its page is the list, so the drawer would
+        only be a narrower copy of what is already on screen.
       */}
-      {!railCollapsed && (
+      {!railCollapsed && page !== 'hosts' && (
         <aside className="td-sidebar">
           {/* No brand here: the rail carries it, and repeating it made the pair
               read as two separate panels. */}
@@ -1498,19 +1682,6 @@ export function App(): JSX.Element {
               ⌨
             </button>
             <button
-              className={`td-icon-btn${broadcasting ? ' is-active' : ''}`}
-              title={
-                broadcasting
-                  ? `Broadcasting — ${broadcastSummary()}. Click to send to the focused pane only.`
-                  : 'Broadcast input: send typing to every open session at once'
-              }
-              data-testid="toggle-broadcast"
-              aria-pressed={broadcasting}
-              onClick={() => setBroadcasting(toggleBroadcasting())}
-            >
-              ⇶
-            </button>
-            <button
               className="td-icon-btn"
               title="Settings"
               data-testid="open-settings"
@@ -1531,6 +1702,33 @@ export function App(): JSX.Element {
         container, so it appeared under "Open sessions" but never painted.
       */}
       <div className={'td-content' + (page === 'terminal' ? '' : ' is-hidden')}>
+        {/*
+          Broadcast lives over the terminal itself rather than in the sidebar.
+          It is a property of the workspace — how many panes a keystroke reaches —
+          so it belongs with the panes, and it only appears once there is more than
+          one to send to.
+        */}
+        {panelCount > 1 && (
+          <div className="td-terminal-tools" data-testid="terminal-tools">
+            <button
+              className={`td-broadcast${broadcasting ? ' is-on' : ''}`}
+              title={
+                broadcasting
+                  ? `Typing goes to all ${panelCount} panes — ${broadcastSummary()}. Click to send to the focused pane only.`
+                  : `Broadcast input: send typing to all ${panelCount} panes at once`
+              }
+              data-testid="toggle-broadcast"
+              aria-pressed={broadcasting}
+              onClick={() => setBroadcasting(toggleBroadcasting())}
+            >
+              <span aria-hidden="true">⇶</span>
+              <span>{broadcasting ? 'Typing to all' : 'Broadcast'}</span>
+              <span className="td-broadcast-count" data-contrast-exempt>
+                {panelCount}
+              </span>
+            </button>
+          </div>
+        )}
         <main className="td-main">
           <div
             className="td-dockview dockview-theme-abyss"

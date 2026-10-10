@@ -23,6 +23,9 @@ function report(checks) {
 }
 
 async function main() {
+  // A dedicated profile can still carry settings from an earlier run — this suite
+  // turns timestamps on and saves that — so it starts from nothing.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
   // Start from the default arrangement, so a collapsed sidebar left behind by an
@@ -62,6 +65,28 @@ async function main() {
   // 100x100 placeholder rather than the real pane.
   await sleep(3000)
 
+  /*
+   * Note the collapsed docking surface if this launch produced one. It is reported
+   * as a failure rather than skipped: `smoke:repeat` is the dedicated check and
+   * runs each pane in its own process, so a collapse here is real information
+   * about this process, not a reason to measure nothing.
+   */
+  const collapsed = await win.webContents.executeJavaScript(`(() => {
+    const g = document.querySelector('.dv-grid-view')
+    const d = document.querySelector('.td-dockview')
+    const e = window.__tdTerminals ? Object.values(window.__tdTerminals)[0] : null
+    if (!g || !d) return null
+    return {
+      grid: g.clientWidth + 'x' + g.clientHeight,
+      dock: d.clientWidth + 'x' + d.clientHeight,
+      rows: e && e.term ? e.term.rows : -1,
+      collapsed: g.clientHeight < d.clientHeight - 50 || (e && e.term && e.term.rows <= 24)
+    }
+  })()`)
+  if (collapsed && collapsed.collapsed) {
+    console.log('NOTE  the docking surface is collapsed: ' + JSON.stringify(collapsed))
+  }
+
   const probe = `
     (async () => {
       const out = []
@@ -93,7 +118,20 @@ async function main() {
 
       push('a shell pane was opened', !!term())
       push('the pane has a real box', !!host() && host().clientHeight > 200,
-        host() ? host().clientHeight + 'px tall' : 'no host')
+        (host() ? host().clientHeight + 'px tall' : 'no host') +
+          ' grid=' + (() => {
+            const g = document.querySelector('.dv-grid-view')
+            return g ? g.clientWidth + 'x' + g.clientHeight : 'none'
+          })() +
+          ' dock=' + (() => {
+            const d = document.querySelector('.td-dockview')
+            return d ? d.clientWidth + 'x' + d.clientHeight : 'none'
+          })() +
+          ' dockInner=' + (() => {
+            const d = document.querySelector('.dv-dockview')
+            return d ? d.clientWidth + 'x' + d.clientHeight + ' style=' + (d.getAttribute('style') || '') : 'none'
+          })() +
+          ' last=' + JSON.stringify((window.__tdDockTrail || []).slice(-1)))
       if (!term()) return out
 
       const t = term()
@@ -137,33 +175,55 @@ async function main() {
         !!bb2 && sb2 && sb2.bottom <= bb2.top + 1,
         JSON.stringify({ screenBottom: sb2 ? sb2.bottom : null, barTop: bb2 ? bb2.top : null }))
 
-      // ---- timestamps on by default, WindTerm-style bracketed clock --------
+      // ---- timestamps: off by default, and aligned when shown --------------
+      push('the timestamp gutter is off by default',
+        !document.querySelector('[data-testid="timestamp-gutter"]'))
+
+      const stampSettings = await window.termdeck.loadSettings()
+      await window.termdeck.saveSettings({
+        ...stampSettings,
+        terminal: { ...stampSettings.terminal, showTimestamps: true }
+      })
+      await wait(1200)
+
       const gutter = document.querySelector('[data-testid="timestamp-gutter"]')
-      push('the timestamp gutter is on by default', gutter)
+      push('turning timestamps on shows the gutter', gutter)
       if (gutter) {
-        // A freshly opened shell has not printed anything yet, so wait for the
-        // prompt before asserting that lines are stamped. The pattern is built
-        // with the RegExp constructor rather than a literal, because a literal
-        // inside this template would lose a backslash and become /[d{2}/.
-        const stampedRe = new RegExp('\\\\[\\\\d{2}:\\\\d{2}')
+        /*
+         * A freshly opened shell has not printed anything yet, so wait for a
+         * stamped line before measuring. Cells are counted by whether they hold
+         * text, not by matching a time: the gutter blanks the repeats inside one
+         * second, so a pattern would under-count on a fast shell.
+         */
+        const filledCells = () =>
+          [...gutter.querySelectorAll('.td-terminal-stamp')].filter(
+            (c) => (c.textContent || '').trim().length > 0
+          )
         for (let i = 0; i < 40; i++) {
-          const any = [...gutter.querySelectorAll('.td-terminal-stamp')]
-            .some((c) => stampedRe.test(c.textContent || ''))
-          if (any) break
+          if (filledCells().length > 0) break
           await wait(250)
         }
         const cells = [...gutter.querySelectorAll('.td-terminal-stamp')]
         push('the gutter matches the terminal row count',
           cells.length === term().rows,
           'cells=' + cells.length + ' rows=' + term().rows)
-        const stamped = cells.map((c) => c.textContent).filter((s) => stampedRe.test(s))
+        const stamped = filledCells().map((c) => (c.textContent || '').trim())
         push('stamps use the bracketed [HH:MM:SS] form',
-          stamped.length > 0, JSON.stringify(stamped.slice(0, 3)))
+          stamped.length > 0 &&
+            stamped.every(
+              (t) =>
+                t.length === 10 &&
+                t[0] === '[' &&
+                t[9] === ']' &&
+                t[3] === ':' &&
+                t[6] === ':'
+            ),
+          JSON.stringify(stamped.slice(0, 3)))
         const cellH = cells[0] ? cells[0].getBoundingClientRect().height : 0
-        const screenH = document.querySelector('.xterm-screen').getBoundingClientRect().height
+        const rowH = document.querySelector('.xterm-screen').getBoundingClientRect().height / term().rows
         push('gutter rows align with terminal rows',
-          Math.abs(cellH - screenH / term().rows) < 1.5,
-          \`cell=\${cellH.toFixed(2)} row=\${(screenH / term().rows).toFixed(2)}\`)
+          Math.abs(cellH - rowH) < 1.5,
+          'cell=' + cellH.toFixed(2) + ' row=' + rowH.toFixed(2))
       }
 
       return out

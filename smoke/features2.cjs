@@ -26,6 +26,10 @@ function report(checks) {
 
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  // Wipe the profile before anything constructs a store. The stores cache
+  // their contents in memory, so deleting their files afterwards leaves the
+  // previous run's data in place and the next write puts it back on disk.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   mod.registerIpc()
   require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
   mod.storeAccess().layout.clear()
@@ -155,11 +159,12 @@ async function main() {
         await wait(1200)
       }
 
-      // The gutter is on by default (matching the reference client), so the
-      // interesting assertion is that the setting can turn it off.
+      // Timestamps are off by default — in a split they cost horizontal room in
+      // every pane — so the interesting assertion is that the setting turns the
+      // gutter on, and then off again.
       const settingOnLoad = (await api.loadSettings()).terminal.showTimestamps
-      push('the gutter is on by default',
-        settingOnLoad === true && !!document.querySelector('[data-testid="timestamp-gutter"]'),
+      push('timestamps are off by default',
+        settingOnLoad === false && !document.querySelector('[data-testid="timestamp-gutter"]'),
         'showTimestamps=' + settingOnLoad +
           ' gutter=' + !!document.querySelector('[data-testid="timestamp-gutter"]'))
 

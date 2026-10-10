@@ -11,6 +11,27 @@
 import type { Terminal } from '@xterm/xterm'
 
 const terminals = new Map<string, Terminal>()
+const refitters = new Map<string, () => void>()
+
+/**
+ * How a pane re-measures itself.
+ *
+ * Registered by `useTerminal`. The docking layer needs this: when it corrects the
+ * container's size, the terminals inside have to re-measure, and the pane's own
+ * watchdog may already have stopped by then — which is what left a pane at 65px
+ * with a blank terminal even after the layout was put right.
+ */
+export function registerRefit(sessionId: string, refit: () => void): void {
+  refitters.set(sessionId, refit)
+}
+
+export function unregisterRefit(sessionId: string): void {
+  refitters.delete(sessionId)
+}
+
+export function refitAll(): void {
+  for (const refit of refitters.values()) refit()
+}
 
 export function registerTerminal(sessionId: string, term: Terminal): void {
   terminals.set(sessionId, term)
@@ -70,18 +91,22 @@ export function applyCursorBlink(container: HTMLElement, blink: boolean, periodM
 // ---- per-line timestamps -------------------------------------------------
 
 /**
- * `[HH:MM:SS]`, always the same width.
+ * `[HH:MM:SS]`, to the second.
  *
- * Bracketed and fixed-width to match the convention the reference client
- * (WindTerm) uses, so the column reads as a gutter rather than as part of the
- * command output. Lines older than an hour used to drop the seconds, which made
- * the column change width while scrolling — the gutter now owns that saving
- * instead by being sized for the full form and letting the faint ink recede.
+ * Second resolution is deliberate: milliseconds make the column wide and the
+ * digits churn faster than anyone reads them, and the clock the user compares
+ * against is a wall clock. Fixed width, bracketed, matching the convention the
+ * reference client (WindTerm) uses so the column reads as a gutter.
  */
 function formatStamp(at: number): string {
   const d = new Date(at)
   const pad = (n: number): string => String(n).padStart(2, '0')
   return `[${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}]`
+}
+
+/** The second a timestamp falls in, for collapsing repeats within one second. */
+function secondOf(at: number): number {
+  return Math.floor(at / 1000)
 }
 
 /**
@@ -130,6 +155,24 @@ export class LineTimestamps {
   at(line: number): string | null {
     const t = this.times[line]
     return t === null || t === undefined ? null : formatStamp(t)
+  }
+
+  /**
+   * The label to draw for a run of lines, blank inside a repeated second.
+   *
+   * Several lines usually land in the same second, and repeating the same
+   * `[HH:MM:SS]` down the column is noise that makes the gutter hard to scan. The
+   * time is drawn once, on the first line of each second, and the rest of that
+   * second is left blank — so the eye follows the transitions instead.
+   */
+  labelAt(line: number): string | null {
+    const t = this.times[line]
+    if (t === null || t === undefined) return null
+    const previous = line > 0 ? this.times[line - 1] : null
+    if (previous !== null && previous !== undefined && secondOf(previous) === secondOf(t)) {
+      return null
+    }
+    return formatStamp(t)
   }
 
   /** Total buffer lines, so a gutter can match the terminal's row count. */

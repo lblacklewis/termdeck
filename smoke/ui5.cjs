@@ -77,6 +77,10 @@ process.env['TERMDECK_KNOWN_HOSTS'] = seeded.file
 
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  // Wipe the profile before anything constructs a store. The stores cache
+  // their contents in memory, so deleting their files afterwards leaves the
+  // previous run's data in place and the next write puts it back on disk.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   mod.registerIpc()
 
   // Start from empty stores: this suite walks the pages and drawers from a known
@@ -194,8 +198,14 @@ async function main() {
         !!document.querySelector('[data-host-group]'),
         [...document.querySelectorAll('[data-host-group]')].map((g) => g.getAttribute('data-host-group')).join(' | '))
       const connectBtn = document.querySelector('[data-action="connect"]')
-      push('host rows offer Connect and Edit',
-        !!connectBtn && !!document.querySelector('[data-action="edit"]'))
+      /*
+       * Connect stays a visible button; editing moved into the row's ellipsis menu,
+       * along with duplicate and delete. Asserting the menu button exists rather
+       * than an edit button keeps this honest about where the action now lives.
+       */
+      push('host rows offer Connect and a row menu',
+        !!connectBtn && !!document.querySelector('[data-action="menu"]'),
+        'connect=' + !!connectBtn + ' menu=' + !!document.querySelector('[data-action="menu"]'))
 
       await go('snippets')
       push('snippets page renders', !!document.querySelector('[data-testid="snippets-page"]'))

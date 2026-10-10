@@ -22,6 +22,10 @@ function report(checks) {
 
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  // Wipe the profile before anything constructs a store. The stores cache
+  // their contents in memory, so deleting their files afterwards leaves the
+  // previous run's data in place and the next write puts it back on disk.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   mod.registerIpc()
   require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
   mod.storeAccess().layout.clear()
@@ -238,6 +242,76 @@ async function main() {
       push('turning broadcast off stops the fan-out',
         textFor(ids[0]).includes(afterMarker) && !textFor(ids[1]).includes(afterMarker),
         'pane1 has it=' + textFor(ids[1]).includes(afterMarker))
+
+      // ---- 4. broadcast across a real split --------------------------------
+      // The reported bug: with panes split, some of them do not receive the
+      // broadcast. The two panes above are stacked tabs in one group, so this
+      // opens a third and splits it out, which is the arrangement the report is
+      // about — and checks every pane is *registered* before typing, so a timing
+      // edge in the pane's mount cannot be mistaken for the bug.
+      const third = await api.createLocalSession({})
+      if (third.ok) {
+        window.__tdDockApi.addPanel({
+          id: third.session.id,
+          component: 'terminal',
+          title: third.session.title,
+          position: { referencePanel: ids[0], direction: 'right' },
+          params: { session: third.session, onEnded: () => {} }
+        })
+      }
+      await wait(2500)
+
+      const splitIds = window.__tdDockApi.panels.map((p) => p.id)
+      const registered = () => splitIds.filter((id) => {
+        const entry = window.__tdTerminals ? window.__tdTerminals[id] : null
+        return !!entry && !!entry.term
+      })
+      const allRegistered = await waitFor(() => registered().length === splitIds.length, 15000)
+      push('every pane in the split has a registered terminal',
+        allRegistered,
+        'registered=' + registered().length + ' of ' + splitIds.length)
+
+      const groupCount = window.__tdDockApi.groups.length
+      push('the panes really are split, not stacked',
+        groupCount >= 2, 'groups=' + groupCount + ' panels=' + splitIds.length)
+
+      // Turn broadcast on through the control, then type into the first pane.
+      if (document.querySelector('[data-testid="toggle-broadcast"]').getAttribute('aria-pressed') !== 'true') {
+        document.querySelector('[data-testid="toggle-broadcast"]').click()
+        await wait(700)
+      }
+      const splitMarker = 'SPLIT_' + Date.now()
+      typeInto(splitIds[0], 'echo ' + splitMarker)
+      // Poll rather than sample once: a freshly split pane's shell can take a
+      // moment, and a single read cannot tell "never arrived" from "not yet".
+      await waitFor(
+        () => splitIds.every((id) => textFor(id).includes(splitMarker)),
+        12000
+      )
+
+      const reached = splitIds.filter((id) => textFor(id).includes(splitMarker))
+      const fanout = window.__tdBroadcast
+        ? {
+            sinks: window.__tdBroadcast.sinks(),
+            writes: Object.fromEntries(window.__tdBroadcast.writes)
+          }
+        : null
+      push('broadcast reaches every pane of the split',
+        reached.length === splitIds.length,
+        JSON.stringify({
+          panels: splitIds.length,
+          reached: reached.length,
+          missed: splitIds.filter((id) => !reached.includes(id)).map((id) => ({
+            id,
+            writes: fanout ? fanout.writes[id] : null,
+            isSink: fanout ? fanout.sinks.includes(id) : null,
+            tail: textFor(id).trim().slice(-40)
+          })),
+          fanout
+        }))
+      push('the split panes have distinct sessions',
+        new Set(splitIds).size === splitIds.length,
+        splitIds.join(' | '))
 
       return out
     })()

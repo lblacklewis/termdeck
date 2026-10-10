@@ -9,8 +9,10 @@ import { buildTerminalOptions, terminalThemeFor } from './terminalTheme'
 import {
   LineTimestamps,
   applyCursorBlink,
+  registerRefit,
   registerStamps,
   registerTerminal,
+  unregisterRefit,
   unregisterStamps,
   unregisterTerminal
 } from './terminalRegistry'
@@ -102,19 +104,41 @@ export function useTerminal(
       return typeof dims === 'number' && dims > 0
     }
 
+    /**
+     * Test hook: the last few fit attempts and why they bailed.
+     *
+     * Only under `localStorage.tdDebug`. A terminal that will not fit has several
+     * distinct causes — a zero-size container, an unmeasured renderer, a throw from
+     * `fit()` — and from outside they look identical.
+     */
+    const noteFit = (message: string): void => {
+      if (window.localStorage.getItem('tdDebug') !== '1') return
+      const log = ((window as unknown as Record<string, unknown>)['__tdFitTrail'] ??= []) as string[]
+      log.push(`${Math.round(performance.now())} ${message}`)
+      if (log.length > 40) log.shift()
+    }
+
     const doFit = (): void => {
       if (disposed) return
       // An inactive dockview tab keeps its element in the DOM but at 0x0, and
       // fit() throws for a zero-size element — skip rather than spam errors.
-      if (container.clientWidth === 0 || container.clientHeight === 0) return
-      if (!rendererReady()) return
+      if (container.clientWidth === 0 || container.clientHeight === 0) {
+        noteFit('zero-size container')
+        return
+      }
+      if (!rendererReady()) {
+        noteFit('renderer not measured')
+        return
+      }
       const w = container.clientWidth
       const h = container.clientHeight
       try {
         fit.fit()
-      } catch {
+      } catch (err) {
+        noteFit('fit threw: ' + String((err as Error)?.message || err))
         return
       }
+      noteFit(`fit ${w}x${h} -> ${term.cols}x${term.rows}`)
       lastFitW = w
       lastFitH = h
       if (term.cols !== lastCols || term.rows !== lastRows) {
@@ -250,14 +274,20 @@ export function useTerminal(
     // scrollback through this, and those must work outside debug builds.
     registerTerminal(sessionId, term)
     registerStamps(sessionId, stamps)
+    // Published so the docking layer can ask every terminal to re-measure after
+    // it corrects the container's size.
+    registerRefit(sessionId, scheduleFit)
 
     scheduleFit()
     term.focus()
 
     const dataSub = term.onData((data) => {
-      // Broadcast first: when it handles the keystroke, this pane must not also
-      // write it, or the source pane would receive the character twice.
-      if (routeInput(sessionId, data)) return
+      /*
+       * Fan out to the other panes, then always write to this one. `routeInput`
+       * returns false by design so this pane's own write is not suppressed — it is
+       * the pane the user is typing in, and it has to show what they typed.
+       */
+      routeInput(sessionId, data)
       api.writeSession(sessionId, data)
     })
 
@@ -331,6 +361,7 @@ export function useTerminal(
       window.clearInterval(watchdog)
       handleRef.current = null
       unregisterTerminal(sessionId)
+      unregisterRefit(sessionId)
       unregisterStamps(sessionId)
       unregisterSink(sessionId)
       stamps.dispose()

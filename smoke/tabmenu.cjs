@@ -23,6 +23,10 @@ function report(checks) {
 
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
+  // Wipe the profile before anything constructs a store. The stores cache
+  // their contents in memory, so deleting their files afterwards leaves the
+  // previous run's data in place and the next write puts it back on disk.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   mod.registerIpc()
   // Start from a clean arrangement so a layout, a snippet or an edited setting
   // left by an earlier run cannot change what this probe sees.
