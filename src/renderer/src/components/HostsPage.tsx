@@ -269,10 +269,25 @@ export function HostsPage({
   }
 
   const dropZone = (node: GroupNode): Record<string, unknown> => ({
+    /*
+     * `dragenter` as well as `dragover`, both cancelling the default.
+     *
+     * The session tree does this and the page did not, and the difference matters:
+     * a target that only handles `dragover` may accept the drop in one Chromium
+     * path and refuse it in another, and when it refuses, `drop` never fires at
+     * all — the gesture does nothing, with no error anywhere.
+     */
+    onDragEnter: (e: React.DragEvent) => {
+      if (!drag) return
+      e.preventDefault()
+      e.stopPropagation()
+      setDropTarget(node.key)
+    },
     onDragOver: (e: React.DragEvent) => {
       if (!drag) return
       e.preventDefault()
       e.stopPropagation()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move'
       setDropTarget(node.key)
     },
     onDragLeave: () => setDropTarget((t) => (t === node.key ? null : t)),
