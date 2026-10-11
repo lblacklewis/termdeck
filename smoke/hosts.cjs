@@ -127,7 +127,14 @@ async function main() {
       // ---- groups ----------------------------------------------------------
       const groupNames = () => [...document.querySelectorAll('[data-host-group]')]
         .map((s) => s.getAttribute('data-host-group'))
-      push('groups are shown', groupNames().join(',') === 'prod,staging',
+      /*
+       * Every group is listed, including the catch-all.
+       *
+       * Named groups and "Unfiled" are all drop targets, so an empty one still gets
+       * a heading — which is also why a newly created sub-group is visible before
+       * anything has been dragged into it.
+       */
+      push('groups are shown', groupNames().join(',') === 'prod,staging,Unfiled',
         groupNames().join(','))
 
       document.querySelector('[data-testid="hosts-new-group"]').click()
@@ -179,6 +186,50 @@ async function main() {
             push('the page shows the new name', groupNames().includes('Renamed group'),
               groupNames().join(','))
           }
+        }
+      }
+
+      // ---- a sub-group is created and must actually appear ----------------
+      // It used to be created in the store and then not rendered, because the page
+      // dropped any group that was empty and not top-level — indistinguishable
+      // from the menu item doing nothing.
+      {
+        const prodHead = [...document.querySelectorAll('[data-testid="hosts-group"]')][0]
+        const probeFolder = await api.loadSessionTree()
+        const prodFolder = probeFolder.folders.find((f) => f.name === 'prod')
+        const box = prodHead.getBoundingClientRect()
+        prodHead.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, button: 2,
+          clientX: Math.round(box.x + 30), clientY: Math.round(box.y + 10)
+        }))
+        await wait(400)
+        const subMenu = document.querySelector('[data-testid="hosts-menu"]')
+        push('the group menu offers a sub-group',
+          !!subMenu && !!subMenu.querySelector('[data-menu-id="newSub"]'),
+          subMenu
+            ? [...subMenu.querySelectorAll('[data-menu-id]')].map((b) => b.getAttribute('data-menu-id')).join(',')
+            : 'no menu')
+
+        if (subMenu && subMenu.querySelector('[data-menu-id="newSub"]')) {
+          subMenu.querySelector('[data-menu-id="newSub"]').click()
+          await wait(1200)
+
+          const tree = await api.loadSessionTree()
+          const child = tree.folders.find((f) => f.parentId === prodFolder.id)
+          push('the sub-group is created under its parent',
+            !!child, 'parent=' + prodFolder.id.slice(0, 8) +
+              ' children=' + tree.folders.filter((f) => f.parentId === prodFolder.id).map((f) => f.name).join(','))
+
+          push('the sub-group is rendered immediately, while still empty',
+            groupNames().includes('prod / New group') &&
+              !!document.querySelector('.td-host-subgroups'),
+            'groups=' + groupNames().join(' | ') + ' subgroups=' +
+              document.querySelectorAll('.td-host-subgroups').length)
+
+          const nestDepth = [...document.querySelectorAll('[data-host-group]')]
+            .map((g) => g.getAttribute('data-group-depth')).join(',')
+          push('the sub-group is indented below its parent',
+            nestDepth.startsWith('0,1'), 'depths=' + nestDepth)
         }
       }
 

@@ -118,18 +118,25 @@ export function HostsPage({
   /*
    * Build the group tree.
    *
-   * A group is kept if it holds a matching host anywhere below it, or if it has no
-   * parent folder. So nesting works, and an empty top-level group still gets a
-   * heading to drop things into.
+   * Every named group is kept, at every level, whether or not it holds anything:
+   * a group is also a drop target, so a newly created one has to be visible before
+   * there is anything in it. (An earlier version only kept empty groups at the top
+   * level, which meant "New sub-group…" created a group that simply did not appear
+   * until a host was dragged into it — indistinguishable from the button failing.)
+   *
+   * The one exception is a *search*: with a filter or tag active, a group with no
+   * matching host anywhere below it is noise, so it is dropped.
    */
   const groups = useMemo(() => {
+    const filtering = filter.trim().length > 0 || tagFilter !== null
+
     const build = (parentId: string | null, depth: number, prefix: string): GroupNode[] => {
       const nodes: GroupNode[] = []
       for (const folder of childFolders.get(parentId) ?? []) {
         const path = prefix ? `${prefix} / ${folder.name}` : folder.name
         const children = build(folder.id, depth + 1, path)
         const hosts = (hostsByFolder.get(folder.id) ?? []).filter(matches)
-        if (hosts.length > 0 || children.length > 0 || parentId === null) {
+        if (!filtering || hosts.length > 0 || children.length > 0) {
           nodes.push({ key: folder.id, id: folder.id, name: folder.name, path, depth, hosts, children })
         }
       }
@@ -138,7 +145,12 @@ export function HostsPage({
 
     const treeNodes = build(null, 0, '')
     const unfiled = (hostsByFolder.get(null) ?? []).filter(matches)
-    if (unfiled.length > 0) {
+    /*
+     * The catch-all is always shown while browsing, for the same reason every named
+     * group is: it is a drop target, and it is where "take this host out of its
+     * folder" lands. Only a search hides it, when nothing matches.
+     */
+    if (!filtering || unfiled.length > 0) {
       treeNodes.push({
         key: '__unfiled__',
         id: null,
@@ -150,7 +162,7 @@ export function HostsPage({
       })
     }
     return treeNodes
-  }, [childFolders, hostsByFolder, matches])
+  }, [childFolders, hostsByFolder, matches, filter, tagFilter])
 
   const total = tree.sessions.length
   const groupCount = tree.folders.length
