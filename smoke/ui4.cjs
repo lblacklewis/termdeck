@@ -95,10 +95,11 @@ async function main() {
       const out = []
       const push = (n, ok, d) => out.push({ name: n, ok, detail: d || '' })
 
-      const actions = [...document.querySelectorAll('.td-sidebar-actions .td-btn')]
-        .map((b) => b.textContent.trim())
-      push('sidebar actions no longer hold New session',
-        !actions.some((t) => /New session/i.test(t)), actions.join(' | '))
+      // The Connect / Local shell row that used to sit above the sections is
+      // gone entirely; both live as footer icons now.
+      const actions = document.querySelectorAll('.td-sidebar-actions')
+      push('the drawer has no actions row above its sections', actions.length === 0,
+        'rows=' + actions.length)
 
       // The Sessions heading is a drawer section header (draggable, with the
       // tree's own buttons as its actions).

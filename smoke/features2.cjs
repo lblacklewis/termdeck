@@ -98,8 +98,7 @@ async function main() {
         return false
       }
       const api = window.termdeck
-      const shellBtn = () => [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const shellBtn = () => document.querySelector('[data-testid="local-shell"]')
 
       shellBtn().click()
       await waitFor(() => window.__tdDockApi.panels.length >= 1)
@@ -384,14 +383,13 @@ async function main() {
           ' sidebar=' + !!document.querySelector('.td-sidebar')
       }]
     }
-    const connectBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /\\+ Connect/i.test(b.textContent || ''))
+    const connectBtn = document.querySelector('[data-testid="new-connection"]')
     if (!connectBtn) {
       return [{
         name: 'the quick-connect button is present',
         ok: false,
-        detail: [...document.querySelectorAll('.td-sidebar .td-btn')]
-          .map((b) => (b.textContent || '').trim()).join(' | ')
+        detail: [...document.querySelectorAll('.td-sidebar .td-icon-btn')]
+          .map((b) => (b.getAttribute('title') || '').trim()).join(' | ')
       }]
     }
     connectBtn.click()
@@ -472,8 +470,7 @@ async function main() {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     const api = window.termdeck
     const before = (await api.loadSessionTree()).sessions.length
-    const connectBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /\\+ Connect/i.test(b.textContent || ''))
+    const connectBtn = document.querySelector('[data-testid="new-connection"]')
     connectBtn.click()
     await wait(900)
     const setValue = (el, v) => {

@@ -377,6 +377,16 @@ export interface SidebarSectionState {
   id: SidebarSectionId
   /** A hidden section keeps its place in the order. */
   visible: boolean
+  /**
+   * Body folded away, leaving just the heading.
+   *
+   * Not the same as `visible`: collapsing is a quick "not now" for a section you
+   * are keeping, so the order, the hidden-section menu and the settings row are
+   * all left alone.
+   */
+  collapsed?: boolean
+  /** Explicit body height in px, set by dragging the divider. Auto when absent. */
+  height?: number
 }
 
 export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionState[] = [
@@ -396,7 +406,11 @@ export const SIDEBAR_SECTION_LABELS: Record<SidebarSectionId, string> = {
 export interface SidebarSettings {
   /** Top-to-bottom order of the drawer, including the sections that are hidden. */
   sections: SidebarSectionState[]
+  /** Drawer width in px, dragged from its right edge. */
+  width: number
 }
+
+export const DEFAULT_SIDEBAR_WIDTH = 268
 
 // ---- break reminder ------------------------------------------------------
 
@@ -441,13 +455,32 @@ export interface SaveLockRequest {
 
 // ---- command history -----------------------------------------------------
 
-/** One command the user ran, recorded as it was typed. */
+/**
+ * One command the user ran, recorded as it was typed.
+ *
+ * History is kept **per session**, in its own file, and expires after
+ * `HISTORY_RETENTION_DAYS`: opening a separate shell for each host means the
+ * commands that belong to a host should not bleed into another's list, and old
+ * commands are not something to keep forever.
+ */
 export interface HistoryEntry {
   id: string
   command: string
   /** Title of the session it was typed into. */
   session: string
   at: number
+}
+
+/** How long a session's history file is kept. */
+export const HISTORY_RETENTION_DAYS = 7
+
+/** A session that still has history on disk, for the panel's picker. */
+export interface HistorySessionSummary {
+  sessionId: string
+  title: string
+  count: number
+  /** Epoch ms of the newest command in it. */
+  updatedAt: number
 }
 
 // ---- sftp ----------------------------------------------------------------
@@ -574,7 +607,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keybindings: DEFAULT_KEYBINDINGS,
   hostKeys: { policy: 'ask' },
   snippets: [],
-  sidebar: { sections: DEFAULT_SIDEBAR_SECTIONS },
+  sidebar: { sections: DEFAULT_SIDEBAR_SECTIONS, width: DEFAULT_SIDEBAR_WIDTH },
   break: DEFAULT_BREAK_SETTINGS,
   theme: 'termius-dark',
   uiScale: 1
@@ -615,10 +648,13 @@ export interface TermDeckApi {
   /** True when the password unlocks (and true immediately for an empty one). */
   verifyLock(password: string): Promise<boolean>
 
-  // command history
-  listHistory(): Promise<HistoryEntry[]>
-  deleteHistoryEntry(id: string): Promise<HistoryEntry[]>
-  clearHistory(): Promise<HistoryEntry[]>
+  // command history — one file per session, expiring after a week
+  /** Every command in one session's own history, newest first. */
+  listHistory(sessionId: string): Promise<HistoryEntry[]>
+  /** Sessions that still have history on disk, newest first. */
+  historySessions(): Promise<HistorySessionSummary[]>
+  deleteHistoryEntry(sessionId: string, id: string): Promise<HistoryEntry[]>
+  clearHistory(sessionId: string): Promise<HistoryEntry[]>
 
   // sftp, over the connection a live session is already using
   sftpList(sessionId: string, path: string): Promise<SftpListResult>
@@ -701,8 +737,10 @@ export interface TermDeckApi {
   quitApp(): void
   /** Fired for every full-screen change, including ones the app did not start. */
   onFullScreenChanged(handler: (on: boolean) => void): () => void
-  /** Fired when a command is recorded, with the whole (capped) history. */
-  onHistoryChanged(handler: (entries: HistoryEntry[]) => void): () => void
+  /** Fired when a command is recorded, for the session it belongs to. */
+  onHistoryChanged(
+    handler: (change: { sessionId: string; entries: HistoryEntry[] }) => void
+  ): () => void
   /** Fires whenever settings are saved, so the UI never runs on stale values. */
   onSettingsChanged(handler: (settings: AppSettings) => void): () => void
   /** Fires on every saved-session or folder mutation. */

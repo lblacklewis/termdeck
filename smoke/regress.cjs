@@ -123,8 +123,7 @@ async function main() {
       const s = await api.loadSettings()
       await api.saveSettings({ ...s, hostKeys: { policy: 'ask' } })
 
-      const connectBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Connect/i.test(b.textContent || ''))
+      const connectBtn = document.querySelector('[data-testid="new-connection"]')
       connectBtn.click()
       // Quick connect renders in a drawer, which mounts a frame later.
       let field = null

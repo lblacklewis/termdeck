@@ -726,8 +726,7 @@ async function main() {
         clipboard: { ...settings.clipboard, copyOnSelect: true, pasteOnRightClick: true }
       })
 
-      const localBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const localBtn = document.querySelector('[data-testid="local-shell"]')
       if (!localBtn) {
         // Named, not a bare crash: the drawer missing is the interesting part.
         console.log('DRAWER-DEBUG ' + JSON.stringify({
@@ -737,8 +736,8 @@ async function main() {
           sections: [...document.querySelectorAll('[data-section]')].map((s) =>
             s.getAttribute('data-section')
           ),
-          buttons: [...document.querySelectorAll('.td-sidebar .td-btn')].map((b) =>
-            (b.textContent || '').trim()
+          icons: [...document.querySelectorAll('.td-sidebar .td-icon-btn')].map((b) =>
+            (b.getAttribute('title') || '').trim()
           )
         }))
         push('the drawer still offers a local shell', false, 'drawer is not showing')

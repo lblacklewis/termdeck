@@ -7,15 +7,26 @@
  * preventing startup.
  */
 import { randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs'
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+  existsSync,
+  readdirSync,
+  rmSync
+} from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
   DEFAULT_BREAK_SETTINGS,
   DEFAULT_SETTINGS,
   DEFAULT_SIDEBAR_SECTIONS,
+  DEFAULT_SIDEBAR_WIDTH,
+  HISTORY_RETENTION_DAYS,
   type AppSettings,
   type BreakSettings,
   type HistoryEntry,
+  type HistorySessionSummary,
   type Keybinding,
   type SavedSession,
   type SessionFolder,
@@ -88,7 +99,10 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
     hostKeys: { ...defaults.hostKeys, ...(stored.hostKeys ?? {}) },
     keybindings: mergeKeybindings(stored.keybindings),
     snippets: sanitiseSnippets(stored.snippets),
-    sidebar: { sections: mergeSidebarSections(stored.sidebar) },
+    sidebar: {
+      sections: mergeSidebarSections(stored.sidebar),
+      width: clampSidebarWidth((stored.sidebar as { width?: unknown } | undefined)?.width)
+    },
     break: mergeBreak(stored.break),
     theme: typeof stored.theme === 'string' && stored.theme ? stored.theme : defaults.theme,
     // Clamped here so a hand-edited file cannot leave the UI unusable
@@ -115,13 +129,31 @@ function mergeSidebarSections(stored: unknown): SidebarSectionState[] {
     const id = (entry as SidebarSectionState | null)?.id
     if (typeof id !== 'string' || !known.has(id)) continue
     if (merged.some((s) => s.id === id)) continue
-    merged.push({ id: id as SidebarSectionId, visible: (entry as SidebarSectionState).visible !== false })
+    const state = entry as SidebarSectionState
+    merged.push({
+      id: id as SidebarSectionId,
+      visible: state.visible !== false,
+      collapsed: state.collapsed === true,
+      height: clampSectionHeight(state.height)
+    })
   }
 
   for (const def of DEFAULT_SIDEBAR_SECTIONS) {
     if (!merged.some((s) => s.id === def.id)) merged.push({ ...def })
   }
   return merged
+}
+
+/** A drawer narrower than this cannot show a host name; wider wastes the pane. */
+export function clampSidebarWidth(value: unknown): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_SIDEBAR_WIDTH
+  return Math.min(560, Math.max(200, Math.round(n)))
+}
+
+/** A section body tall enough to show a row, short enough to leave room. */
+export function clampSectionHeight(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
+  return Math.min(720, Math.max(80, Math.round(value)))
 }
 
 /** The reminder interval, clamped to something a human would recognise. */
@@ -493,39 +525,97 @@ export class SessionStore {
 }
 
 /**
- * Commands the user has run, newest first.
+ * Commands the user has run, one file per session, newest first.
  *
  * Recorded from what is *typed into a session*, so it is the shell's own history
  * rather than a log of everything that reached a pty: control keys, arrow keys
  * and terminal replies are assembled out by the caller and never appear here.
  *
- * Kept in its own file so clearing it can never touch settings or sessions, and
- * capped so it cannot grow without bound.
+ * A file per session, under `history/`, because the commands that belong to one
+ * host should not be mixed into another's list — and because it makes expiry
+ * trivial: a file whose newest command is older than the retention window is
+ * deleted whole. Nothing here is authority: the store can be emptied at any time
+ * without touching settings, sessions or credentials.
  */
 export class HistoryStore {
-  private readonly path: string
-  private entries: HistoryEntry[]
+  private readonly dir: string
+  /** Parsed files, keyed by session id. Loaded lazily. */
+  private readonly cache = new Map<string, HistoryEntry[]>()
 
-  /** Newest first, and never longer than this. */
-  static readonly LIMIT = 300
+  /** Newest first, and never more per session than this. */
+  static readonly LIMIT = 200
   /** A single command longer than this is truncated rather than stored whole. */
   static readonly MAX_COMMAND = 500
+  /** Files whose newest command is older than this are removed. */
+  static readonly RETENTION_MS = HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000
 
   constructor(configDir: string) {
-    this.path = join(configDir, 'history.json')
-    const stored = readJson<HistoryEntry[]>(this.path)
-    this.entries = Array.isArray(stored)
-      ? stored
-          .filter(
-            (e): e is HistoryEntry =>
-              !!e && typeof e.command === 'string' && typeof e.id === 'string'
-          )
-          .slice(0, HistoryStore.LIMIT)
-      : []
+    this.dir = join(configDir, 'history')
+    mkdirSync(this.dir, { recursive: true })
+    this.prune()
   }
 
-  list(): HistoryEntry[] {
-    return this.entries.map((e) => ({ ...e }))
+  /**
+   * Drop files that have aged out.
+   *
+   * Run on construction — i.e. at every startup — rather than on a timer: the app
+   * is not open for a week at a time, and a check that only happens while it is
+   * running would never fire.
+   */
+  prune(now = Date.now()): void {
+    let names: string[] = []
+    try {
+      names = readdirSync(this.dir)
+    } catch {
+      return
+    }
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue
+      const path = join(this.dir, name)
+      const entries = this.read(path)
+      const newest = entries[0]?.at ?? 0
+      // An empty or unreadable file is stale by definition.
+      if (!newest || now - newest > HistoryStore.RETENTION_MS) {
+        try {
+          rmSync(path, { force: true })
+        } catch {
+          /* a file we cannot remove is retried next start */
+        }
+        this.cache.delete(name.slice(0, -'.json'.length))
+        continue
+      }
+      const kept = entries.filter((e) => now - e.at <= HistoryStore.RETENTION_MS)
+      if (kept.length !== entries.length) this.write(path, kept)
+    }
+  }
+
+  list(sessionId: string): HistoryEntry[] {
+    if (!sessionId) return []
+    return this.entries(sessionId).map((e) => ({ ...e }))
+  }
+
+  /** Sessions that still have history, newest first. */
+  sessions(): HistorySessionSummary[] {
+    let names: string[] = []
+    try {
+      names = readdirSync(this.dir)
+    } catch {
+      return []
+    }
+    const out: HistorySessionSummary[] = []
+    for (const name of names) {
+      if (!name.endsWith('.json')) continue
+      const sessionId = name.slice(0, -'.json'.length)
+      const entries = this.entries(sessionId)
+      if (entries.length === 0) continue
+      out.push({
+        sessionId,
+        title: entries[0].session || sessionId.slice(0, 8),
+        count: entries.length,
+        updatedAt: entries[0].at
+      })
+    }
+    return out.sort((a, b) => b.updatedAt - a.updatedAt)
   }
 
   /**
@@ -535,32 +625,72 @@ export class HistoryStore {
    * same line is not history worth keeping, and it would push everything else
    * out of a capped list.
    */
-  add(command: string, session: string, at = Date.now()): HistoryEntry[] {
+  add(sessionId: string, session: string, command: string, at = Date.now()): HistoryEntry[] {
     const text = command.trim().slice(0, HistoryStore.MAX_COMMAND)
-    if (!text) return this.list()
-    if (this.entries[0]?.command === text && this.entries[0]?.session === session) {
-      return this.list()
+    if (!text || !sessionId) return this.list(sessionId)
+
+    const current = this.entries(sessionId)
+    if (current[0]?.command === text) return this.list(sessionId)
+
+    // The title can change between connections (a renamed host, a reconnect
+    // under a different label), so keep the newest one against every entry.
+    const next = [{ id: randomUUID(), command: text, session, at }, ...current]
+      .slice(0, HistoryStore.LIMIT)
+    this.cache.set(sessionId, next)
+    return this.persist(sessionId)
+  }
+
+  remove(sessionId: string, id: string): HistoryEntry[] {
+    this.cache.set(
+      sessionId,
+      this.entries(sessionId).filter((e) => e.id !== id)
+    )
+    return this.persist(sessionId)
+  }
+
+  clear(sessionId: string): HistoryEntry[] {
+    this.cache.set(sessionId, [])
+    try {
+      rmSync(this.pathFor(sessionId), { force: true })
+    } catch {
+      /* nothing to remove */
     }
-
-    this.entries.unshift({ id: randomUUID(), command: text, session, at })
-    if (this.entries.length > HistoryStore.LIMIT) {
-      this.entries.length = HistoryStore.LIMIT
-    }
-    return this.persist()
+    return []
   }
 
-  remove(id: string): HistoryEntry[] {
-    this.entries = this.entries.filter((e) => e.id !== id)
-    return this.persist()
+  private pathFor(sessionId: string): string {
+    // Session ids are uuids; anything else is not addressable as a file.
+    const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, '')
+    return join(this.dir, `${safe}.json`)
   }
 
-  clear(): HistoryEntry[] {
-    this.entries = []
-    return this.persist()
+  private entries(sessionId: string): HistoryEntry[] {
+    if (!sessionId) return []
+    const cached = this.cache.get(sessionId)
+    if (cached) return cached
+    const loaded = this.read(this.pathFor(sessionId))
+    this.cache.set(sessionId, loaded)
+    return loaded
   }
 
-  private persist(): HistoryEntry[] {
-    writeJsonAtomic(this.path, this.entries)
-    return this.list()
+  private read(path: string): HistoryEntry[] {
+    const stored = readJson<HistoryEntry[]>(path)
+    if (!Array.isArray(stored)) return []
+    return stored
+      .filter(
+        (e): e is HistoryEntry => !!e && typeof e.command === 'string' && typeof e.id === 'string'
+      )
+      .slice(0, HistoryStore.LIMIT)
+  }
+
+  private write(path: string, entries: HistoryEntry[]): void {
+    writeJsonAtomic(path, entries)
+  }
+
+  private persist(sessionId: string): HistoryEntry[] {
+    const entries = this.entries(sessionId)
+    if (entries.length === 0) return this.clear(sessionId)
+    this.write(this.pathFor(sessionId), entries)
+    return this.list(sessionId)
   }
 }

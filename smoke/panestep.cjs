@@ -35,8 +35,9 @@ const CLICK_LOCAL = `(async () => {
     if (t) t.click()
     await wait(600)
   }
-  const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-    .find((b) => /Local shell/i.test(b.textContent || ''))
+  // The drawer's actions are icons in its footer now, so this is named by testid
+  // rather than by the label of a button that no longer exists.
+  const btn = document.querySelector('[data-testid="local-shell"]')
   if (!btn) return false
   btn.click()
   return true

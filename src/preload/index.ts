@@ -6,6 +6,7 @@ import type {
   CredentialStatus,
   FontChoices,
   HistoryEntry,
+  HistorySessionSummary,
   KnownHostEntry,
   LayoutState,
   LocalConnectPayload,
@@ -145,10 +146,15 @@ const api = {
     ipcRenderer.invoke('lock:verify', password),
 
   // ---- command history --------------------------------------------------
-  listHistory: (): Promise<HistoryEntry[]> => ipcRenderer.invoke('history:list'),
-  deleteHistoryEntry: (id: string): Promise<HistoryEntry[]> =>
-    ipcRenderer.invoke('history:delete', id),
-  clearHistory: (): Promise<HistoryEntry[]> => ipcRenderer.invoke('history:clear'),
+  // One file per session; every call names the session it is about.
+  listHistory: (sessionId: string): Promise<HistoryEntry[]> =>
+    ipcRenderer.invoke('history:list', sessionId),
+  historySessions: (): Promise<HistorySessionSummary[]> =>
+    ipcRenderer.invoke('history:sessions'),
+  deleteHistoryEntry: (sessionId: string, id: string): Promise<HistoryEntry[]> =>
+    ipcRenderer.invoke('history:delete', sessionId, id),
+  clearHistory: (sessionId: string): Promise<HistoryEntry[]> =>
+    ipcRenderer.invoke('history:clear', sessionId),
 
   // ---- sftp -------------------------------------------------------------
   sftpList: (sessionId: string, path: string): Promise<SftpListResult> =>
@@ -166,8 +172,9 @@ const api = {
   /** Full-screen state, including changes the app did not initiate. */
   onFullScreenChanged: (handler: (on: boolean) => void): (() => void) =>
     on<[boolean]>('app:focus-mode', handler),
-  onHistoryChanged: (handler: (entries: HistoryEntry[]) => void): (() => void) =>
-    on<[HistoryEntry[]]>('history:changed', handler),
+  onHistoryChanged: (
+    handler: (change: { sessionId: string; entries: HistoryEntry[] }) => void
+  ): (() => void) => on<[{ sessionId: string; entries: HistoryEntry[] }]>('history:changed', handler),
   onSessionExit: (handler: (id: string, info: SessionExitInfo) => void): (() => void) =>
     on<[string, SessionExitInfo]>('session:exit', handler),
 

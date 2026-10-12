@@ -406,8 +406,7 @@ async function main() {
     push('close button dismisses the drawer', !document.querySelector('[data-testid="session-drawer"]'))
 
     // --- quick connect is a drawer too -----------------------------------
-    const connectBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /Connect/i.test(b.textContent || ''))
+    const connectBtn = document.querySelector('[data-testid="new-connection"]')
     push('quick connect button present', !!connectBtn)
     if (connectBtn) {
       connectBtn.click()

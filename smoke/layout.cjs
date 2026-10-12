@@ -87,8 +87,7 @@ async function main() {
       return false
     }
 
-    const shellBtn = () => [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /Local shell/i.test(b.textContent || ''))
+    const shellBtn = () => document.querySelector('[data-testid="local-shell"]')
 
     // Two local shells, which is the cheapest real pair of panes.
     shellBtn().click()

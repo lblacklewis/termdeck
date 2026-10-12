@@ -68,8 +68,7 @@ async function main() {
       }
       const api = window.termdeck
 
-      const localBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const localBtn = document.querySelector('[data-testid="local-shell"]')
       push('local shell button present', localBtn)
       if (!localBtn) return out
       localBtn.click()

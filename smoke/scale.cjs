@@ -249,8 +249,7 @@ async function main() {
   const scaleDbg = await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     const before = Object.keys(window.__tdTerminals || {})
-    const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /Local shell/i.test(b.textContent || ''))
+    const btn = document.querySelector('[data-testid="local-shell"]')
     if (btn) btn.click()
     /*
      * Wait for the new pane to be *sized*, not for a fixed delay. Selecting by

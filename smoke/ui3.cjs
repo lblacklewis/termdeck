@@ -477,14 +477,14 @@ async function main() {
       closeBtn.click()
       await new Promise((r) => setTimeout(r, 300))
 
-      // Controls should be rounder than before (10px is the new default).
-      const btn = document.querySelector('.td-sidebar .td-btn')
-      push('buttons use the rounded radius', parseInt(getComputedStyle(btn).borderRadius, 10) >= 8,
-        getComputedStyle(btn).borderRadius)
+      // Controls should be rounder than before (10px is the new default). The
+      // drawer's own controls are icon buttons now, so that is what is measured.
+      const btn = document.querySelector('.td-sidebar .td-icon-btn')
+      push('buttons use the rounded radius', !!btn && parseInt(getComputedStyle(btn).borderRadius, 10) >= 8,
+        btn ? getComputedStyle(btn).borderRadius : 'no button')
 
       // A terminal should adopt the theme palette.
-      const local = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const local = document.querySelector('[data-testid="local-shell"]')
       local.click()
       await new Promise((r) => setTimeout(r, 3000))
       const ids = Object.keys(window.__tdTerminals || {})

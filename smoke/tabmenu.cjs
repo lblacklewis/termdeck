@@ -69,8 +69,7 @@ async function main() {
       }
       const panels = () => window.__tdDockApi.panels.length
       const tabs = () => [...document.querySelectorAll('.dv-tab')]
-      const shellBtn = () => [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const shellBtn = () => document.querySelector('[data-testid="local-shell"]')
 
       /** Add one shell pane and stack it into the first group. */
       const addTab = async () => {

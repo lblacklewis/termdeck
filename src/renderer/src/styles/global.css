@@ -3909,6 +3909,28 @@ html[data-theme-scheme='light'] .td-select {
 .td-sidebar {
   overflow-y: auto;
   gap: 6px;
+  /* The width handle is positioned against the drawer's right edge. */
+  position: relative;
+}
+
+/*
+ * Drawer width handle.
+ *
+ * A grab strip rather than a visible divider: the drawer's edge already reads as
+ * a boundary, and a permanent line would just be another thing on screen.
+ */
+.td-sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.td-sidebar-resize:hover {
+  background: color-mix(in srgb, var(--td-accent) 35%, transparent);
 }
 
 .td-section {
@@ -3921,7 +3943,7 @@ html[data-theme-scheme='light'] .td-select {
 .td-section-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin-top: 8px;
   padding: 1px 4px;
   border-radius: var(--td-radius);
@@ -3933,12 +3955,29 @@ html[data-theme-scheme='light'] .td-select {
   cursor: grabbing;
 }
 
-.td-section-head:hover .td-drag-grip {
-  opacity: 1;
+/* The fold control: only a triangle, only its own click, never a drag. */
+.td-section-toggle {
+  flex: 0 0 auto;
+  width: 14px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--td-text-faint);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.td-section-toggle:hover {
+  color: var(--td-text);
 }
 
 .td-section.is-dragging {
   opacity: 0.5;
+}
+
+.td-section.is-collapsed .td-section-head {
+  margin-top: 6px;
 }
 
 .td-drag-grip {
@@ -3970,10 +4009,55 @@ html[data-theme-scheme='light'] .td-select {
   overflow: auto;
 }
 
+/* Once the user has sized a section, the height is theirs and the cap steps aside. */
+.td-section.is-sized .td-section-body {
+  max-height: none;
+}
+
 /* The session list is the one people actually work in, so it gets the room. */
-.td-section[data-section='sessions'] .td-section-body {
+.td-section[data-section='sessions']:not(.is-sized) .td-section-body {
   min-height: 140px;
   max-height: 46vh;
+}
+
+.td-section-resize {
+  flex: 0 0 auto;
+  height: 6px;
+  margin: 1px 0 0;
+  border-radius: 3px;
+  cursor: ns-resize;
+}
+
+.td-section-resize:hover {
+  background: color-mix(in srgb, var(--td-accent) 30%, transparent);
+}
+
+.td-section-note {
+  margin: 6px 4px 2px;
+  color: var(--td-text-faint);
+  font-size: 10.5px;
+}
+
+/* ---- history panel ----------------------------------------------------- */
+
+.td-history-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.td-history-bar {
+  padding: 0 1px 4px;
+}
+
+.td-history-pick {
+  width: 100%;
+  padding: 3px 5px;
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius);
+  color: var(--td-text-dim);
+  font-size: 11px;
 }
 
 .td-section-empty {

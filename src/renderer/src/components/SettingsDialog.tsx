@@ -307,7 +307,9 @@ export function SettingsDialog({
                 sections={draft.sidebar.sections}
                 lockStatus={lockStatus}
                 onBreak={(patch) => setDraft((d) => ({ ...d, break: { ...d.break, ...patch } }))}
-                onSections={(sections) => setDraft((d) => ({ ...d, sidebar: { sections } }))}
+                onSections={(sections) =>
+                  setDraft((d) => ({ ...d, sidebar: { ...d.sidebar, sections } }))
+                }
                 onLockChanged={onLockChanged}
                 onPreviewBreak={onPreviewBreak}
               />
@@ -908,8 +910,8 @@ export function WellbeingTab({
         </div>
       </label>
       <p className="td-hint">
-        The reminder plays a short side-scroller: reaching the flag in about half a minute clears
-        it, and “Skip for now” is always there.
+        A quiet reminder when the window has been in focus for that long. Nothing else happens: take
+        the break, or put it off for ten minutes.
       </p>
 
       <h3 className="td-settings-heading">Drawer sections</h3>

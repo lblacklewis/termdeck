@@ -101,8 +101,7 @@ async function main() {
       push('welcome pane shown', !!document.querySelector('.td-welcome'))
       push('dock api test hook', !!window.__tdDockApi)
 
-      const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const btn = document.querySelector('[data-testid="local-shell"]')
       push('local shell button', !!btn)
       btn.click()
       await new Promise((r) => setTimeout(r, 3000))
@@ -127,10 +126,10 @@ async function main() {
       const out = []
       const push = (n, ok, d) => out.push({ name: n, ok, detail: d || '' })
 
-      const newBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Connect/i.test(b.textContent || ''))
+      const newBtn = document.querySelector('[data-testid="new-connection"]')
       push('quick-connect button present', !!newBtn,
-        [...document.querySelectorAll('.td-sidebar .td-btn')].map((b) => b.textContent.trim()).join(' | '))
+        [...document.querySelectorAll('.td-sidebar .td-icon-btn')]
+          .map((b) => (b.getAttribute('title') || '').trim()).join(' | '))
       if (!newBtn) return out
       newBtn.click()
       await new Promise((r) => setTimeout(r, 400))

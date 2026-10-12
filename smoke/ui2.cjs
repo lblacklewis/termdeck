@@ -403,8 +403,7 @@ async function main() {
       const push = (n, ok, d) => out.push({ name: n, ok, detail: d || '' })
 
       // Make sure a local shell is the active terminal.
-      const localBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const localBtn = document.querySelector('[data-testid="local-shell"]')
       push('a local shell button is available', !!localBtn)
       if (!localBtn) return out
       localBtn.click()

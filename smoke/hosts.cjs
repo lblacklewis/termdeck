@@ -376,8 +376,7 @@ async function main() {
       document.querySelector('[data-testid="rail-toggle"]').click()
       await wait(600)
     }
-    const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /Local shell/i.test(b.textContent || ''))
+    const btn = document.querySelector('[data-testid="local-shell"]')
     if (btn) btn.click()
     for (let i = 0; i < 40; i++) {
       await wait(250)

@@ -1,67 +1,52 @@
-import { useCallback, useState, type JSX } from 'react'
+import { type JSX } from 'react'
 import { ModalShell } from './ModalShell'
-import { BreakGame } from './BreakGame'
 
 interface BreakReminderProps {
   /** How long the user had been working, for the wording. */
   minutes: number
-  /** Dismiss without playing. */
-  onSkip: () => void
-  /** The run was finished (or the reminder was completed) — show the app again. */
+  /** Put it off for a while: the countdown starts again from a short interval. */
+  onSnooze: () => void
+  /** The break was taken. */
   onDone: () => void
 }
 
 /**
  * "You have been at this for a while."
  *
- * The game is the point of the thing: a dialog you click away is a dialog you
- * learn to click away. This one asks for half a minute of standing up first, and
- * finishing it is what dismisses the reminder — though skipping stays available,
- * because a reminder that cannot be dismissed is just an obstacle.
+ * Two honest choices and nothing else: take the break, or be asked again shortly.
+ * An earlier version ran a little game here to make the break something you *do* —
+ * it was more annoying than the problem it solved, so the reminder went back to
+ * being a reminder.
  */
-export function BreakReminder({ minutes, onSkip, onDone }: BreakReminderProps): JSX.Element {
-  const [playing, setPlaying] = useState(false)
-
-  const win = useCallback(() => {
-    onDone()
-  }, [onDone])
-
+export function BreakReminder({ minutes, onSnooze, onDone }: BreakReminderProps): JSX.Element {
   return (
-    <ModalShell onDismiss={onSkip} className="td-modal-break" testId="break-reminder">
+    <ModalShell onDismiss={onSnooze} testId="break-reminder">
       <div className="td-modal-head">
-        <h2>{playing ? 'Thirty seconds to the flag' : 'Time to stand up'}</h2>
-        <button className="td-icon-btn" title="Skip" data-testid="break-close" onClick={onSkip}>
+        <h2>Time to stand up</h2>
+        <button className="td-icon-btn" title="Snooze" data-testid="break-close" onClick={onSnooze}>
           ✕
         </button>
       </div>
 
-      {playing ? (
-        <BreakGame onWin={win} />
-      ) : (
-        <p className="td-quit-text">
-          You have been at the terminal for {minutes} minutes. Roll your shoulders, look at
-          something far away, then give this thirty seconds — finishing it clears the reminder.
-        </p>
-      )}
+      <p className="td-quit-text">You have been at the terminal for {minutes} minutes.</p>
+      <p className="td-hint">
+        Stand up, roll your shoulders, and look at something more than a metre away for a moment —
+        that is the part that helps. The timer starts again from now either way.
+      </p>
 
       <div className="td-modal-foot">
-        <button className="td-btn" data-testid="break-skip" onClick={onSkip}>
-          Skip for now
+        <button className="td-btn" data-testid="break-snooze" onClick={onSnooze}>
+          Remind me in 10 minutes
         </button>
         <span className="td-spacer" />
-        {playing ? (
-          <button className="td-btn td-btn-primary" data-testid="break-finish" onClick={onDone}>
-            I feel better
-          </button>
-        ) : (
-          <button
-            className="td-btn td-btn-primary"
-            data-testid="break-play"
-            onClick={() => setPlaying(true)}
-          >
-            Play 30 seconds
-          </button>
-        )}
+        <button
+          className="td-btn td-btn-primary"
+          data-testid="break-done"
+          onClick={onDone}
+          autoFocus
+        >
+          I am taking a break
+        </button>
       </div>
     </ModalShell>
   )

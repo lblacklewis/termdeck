@@ -101,8 +101,7 @@ async function main() {
       try {
 
       // A live terminal, so "the lock covers the panes" means something.
-      const shellBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const shellBtn = document.querySelector('[data-testid="local-shell"]')
       if (shellBtn) shellBtn.click()
       const live = await waitFor(async () => (await window.termdeck.listSessions()).length > 0, 15000)
       push('a terminal is open behind the overlays', live)
@@ -145,30 +144,35 @@ async function main() {
       push('it explains how long you have been working', /20 minutes/.test(reminderText),
         JSON.stringify(reminderText.slice(0, 90)))
 
-      const play = document.querySelector('[data-testid="break-play"]')
-      push('it offers the game', !!play)
-      if (play) play.click()
-      const canvas = await waitFor(() => !!document.querySelector('[data-testid="break-game"]'), 5000)
-      push('playing shows the game canvas', canvas)
-      const size = document.querySelector('[data-testid="break-game"]')?.getBoundingClientRect()
-      push('the canvas is a real, visible game view',
-        !!size && size.width > 300 && size.height > 100,
-        size ? Math.round(size.width) + 'x' + Math.round(size.height) : 'none')
+      /*
+       * Two ways out and nothing else. An earlier version ran a game here; it is
+       * gone, and this checks the reminder really is just a reminder: snoozing
+       * closes it without touching the interval, and taking the break closes it
+       * and says so.
+       */
+      const snooze = document.querySelector('[data-testid="break-snooze"]')
+      const done = document.querySelector('[data-testid="break-done"]')
+      push('the reminder offers snooze and done, not a game',
+        !!snooze && !!done && !document.querySelector('[data-testid="break-game"]'),
+        'snooze=' + !!snooze + ' done=' + !!done)
+      if (snooze) snooze.click()
+      const snoozed = await waitFor(() => !document.querySelector('[data-testid="break-reminder"]'), 5000)
+      push('snoozing dismisses the reminder', snoozed)
+      const stillOn = await window.termdeck.loadSettings()
+      push('snoozing leaves the interval alone', stillOn.break.enabled && stillOn.break.minutes === 20,
+        JSON.stringify(stillOn.break))
 
-      // Real input first: holding right must move the player.
-      const game = window.__tdBreakGame
-      const startX = game ? game.state().x : -1
-      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
-      await wait(700)
-      window.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }))
-      const movedX = game ? game.state().x : -1
-      push('the arrow keys move the player', movedX > startX, 'x ' + startX + ' -> ' + movedX)
-
-      // Then finish it: a probe cannot hold a key for thirty seconds, and "the
-      // run is what clears the reminder" is the assertion that matters.
-      if (game) game.finish()
-      const cleared = await waitFor(() => !document.querySelector('[data-testid="break-reminder"]'), 6000)
-      push('finishing the run clears the reminder', cleared)
+      await openSettings('Wellbeing')
+      const preview2 = document.querySelector('[data-testid="break-preview"]')
+      if (preview2) preview2.click()
+      await waitFor(() => !!document.querySelector('[data-testid="break-reminder"]'), 5000)
+      const taken = document.querySelector('[data-testid="break-done"]')
+      if (taken) taken.click()
+      const cleared = await waitFor(() => !document.querySelector('[data-testid="break-reminder"]'), 5000)
+      push('taking the break dismisses the reminder', cleared)
+      const toast = document.querySelector('.td-toast')?.textContent || ''
+      push('and it says the timer restarts', /next reminder starts from now/i.test(toast),
+        JSON.stringify(toast))
 
       // ---- 2. the lock screen --------------------------------------------
       step = 'lock'

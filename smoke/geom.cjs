@@ -57,8 +57,7 @@ async function main() {
   // cleared above, so the rail is expanded and its drawer carries this button.
   await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    const target = [...document.querySelectorAll('.td-sidebar .td-btn')]
-      .find((b) => /Local shell/i.test(b.textContent || ''))
+    const target = document.querySelector('[data-testid="local-shell"]')
     if (target) target.click()
     await wait(1500)
     return !!target

@@ -191,10 +191,83 @@ async function main() {
       push('restoring brings it back', sections().includes('history'),
         'order=' + sections().join(','))
 
-      // ---- 4. command history --------------------------------------------
+      // ---- 4. folding a section -------------------------------------------
+      step = 'collapse'
+      const historySection = () => document.querySelector('[data-section="history"]')
+      const toggle = document.querySelector('[data-testid="toggle-history"]')
+      push('each heading has a fold control', !!toggle)
+      if (toggle) {
+        toggle.click()
+        await wait(500)
+        push('folding hides the body but keeps the heading',
+          historySection()?.getAttribute('data-collapsed') === 'true' &&
+            !!historySection()?.querySelector('.td-section-head') &&
+            !historySection()?.querySelector('.td-section-body'),
+          'collapsed=' + historySection()?.getAttribute('data-collapsed'))
+        push('folding is not hiding',
+          !(await storedOrder()).some((s) => s === 'history:off'),
+          JSON.stringify(await storedOrder()))
+        toggle.click()
+        await wait(500)
+        push('unfolding brings the body back',
+          !!historySection()?.querySelector('.td-section-body'),
+          'collapsed=' + historySection()?.getAttribute('data-collapsed'))
+      }
+
+      // ---- 5. resizing a section ------------------------------------------
+      step = 'resize'
+      const bodyOf = (id) => document.querySelector('[data-section="' + id + '"] .td-section-body')
+      const handle = document.querySelector('[data-testid="resize-openSessions"]')
+      push('each section has a resize handle', !!handle)
+      if (handle) {
+        const beforeHeight = Math.round(bodyOf('openSessions').getBoundingClientRect().height)
+        const box = handle.getBoundingClientRect()
+        const opts = { bubbles: true, cancelable: true, clientX: Math.round(box.x + 2) }
+        handle.dispatchEvent(
+          new PointerEvent('pointerdown', Object.assign({}, opts, { clientY: Math.round(box.y + 2) }))
+        )
+        window.dispatchEvent(
+          new PointerEvent('pointermove', Object.assign({}, opts, { clientY: Math.round(box.y + 62) }))
+        )
+        window.dispatchEvent(new PointerEvent('pointerup', opts))
+        await wait(900)
+        const afterHeight = Math.round(bodyOf('openSessions').getBoundingClientRect().height)
+        push('dragging the handle resizes the section', afterHeight > beforeHeight + 20,
+          beforeHeight + 'px -> ' + afterHeight + 'px')
+        const savedResize = await window.termdeck.loadSettings()
+        const storedHeight = savedResize.sidebar.sections.find((s) => s.id === 'openSessions')?.height
+        push('the size is saved', typeof storedHeight === 'number' && storedHeight > beforeHeight,
+          'height=' + storedHeight)
+      }
+
+      // ---- 6. the drawer's own width --------------------------------------
+      step = 'drawer width'
+      const drawerEl = () => document.querySelector('.td-sidebar')
+      const widthHandle = document.querySelector('[data-testid="drawer-resize"]')
+      push('the drawer has a width handle', !!widthHandle)
+      if (widthHandle) {
+        const beforeWidth = Math.round(drawerEl().getBoundingClientRect().width)
+        const box = widthHandle.getBoundingClientRect()
+        const opts = { bubbles: true, cancelable: true, clientY: Math.round(box.y + 40) }
+        widthHandle.dispatchEvent(
+          new PointerEvent('pointerdown', Object.assign({}, opts, { clientX: Math.round(box.x + 2) }))
+        )
+        window.dispatchEvent(
+          new PointerEvent('pointermove', Object.assign({}, opts, { clientX: Math.round(box.x + 52) }))
+        )
+        window.dispatchEvent(new PointerEvent('pointerup', opts))
+        await wait(900)
+        const afterWidth = Math.round(drawerEl().getBoundingClientRect().width)
+        push('dragging the edge widens the drawer', afterWidth > beforeWidth + 20,
+          beforeWidth + 'px -> ' + afterWidth + 'px')
+        const savedWidth = await window.termdeck.loadSettings()
+        push('the width is saved', savedWidth.sidebar.width > beforeWidth,
+          'width=' + savedWidth.sidebar.width)
+      }
+
+      // ---- 7. command history, one file per session ------------------------
       step = 'history'
-      const shellBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const shellBtn = document.querySelector('[data-testid="local-shell"]')
       push('the drawer offers a local shell', !!shellBtn)
       if (shellBtn) shellBtn.click()
       const live = await waitFor(async () => (await window.termdeck.listSessions()).length > 0, 15000)
@@ -223,6 +296,25 @@ async function main() {
         afterText.length > beforeText.length && afterText.includes('TD_HISTORY_'),
         'rows ' + beforeText.length + ' -> ' + afterText.length)
 
+      /*
+       * History is a file per session, addressed by the live session id — not one
+       * shared list with a session name in it. A session that never ran anything
+       * therefore has an empty history rather than everyone else's.
+       */
+      const ownFile = await window.termdeck.listHistory(sessionId)
+      push('this session has its own history file',
+        ownFile.length >= 1 && ownFile.some((e) => e.command.includes('TD_HISTORY_')),
+        'entries=' + ownFile.length)
+      const strangerFile = await window.termdeck.listHistory(
+        '00000000-0000-0000-0000-000000000000'
+      )
+      push('a session that ran nothing has an empty history', strangerFile.length === 0,
+        'entries=' + strangerFile.length)
+      const summaries = await window.termdeck.historySessions()
+      push('the picker lists the sessions that have history',
+        summaries.some((s) => s.sessionId === sessionId),
+        JSON.stringify(summaries.map((s) => s.sessionId.slice(0, 8) + ':' + s.count)))
+
       // ---- 5. sftp over a real SSH login ---------------------------------
       step = 'sftp'
       const sshRow = [...document.querySelectorAll('.td-node[data-node-kind="session"]')]
@@ -238,6 +330,23 @@ async function main() {
       push('an SSH login is open', sshUp)
 
       const sshId = (await window.termdeck.listSessions()).find((s) => s.kind === 'ssh')?.id
+
+      // The two sessions keep separate histories: what is typed into one is not
+      // in the other's file.
+      window.termdeck.writeSession(sshId, 'echo TD_SSH_HISTORY' + String.fromCharCode(13))
+      const sshRecorded = await waitFor(
+        async () => (await window.termdeck.listHistory(sshId)).length > 0,
+        10000
+      )
+      const sshEntries = await window.termdeck.listHistory(sshId)
+      const localEntries = await window.termdeck.listHistory(sessionId)
+      push('each session records its own commands', sshRecorded,
+        'ssh=' + sshEntries.length + ' local=' + localEntries.length)
+      push('one session never sees the other commands',
+        sshEntries.some((e) => e.command.includes('TD_SSH_HISTORY')) &&
+          !localEntries.some((e) => e.command.includes('TD_SSH_HISTORY')),
+        'ssh=' + JSON.stringify(sshEntries.map((e) => e.command.slice(0, 24))))
+
       const listed2 = await waitFor(
         () => (document.querySelectorAll('[data-sftp-entry]').length > 0),
         20000
@@ -309,8 +418,13 @@ async function main() {
       detail: 'isFullScreen=' + win.isFullScreen()
     },
     {
-      name: 'focus mode takes the chrome away',
-      ok: focused.isFocus && !focused.rail && !focused.drawer,
+      /*
+       * The rail and the snippet bar go; the drawer stays. Focus mode is about
+       * the panes getting the window, not about taking away the list you switch
+       * sessions with — that was the first version, and it was the wrong call.
+       */
+      name: 'focus mode drops the rail but keeps the drawer',
+      ok: focused.isFocus && !focused.rail && focused.drawer,
       detail: JSON.stringify({ before: beforeFocus, after: focused })
     }
   ])

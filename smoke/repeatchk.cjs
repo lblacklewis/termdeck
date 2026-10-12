@@ -53,8 +53,7 @@ async function main() {
 
     await win.webContents.executeJavaScript(`(async () => {
       const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-      const btn = [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const btn = document.querySelector('[data-testid="local-shell"]')
       if (btn) btn.click()
       await wait(1200)
       return true

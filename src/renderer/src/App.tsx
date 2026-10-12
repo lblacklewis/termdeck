@@ -8,6 +8,7 @@ import {
   type CreateSessionResult,
   type CredentialStatus,
   type HistoryEntry,
+  type HistorySessionSummary,
   type HostKeyPrompt,
   type LayoutState,
   type LockStatus,
@@ -211,8 +212,6 @@ export function App(): JSX.Element {
 
   /** Focus mode: full screen with the app's own chrome out of the way. */
   const [focusMode, setFocusMode] = useState(false)
-  /** Commands recorded by the main process as they were typed. */
-  const [history, setHistory] = useState<HistoryEntry[]>([])
   /** Which drawer section is mid-drag, for the reorder affordance. */
   const [draggingSection, setDraggingSection] = useState<SidebarSectionId | null>(null)
   /**
@@ -1115,11 +1114,58 @@ export function App(): JSX.Element {
   }, [])
 
   // ---- command history ----------------------------------------------------
+  // Per session, kept for a week by the main process. The panel follows the
+  // active pane unless the user points it at an older session with its picker.
+
+  const [historyEntries, setHistoryEntries] = useState<HistoryEntry[]>([])
+  const [historySessions, setHistorySessions] = useState<HistorySessionSummary[]>([])
+  const [historyPick, setHistoryPick] = useState<string | null>(null)
+  const [historyTick, setHistoryTick] = useState(0)
+
+  useEffect(() => api.onHistoryChanged(() => setHistoryTick((t) => t + 1)), [])
+
+  /** The live session behind the active pane, whatever kind it is. */
+  const activeLiveSessionId = useMemo(() => {
+    if (!activePanelId || activePanelId === 'welcome') return null
+    return liveSessionRef.current.get(activePanelId) ?? activePanelId
+  }, [activePanelId])
+
+  /**
+   * The same session, but only when it is an SSH login.
+   *
+   * The SFTP panel keys its listing off this: it must list the host the user is
+   * looking at, and nothing at all for a local shell.
+   */
+  const activeSshSessionId = useMemo(
+    () =>
+      sessions.find((s) => s.id === activeLiveSessionId)?.kind === 'ssh'
+        ? activeLiveSessionId
+        : null,
+    [activeLiveSessionId, sessions]
+  )
+
+  // Following the active pane is the default; a pick from the selector is a
+  // deliberate look at another session, and switching panes starts over.
+  useEffect(() => setHistoryPick(null), [activeLiveSessionId])
+
+  const historySessionId = historyPick ?? activeLiveSessionId
 
   useEffect(() => {
-    void api.listHistory().then(setHistory)
-    return api.onHistoryChanged(setHistory)
-  }, [])
+    let cancelled = false
+    void api.historySessions().then((list) => {
+      if (!cancelled) setHistorySessions(list)
+    })
+    if (!historySessionId) {
+      setHistoryEntries([])
+      return
+    }
+    void api.listHistory(historySessionId).then((entries) => {
+      if (!cancelled) setHistoryEntries(entries)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [historySessionId, historyTick])
 
   /** Send a command from history to the pane the user is looking at. */
   const sendHistory = useCallback((command: string) => {
@@ -1133,13 +1179,23 @@ export function App(): JSX.Element {
     api.writeSession(sessionId, `${command}\r`)
   }, [])
 
-  const deleteHistoryEntry = useCallback((id: string) => {
-    void api.deleteHistoryEntry(id).then(setHistory)
+  const forgetHistory = useCallback((entries: HistoryEntry[]) => {
+    setHistoryEntries(entries)
+    setHistoryTick((t) => t + 1)
   }, [])
 
+  const deleteHistoryEntry = useCallback(
+    (id: string) => {
+      if (!historySessionId) return
+      void api.deleteHistoryEntry(historySessionId, id).then(forgetHistory)
+    },
+    [forgetHistory, historySessionId]
+  )
+
   const clearHistory = useCallback(() => {
-    void api.clearHistory().then(setHistory)
-  }, [])
+    if (!historySessionId) return
+    void api.clearHistory(historySessionId).then(forgetHistory)
+  }, [forgetHistory, historySessionId])
 
   // ---- break reminder -----------------------------------------------------
 
@@ -1166,12 +1222,6 @@ export function App(): JSX.Element {
     return () => window.clearInterval(timer)
   }, [settings.break])
 
-  const dismissBreak = useCallback(() => {
-    focusedSecondsRef.current = 0
-    breakDueRef.current = false
-    setBreakDue(null)
-  }, [])
-
   // ---- drawer sections ----------------------------------------------------
 
   const sectionState = settings.sidebar.sections
@@ -1180,11 +1230,20 @@ export function App(): JSX.Element {
     [sectionState]
   )
 
+  /** Drawer width: settings is the truth, except while a drag is in progress. */
+  const [liveDrawerWidth, setLiveDrawerWidth] = useState<number | null>(null)
+  const drawerWidth = liveDrawerWidth ?? settings.sidebar.width
+
+  const saveSidebar = useCallback((patch: Partial<AppSettings['sidebar']>) => {
+    const current = settingsRef.current
+    void api
+      .saveSettings({ ...current, sidebar: { ...current.sidebar, ...patch } })
+      .then(setSettings)
+  }, [])
+
   const saveSections = useCallback(
-    (sections: typeof sectionState) => {
-      void api.saveSettings({ ...settingsRef.current, sidebar: { sections } }).then(setSettings)
-    },
-    []
+    (sections: AppSettings['sidebar']['sections']) => saveSidebar({ sections }),
+    [saveSidebar]
   )
 
   /**
@@ -1208,25 +1267,50 @@ export function App(): JSX.Element {
     [saveSections]
   )
 
-  const setSectionVisible = useCallback(
-    (id: SidebarSectionId, visible: boolean) => {
-      saveSections(sectionState.map((s) => (s.id === id ? { ...s, visible } : s)))
+  const patchSection = useCallback(
+    (id: SidebarSectionId, patch: Partial<AppSettings['sidebar']['sections'][number]>) => {
+      saveSections(
+        settingsRef.current.sidebar.sections.map((s) => (s.id === id ? { ...s, ...patch } : s))
+      )
     },
-    [saveSections, sectionState]
+    [saveSections]
+  )
+
+  const setSectionVisible = useCallback(
+    (id: SidebarSectionId, visible: boolean) => patchSection(id, { visible }),
+    [patchSection]
   )
 
   /**
-   * The SSH session behind the active pane, or null.
+   * Drag the drawer's right edge.
    *
-   * Recomputed when the arrangement changes rather than read live, because the
-   * SFTP panel keys its listing off this: a stale value would list one host's
-   * files while the user is looking at another.
+   * The width is held locally during the gesture and saved on release: a settings
+   * save writes the file and broadcasts to every window, which is not something
+   * to do on every pointer move.
    */
-  const activeSshSessionId = useMemo(() => {
-    if (!activePanelId || activePanelId === 'welcome') return null
-    const live = liveSessionRef.current.get(activePanelId) ?? activePanelId
-    return sessions.find((s) => s.id === live)?.kind === 'ssh' ? live : null
-  }, [sessions, activePanelId])
+  const startDrawerResize = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      event.preventDefault()
+      const startX = event.clientX
+      const startWidth = drawerWidth
+      let last = startWidth
+
+      const move = (e: PointerEvent): void => {
+        last = Math.min(560, Math.max(200, Math.round(startWidth + e.clientX - startX)))
+        setLiveDrawerWidth(last)
+      }
+      const up = (): void => {
+        window.removeEventListener('pointermove', move)
+        window.removeEventListener('pointerup', up)
+        setLiveDrawerWidth(null)
+        saveSidebar({ width: last })
+      }
+
+      window.addEventListener('pointermove', move)
+      window.addEventListener('pointerup', up)
+    },
+    [drawerWidth, saveSidebar]
+  )
 
   const sectionMenuItems = useMemo((): MenuItem[] => {
     if (!sectionMenu) return []
@@ -1972,38 +2056,28 @@ export function App(): JSX.Element {
         and Local shell, which belong to the terminal workflow rather than to a
         host manager.
       */}
-      {!railCollapsed && page === 'terminal' && !focusMode && (
-        <aside className="td-sidebar">
-          {/* No brand here: the rail carries it, and repeating it made the pair
-              read as two separate panels. */}
-          <div className="td-sidebar-actions">
-            <button className="td-btn td-btn-primary" onClick={() => setDialogOpen(true)}>
-              + Connect
-            </button>
-            <button
-              className="td-btn"
-              onClick={() =>
-                void api.createLocalSession({}).then((r) => {
-                  if (r.ok) addSession(r.session)
-                  else setAlert({ message: r.error.message })
-                })
-              }
-              disabled={!appMeta?.localShellAvailable}
-              title={
-                appMeta && !appMeta.localShellAvailable
-                  ? 'Local shell needs @lydell/node-pty for this platform'
-                  : 'Open a local shell'
-              }
-            >
-              Local shell
-            </button>
-          </div>
-
+      {!railCollapsed && page === 'terminal' && (
+        <aside
+          className="td-sidebar"
+          /*
+           * `sidebar`, not `drawer`: the Drawer component (quick connect, editors,
+           * settings) is `data-testid="drawer"`, and two elements answering to the
+           * same name broke every probe that looks for those dialogs — the sidebar
+           * matched first and the dialog was reported missing.
+           */
+          data-testid="sidebar"
+          style={{ width: drawerWidth, flexBasis: drawerWidth }}
+        >
           {/*
-            The sections are the user's: drag a heading to reorder, right-click
-            one to hide it or bring a hidden one back. `settings.sidebar.sections`
-            keeps the order *including* the hidden ones, so hiding a section never
-            loses where the user had put it.
+            The sections are the user's: drag a heading to reorder, fold it with
+            the triangle, drag its bottom edge to size it, right-click it to hide
+            it or bring a hidden one back. `settings.sidebar.sections` keeps the
+            order *including* hidden ones, so hiding a section never loses where
+            the user had put it.
+
+            The Connect / Local shell row that used to sit here is gone: it took
+            the first thing you saw in the drawer to offer two actions that live
+            in the footer icons now.
           */}
           {visibleSections.map((section) => (
             <SectionFrame
@@ -2011,6 +2085,10 @@ export function App(): JSX.Element {
               id={section.id}
               title={SIDEBAR_SECTION_LABELS[section.id]}
               testId={`section-${section.id}`}
+              collapsed={section.collapsed === true}
+              height={section.height}
+              onToggleCollapsed={(id) => patchSection(id, { collapsed: !section.collapsed })}
+              onResize={(id, height) => patchSection(id, { height: height > 0 ? height : undefined })}
               dragging={draggingSection}
               onDragStart={(id) => {
                 draggingSectionRef.current = id
@@ -2124,8 +2202,11 @@ export function App(): JSX.Element {
 
               {section.id === 'history' && (
                 <HistoryPanel
-                  entries={history}
+                  sessionId={historySessionId}
+                  sessions={historySessions}
+                  entries={historyEntries}
                   canSend={activeTerminalId() !== null}
+                  onPick={setHistoryPick}
                   onSend={sendHistory}
                   onDelete={deleteHistoryEntry}
                 />
@@ -2141,7 +2222,38 @@ export function App(): JSX.Element {
             </SectionFrame>
           ))}
 
+          {/*
+            The drawer's own actions. They used to be a full-width row above the
+            sections, which put two buttons in the most valuable place on the page;
+            as icons beside the others they are still one click away.
+          */}
           <div className="td-sidebar-footer">
+            <button
+              className="td-icon-btn"
+              title="New connection (Ctrl+T)"
+              data-testid="new-connection"
+              onClick={() => setDialogOpen(true)}
+            >
+              ＋
+            </button>
+            <button
+              className="td-icon-btn"
+              title={
+                appMeta && !appMeta.localShellAvailable
+                  ? 'Local shell needs @lydell/node-pty for this platform'
+                  : 'Open a local shell'
+              }
+              data-testid="local-shell"
+              disabled={!appMeta?.localShellAvailable}
+              onClick={() =>
+                void api.createLocalSession({}).then((r) => {
+                  if (r.ok) addSession(r.session)
+                  else setAlert({ message: r.error.message })
+                })
+              }
+            >
+              &gt;_
+            </button>
             <button
               className="td-icon-btn"
               title="Connections window"
@@ -2169,6 +2281,14 @@ export function App(): JSX.Element {
             </button>
             <span>{platformLabel}</span>
           </div>
+
+          {/* Drag the right edge to set the drawer's width. */}
+          <div
+            className="td-sidebar-resize"
+            data-testid="drawer-resize"
+            title="Drag to resize the drawer"
+            onPointerDown={startDrawerResize}
+          />
         </aside>
       )}
 
@@ -2499,9 +2619,17 @@ export function App(): JSX.Element {
       {breakDue && (
         <BreakReminder
           minutes={breakDue.minutes}
-          onSkip={dismissBreak}
+          onSnooze={() => {
+            // A snooze is a short interval, not the full one: being asked again
+            // in ten minutes is the point of "later".
+            focusedSecondsRef.current = Math.max(0, settings.break.minutes * 60 - 10 * 60)
+            breakDueRef.current = false
+            setBreakDue(null)
+          }}
           onDone={() => {
-            dismissBreak()
+            focusedSecondsRef.current = 0
+            breakDueRef.current = false
+            setBreakDue(null)
             setToast('Break taken — the next reminder starts from now.')
           }}
         />

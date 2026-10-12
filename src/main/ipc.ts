@@ -112,10 +112,10 @@ function noteTypedInput(sessionId: string, data: string): void {
 /** Store one command and tell the UI, unless it was a no-op repeat. */
 function recordCommand(sessionId: string, command: string): void {
   const store = getHistoryStore()
-  const before = store.list().length
+  const before = store.list(sessionId).length
   const title = sessionManager.list().find((s) => s.id === sessionId)?.title ?? 'session'
-  const entries = store.add(command, title)
-  if (entries.length !== before) broadcast('history:changed', entries)
+  const entries = store.add(sessionId, title, command)
+  if (entries.length !== before) broadcast('history:changed', { sessionId, entries })
 }
 
 
@@ -442,10 +442,15 @@ export function registerIpc(): void {
   ipcMain.handle('session:replay', (_e, id: string) => sessionManager.replay(id))
 
   // ---- command history ---------------------------------------------------
+  // Addressed by session id: each session keeps its own file, and a stale one is
+  // dropped a week after its last command.
 
-  ipcMain.handle('history:list', () => getHistoryStore().list())
-  ipcMain.handle('history:delete', (_e, id: string) => getHistoryStore().remove(id))
-  ipcMain.handle('history:clear', () => getHistoryStore().clear())
+  ipcMain.handle('history:list', (_e, sessionId: string) => getHistoryStore().list(sessionId))
+  ipcMain.handle('history:sessions', () => getHistoryStore().sessions())
+  ipcMain.handle('history:delete', (_e, sessionId: string, id: string) =>
+    getHistoryStore().remove(sessionId, id)
+  )
+  ipcMain.handle('history:clear', (_e, sessionId: string) => getHistoryStore().clear(sessionId))
 
   // ---- sftp --------------------------------------------------------------
   // Everything is addressed by *session id*: the renderer has no credentials and

@@ -121,8 +121,7 @@ async function main() {
       }
 
       // ---- 3. broadcast input ---------------------------------------------
-      const localBtn = () => [...document.querySelectorAll('.td-sidebar .td-btn')]
-        .find((b) => /Local shell/i.test(b.textContent || ''))
+      const localBtn = () => document.querySelector('[data-testid="local-shell"]')
       const panels = () => window.__tdDockApi.panels.length
 
       const openShell = async () => {
