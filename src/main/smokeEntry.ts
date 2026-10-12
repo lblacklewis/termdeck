@@ -6,6 +6,7 @@
  * the same source (instead of duplicating handlers) keeps the probe honest.
  */
 import { registerIpc, storeAccess } from './ipc'
+import { attachQuitConfirmation, registerQuitIpc, requestQuit, isQuitting } from './quit'
 import { sessionManager } from './sessions/SessionManager'
 import { LocalShellBackend, isLocalShellAvailable } from './sessions/LocalShellBackend'
 import { SshShellBackend, HostKeyRequiredError } from './sessions/SshShellBackend'
@@ -17,6 +18,10 @@ import { KnownHosts, fingerprint } from './ssh/KnownHosts'
 export {
   registerIpc,
   storeAccess,
+  attachQuitConfirmation,
+  registerQuitIpc,
+  requestQuit,
+  isQuitting,
   sessionManager,
   LocalShellBackend,
   isLocalShellAvailable,

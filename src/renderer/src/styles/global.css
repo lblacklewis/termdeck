@@ -855,6 +855,19 @@ kbd {
   padding-top: 3px;
 }
 
+/*
+ * The quit confirmation's headline sentence.
+ *
+ * Slightly larger than body text because it is the whole point of the dialog:
+ * how many live connections the quit is about to end.
+ */
+.td-quit-text {
+  margin: 0 0 8px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--td-text);
+}
+
 /* ---- settings dialog --------------------------------------------------- */
 
 .td-modal-wide {

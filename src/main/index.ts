@@ -1,6 +1,7 @@
 import { app, BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { registerIpc, loadSettingsForStartup } from './ipc'
+import { attachQuitConfirmation, registerQuitIpc } from './quit'
 import { sessionManager } from './sessions/SessionManager'
 import { defaultScaleForWidth, setScreenDefaultScale } from './store/Stores'
 
@@ -52,6 +53,9 @@ function createWindow(): BrowserWindow {
 
   win.on('ready-to-show', () => win.show())
 
+  // Closing the window asks the user first: every open pane is a live login.
+  attachQuitConfirmation(win)
+
   /**
    * Start at the saved interface scale.
    *
@@ -92,6 +96,7 @@ if (!gotLock) {
   void app.whenReady().then(() => {
     seedDefaultScale()
     registerIpc()
+    registerQuitIpc()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

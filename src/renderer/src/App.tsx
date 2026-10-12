@@ -8,6 +8,7 @@ import {
   type CredentialStatus,
   type HostKeyPrompt,
   type LayoutState,
+  type QuitRequest,
   type SavedSession,
   type SessionFolder,
   type SessionInfo,
@@ -32,6 +33,7 @@ import { HostKeyDialog } from './components/HostKeyDialog'
 import { ContextMenu, type MenuItem } from './components/ContextMenu'
 import { ConnectionsWindow } from './components/ConnectionsWindow'
 import { PasswordPrompt } from './components/PasswordPrompt'
+import { QuitConfirmDialog } from './components/QuitConfirmDialog'
 import { SnippetBar } from './components/SnippetBar'
 import { SnippetEditor } from './components/SnippetEditor'
 import { KnownHostsPage } from './components/KnownHostsPage'
@@ -192,6 +194,13 @@ export function App(): JSX.Element {
     retry?: boolean
   } | null>(null)
   const [promptBusy, setPromptBusy] = useState(false)
+  /**
+   * A quit the main process is holding open for confirmation.
+   *
+   * Set either by the window close (X, Alt+F4) arriving over IPC, or by the quit
+   * shortcut in the renderer. Non-null means the dialog is on screen.
+   */
+  const [quitRequest, setQuitRequest] = useState<QuitRequest | null>(null)
   /** Which rail section is showing. */
   const [page, setPage] = useState<PageId>('terminal')
   /** Mirrors the broadcast module, which owns the mode. */
@@ -983,6 +992,31 @@ export function App(): JSX.Element {
   // value; this keeps the button in step with it.
   useEffect(() => onBroadcastChange(setBroadcasting), [])
 
+  // ---- quitting -----------------------------------------------------------
+
+  /**
+   * The main process holds a window close until the user answers, and this is
+   * what puts the question on screen: the window's X, Alt+F4 and "Close window"
+   * from the taskbar all arrive here as one event.
+   */
+  useEffect(() => {
+    return api.onQuitRequested((request) => setQuitRequest(request))
+  }, [])
+
+  /**
+   * The quit shortcut asks the same question as the X button.
+   *
+   * The count comes from the main process rather than from the pane list in
+   * state: a pane that was reloaded keeps its panel id while its session id has
+   * changed, and the main process is the only side that knows every live backend.
+   */
+  const requestQuit = useCallback(() => {
+    void api
+      .listSessions()
+      .then((live) => setQuitRequest({ sessions: live.length }))
+      .catch(() => setQuitRequest({ sessions: 0 }))
+  }, [])
+
   // ---- tree mutations -----------------------------------------------------
 
   /**
@@ -1596,7 +1630,8 @@ export function App(): JSX.Element {
       })
     },
     nextTab: () => cycleTab(1),
-    prevTab: () => cycleTab(-1)
+    prevTab: () => cycleTab(-1),
+    quitApp: requestQuit
   })
 
   const platformLabel = useMemo(
@@ -2094,6 +2129,19 @@ export function App(): JSX.Element {
           busy={promptBusy}
           onCancel={() => setPasswordPrompt(null)}
           onSubmit={({ password, remember }) => void submitPassword(password, remember)}
+        />
+      )}
+
+      {quitRequest && (
+        <QuitConfirmDialog
+          sessions={quitRequest.sessions}
+          onCancel={() => setQuitRequest(null)}
+          onConfirm={() => {
+            // Main holds the close until this arrives; the dialog must not
+            // linger if the quit is somehow refused.
+            setQuitRequest(null)
+            api.quitApp()
+          }}
         />
       )}
 

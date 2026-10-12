@@ -68,6 +68,18 @@ export interface AppInfo {
   configDir: string
 }
 
+/**
+ * Sent to the renderer when the window is asked to close.
+ *
+ * The confirmation itself is a normal in-app dialog, so the window close is held
+ * in the main process until the user answers. The count comes from the main
+ * process because it is the only side that knows every live backend.
+ */
+export interface QuitRequest {
+  /** Number of live terminal sessions that closing would end. */
+  sessions: number
+}
+
 // ---- host keys ----------------------------------------------------------
 
 export interface HostKeyPrompt {
@@ -412,7 +424,14 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { id: 'copy', label: 'Copy selection', keys: 'Ctrl+Shift+C', builtin: true },
   { id: 'paste', label: 'Paste', keys: 'Ctrl+Shift+V', builtin: true },
   { id: 'nextTab', label: 'Next tab', keys: 'Ctrl+Tab', builtin: true },
-  { id: 'prevTab', label: 'Previous tab', keys: 'Ctrl+Shift+Tab', builtin: true }
+  { id: 'prevTab', label: 'Previous tab', keys: 'Ctrl+Shift+Tab', builtin: true },
+  /*
+   * Quit, with a confirmation step.
+   *
+   * Deliberately not Ctrl+Q: that is XON (resume output) in a terminal, and
+   * swallowing it would break the shell's flow control for anyone who uses it.
+   */
+  { id: 'quitApp', label: 'Quit TermDeck', keys: 'Ctrl+Shift+Q', builtin: true }
 ]
 
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
@@ -537,6 +556,15 @@ export interface TermDeckApi {
   onSessionData(handler: (id: string, chunk: string, seq: number) => void): () => void
   onSessionExit(handler: (id: string, info: SessionExitInfo) => void): () => void
   onSessionError(handler: (id: string, message: string) => void): () => void
+  /**
+   * The window was asked to close (its X, Alt+F4, or a quit shortcut).
+   *
+   * The close is held in the main process, so the UI has to answer by calling
+   * `quitApp()` to let it through — or do nothing, which cancels the quit.
+   */
+  onQuitRequested(handler: (request: QuitRequest) => void): () => void
+  /** Confirm a pending quit and exit. */
+  quitApp(): void
   /** Fires whenever settings are saved, so the UI never runs on stale values. */
   onSettingsChanged(handler: (settings: AppSettings) => void): () => void
   /** Fires on every saved-session or folder mutation. */

@@ -8,6 +8,7 @@ import type {
   KnownHostEntry,
   LayoutState,
   LocalConnectPayload,
+  QuitRequest,
   SavedSession,
   SaveTextFileRequest,
   SaveTextFileResult,
@@ -122,10 +123,15 @@ const api = {
   readClipboard: (): Promise<string> => ipcRenderer.invoke('app:readClipboard'),
   appInfo: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
 
+  // ---- quit -------------------------------------------------------------
+  // Confirming a pending quit. The window close itself is held in main.
+  quitApp: (): void => ipcRenderer.send('app:quit'),
+
   // ---- events -----------------------------------------------------------
   onSessionData: (handler: (id: string, chunk: string, seq: number) => void): (() => void) =>
     on<[string, string, number]>('session:data', handler),
-
+  onQuitRequested: (handler: (request: QuitRequest) => void): (() => void) =>
+    on<[QuitRequest]>('app:quit-requested', handler),
   onSessionExit: (handler: (id: string, info: SessionExitInfo) => void): (() => void) =>
     on<[string, SessionExitInfo]>('session:exit', handler),
 
