@@ -15,7 +15,9 @@ import { clampScale, SettingsStore, SessionStore } from './store/Stores'
 import { KnownHosts } from './ssh/KnownHosts'
 import type {
   AppSettings,
+  CreateSessionResult,
   FontChoices,
+  HostKeyPrompt,
   LayoutState,
   SavedSession,
   SaveTextFileRequest,
@@ -34,6 +36,23 @@ interface CreateBase {
 
 /** How long to wait for a connection to either produce output or fail. */
 const HANDSHAKE_WATCH_MS = 8_000
+
+/**
+ * How each live session was opened, so it can be opened again.
+ *
+ * The renderer cannot reconstruct this: an SSH connection's options hold the
+ * password resolved from the encrypted vault (or typed once into the prompt),
+ * and none of that ever travels back over IPC. Keeping the blueprint here is
+ * what makes "duplicate this connection" mean *the same host, the same
+ * credentials* rather than a guess from the saved-session list — a guess that
+ * produced a local shell whenever the connection was not started from a saved
+ * entry.
+ */
+type SessionBlueprint =
+  | { kind: 'ssh'; options: SshConnectOptions; cols: number; rows: number }
+  | { kind: 'local'; title: string; cols: number; rows: number }
+
+const blueprints = new Map<string, SessionBlueprint>()
 
 // Lazily created so `app.getPath('userData')` is available.
 let credentials: CredentialStore | null = null
@@ -93,7 +112,7 @@ function broadcast(channel: string, ...args: unknown[]): void {
 function serialiseError(err: unknown): {
   message: string
   code?: string
-  prompt?: unknown
+  prompt?: HostKeyPrompt
 } {
   if (err instanceof HostKeyRequiredError) {
     return { message: err.message, code: err.code, prompt: err.prompt }
@@ -101,9 +120,76 @@ function serialiseError(err: unknown): {
   return { message: err instanceof Error ? err.message : String(err) }
 }
 
+/**
+ * Start an SSH session from fully-resolved options and wait for it to prove
+ * itself.
+ *
+ * A host-key rejection arrives asynchronously, so this waits briefly for either
+ * the first output (success) or a failure before reporting to the renderer. It
+ * is shared with `session:duplicate`, which passes the stored options of an
+ * existing session so a copy reconnects to the same host with the same
+ * credentials — including a password that only ever existed in this process.
+ */
+async function openSsh(
+  options: SshConnectOptions,
+  cols: number,
+  rows: number
+): Promise<CreateSessionResult> {
+  const label = options.title?.trim() || `${options.username}@${options.host}`
+
+  const info = await sessionManager.create(
+    (_id, c, r) => Promise.resolve(new SshShellBackend(options, c, r, { knownHosts })),
+    { kind: 'ssh', title: label },
+    cols,
+    rows
+  )
+  blueprints.set(info.id, { kind: 'ssh', options, cols, rows })
+
+  return await new Promise<CreateSessionResult>((resolve) => {
+    let settled = false
+    const done = (value: CreateSessionResult): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      sessionManager.off('data', onData)
+      sessionManager.off('error', onError)
+      sessionManager.off('exit', onExit)
+      resolve(value)
+    }
+
+    const onData = (id: string): void => {
+      if (id === info.id) done({ ok: true, session: info })
+    }
+    const onError = (id: string, error: Error): void => {
+      if (id !== info.id) return
+      // Tear the dead session down; the UI will retry after the user decides.
+      const serialised = serialiseError(error)
+      sessionManager.close(info.id)
+      blueprints.delete(info.id)
+      done({ ok: false, error: serialised })
+    }
+    const onExit = (id: string): void => {
+      if (id === info.id && !settled) {
+        // Exited before producing anything and without a specific error.
+        done({ ok: false, error: { message: 'Connection closed unexpectedly.' } })
+      }
+    }
+
+    const timer = setTimeout(() => done({ ok: true, session: info }), HANDSHAKE_WATCH_MS)
+    sessionManager.on('data', onData)
+    sessionManager.on('error', onError)
+    sessionManager.on('exit', onExit)
+  })
+}
+
 export function registerIpc(): void {
   sessionManager.on('data', (id, chunk, seq) => broadcast('session:data', id, chunk, seq))
-  sessionManager.on('exit', (id, code, signal) => broadcast('session:exit', id, { code, signal }))
+  sessionManager.on('exit', (id, code, signal) => {
+    // The blueprint describes a live session; drop it with the session so a
+    // duplicated pane can never reconnect with options belonging to a dead one.
+    blueprints.delete(id)
+    broadcast('session:exit', id, { code, signal })
+  })
   sessionManager.on('error', (id, error) =>
     broadcast('session:error', id, serialiseError(error).message)
   )
@@ -182,51 +268,7 @@ export function registerIpc(): void {
       }
     }
 
-    const deps = { knownHosts }
-
-    const info = await sessionManager.create(
-      (_id, c, r) => Promise.resolve(new SshShellBackend(options, c, r, deps)),
-      { kind: 'ssh', title: label },
-      cols,
-      rows
-    )
-
-    // A host-key rejection arrives asynchronously, so wait briefly for either
-    // the first output (success) or a failure before reporting to the renderer.
-    return await new Promise((resolve) => {
-      let settled = false
-      const done = (value: unknown): void => {
-        if (settled) return
-        settled = true
-        clearTimeout(timer)
-        sessionManager.off('data', onData)
-        sessionManager.off('error', onError)
-        sessionManager.off('exit', onExit)
-        resolve(value)
-      }
-
-      const onData = (id: string): void => {
-        if (id === info.id) done({ ok: true, session: info })
-      }
-      const onError = (id: string, error: Error): void => {
-        if (id !== info.id) return
-        // Tear the dead session down; the UI will retry after the user decides.
-        const serialised = serialiseError(error)
-        sessionManager.close(info.id)
-        done({ ok: false, error: serialised })
-      }
-      const onExit = (id: string): void => {
-        if (id === info.id && !settled) {
-          // Exited before producing anything and without a specific error.
-          done({ ok: false, error: { message: 'Connection closed unexpectedly.' } })
-        }
-      }
-
-      const timer = setTimeout(() => done({ ok: true, session: info }), HANDSHAKE_WATCH_MS)
-      sessionManager.on('data', onData)
-      sessionManager.on('error', onError)
-      sessionManager.on('exit', onExit)
-    })
+    return openSsh(options, cols, rows)
   })
 
   ipcMain.handle('session:createLocal', async (_e, payload: CreateBase & { title?: string }) => {
@@ -244,15 +286,54 @@ export function registerIpc(): void {
       cols,
       rows
     )
+    blueprints.set(info.id, { kind: 'local', title, cols, rows })
 
     return { ok: true, session: info }
+  })
+
+  /**
+   * Open a second connection identical to an existing one.
+   *
+   * Deliberately not "duplicate the tab": the useful action is another live
+   * login to the same box, which then behaves independently. Doing it here
+   * rather than in the renderer is what makes it exact — the options (and any
+   * password resolved from the vault) never leave this process, so the renderer
+   * cannot get the host or the credentials wrong.
+   */
+  ipcMain.handle('session:duplicate', async (_e, sourceId: string): Promise<CreateSessionResult> => {
+    const blueprint = blueprints.get(sourceId)
+    if (!blueprint) {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_DUPLICABLE',
+          message: 'This pane has no live connection to duplicate. Reconnect it first.'
+        }
+      }
+    }
+
+    if (blueprint.kind === 'local') {
+      const info = await sessionManager.create(
+        (_id, c, r) => Promise.resolve(new LocalShellBackend({}, c, r)),
+        { kind: 'local', title: blueprint.title },
+        blueprint.cols,
+        blueprint.rows
+      )
+      blueprints.set(info.id, { ...blueprint })
+      return { ok: true, session: info }
+    }
+
+    return openSsh(blueprint.options, blueprint.cols, blueprint.rows)
   })
 
   ipcMain.on('session:write', (_e, id: string, data: string) => sessionManager.write(id, data))
   ipcMain.on('session:resize', (_e, id: string, cols: number, rows: number) =>
     sessionManager.resize(id, cols, rows)
   )
-  ipcMain.on('session:close', (_e, id: string) => sessionManager.close(id))
+  ipcMain.on('session:close', (_e, id: string) => {
+    blueprints.delete(id)
+    sessionManager.close(id)
+  })
 
   ipcMain.handle('session:list', () => sessionManager.list())
   ipcMain.handle('session:replay', (_e, id: string) => sessionManager.replay(id))

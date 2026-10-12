@@ -456,6 +456,13 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export interface TermDeckApi {
   createSshSession(payload: SshConnectPayload): Promise<CreateSessionResult>
   createLocalSession(payload: LocalConnectPayload): Promise<CreateSessionResult>
+  /**
+   * Open a second, independent connection to the same host as a live session.
+   *
+   * Resolved in the main process from the options the session was started with,
+   * so the copy uses the same credentials without them crossing IPC again.
+   */
+  duplicateSession(sourceId: string): Promise<CreateSessionResult>
   writeSession(id: string, data: string): void
   resizeSession(id: string, cols: number, rows: number): void
   closeSession(id: string): void

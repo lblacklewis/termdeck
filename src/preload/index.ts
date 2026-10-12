@@ -37,6 +37,9 @@ const api = {
   createLocalSession: (payload: LocalConnectPayload): Promise<CreateSessionResult> =>
     ipcRenderer.invoke('session:createLocal', payload),
 
+  duplicateSession: (sourceId: string): Promise<CreateSessionResult> =>
+    ipcRenderer.invoke('session:duplicate', sourceId),
+
   writeSession: (id: string, data: string): void => ipcRenderer.send('session:write', id, data),
 
   resizeSession: (id: string, cols: number, rows: number): void =>

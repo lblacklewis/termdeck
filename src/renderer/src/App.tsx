@@ -256,6 +256,15 @@ export function App(): JSX.Element {
    * session can adopt the placeholder pane that the restored layout left behind.
    */
   const savedIdForSessionRef = useRef<Map<string, string>>(new Map())
+  /**
+   * Maps a panel id to the live session it currently displays.
+   *
+   * They are equal for a pane that was simply connected, but a reload keeps the
+   * pane and swaps the session behind it, so everything that closes or activates
+   * a pane by id has to resolve through here — otherwise closing a reloaded pane
+   * closes a backend that is already gone and leaks the live one.
+   */
+  const liveSessionRef = useRef<Map<string, string>>(new Map())
   /** Guards against the initial hydration being written straight back. */
   const hydratedRef = useRef(false)
   /**
@@ -315,15 +324,46 @@ export function App(): JSX.Element {
     }
   }, [refreshTree, refreshCredentials])
 
+  /**
+   * The panel that shows a given session.
+   *
+   * Usually the session id *is* the panel id; after a reload the pane keeps its
+   * old id and only the session behind it changed, so the reverse lookup is what
+   * makes the sidebar's activate/close actions keep working.
+   */
+  const resolvePanelId = useCallback((sessionId: string): string => {
+    if (dockApiRef.current?.getPanel(sessionId)) return sessionId
+    for (const [panelId, live] of liveSessionRef.current) {
+      if (live === sessionId) return panelId
+    }
+    return sessionId
+  }, [])
+
+  /** The live session behind a pane id. */
+  const liveIdFor = useCallback(
+    (panelId: string): string => liveSessionRef.current.get(panelId) ?? panelId,
+    []
+  )
+
   const closeSession = useCallback(
     (sessionId: string) => {
-      api.closeSession(sessionId)
-      const panel = dockApiRef.current?.getPanel(sessionId)
+      const panelId = resolvePanelId(sessionId)
+      const live = liveIdFor(panelId)
+      api.closeSession(live)
+      const panel = dockApiRef.current?.getPanel(panelId)
       if (panel) dockApiRef.current?.removePanel(panel)
-      removeSessionState(sessionId)
+      liveSessionRef.current.delete(panelId)
+      removeSessionState(live)
+      removeSessionState(panelId)
     },
-    [removeSessionState]
+    [liveIdFor, removeSessionState, resolvePanelId]
   )
+  /** Close a pane's backend without touching the panel, for the remove handler. */
+  const closeBackendRef = useRef<(panelId: string) => void>(() => {})
+  closeBackendRef.current = (panelId: string) => {
+    api.closeSession(liveIdFor(panelId))
+    liveSessionRef.current.delete(panelId)
+  }
 
   // ---- dockview bootstrap -------------------------------------------------
 
@@ -422,7 +462,7 @@ export function App(): JSX.Element {
     }
 
     const removed = dock.api.onDidRemovePanel((panel) => {
-      if (panel.id !== 'welcome') api.closeSession(panel.id)
+      if (panel.id !== 'welcome') closeBackendRef.current(panel.id)
       removeSessionState(panel.id)
     })
 
@@ -694,6 +734,35 @@ export function App(): JSX.Element {
 
   // ---- session creation ---------------------------------------------------
 
+  /**
+   * Re-layout until a freshly added pane has a real size.
+   *
+   * dockview measures itself when the panel is added. If that happens before the
+   * dock has been laid out — which is exactly what a pane added while the window
+   * is still settling does — the pane keeps a 100x100 placeholder and never
+   * grows, so its terminal paints in a 65px box and shows nothing. Retrying
+   * until the panel reports a plausible size makes that self-correcting instead
+   * of leaving a permanently broken pane.
+   *
+   * The retry continues while the *pane* is small, not only while the width is
+   * small: a pane whose width is right but whose height collapsed is the same
+   * bug, and it used to stop retrying right there. A duplicated tab lands in an
+   * existing group and hits this just as readily as a first connection does,
+   * which is why it is shared rather than open-coded at each call site.
+   */
+  const settlePanel = useCallback((panelId: string) => {
+    const dockApi = dockApiRef.current
+    if (!dockApi) return
+    let attempts = 0
+    const settle = (): void => {
+      dockSyncRef.current?.()
+      const panel = dockApi.getPanel(panelId)
+      const tiny = !panel || panel.api.width < 200 || panel.api.height < 200
+      if (attempts++ < 30 && tiny) window.setTimeout(settle, 100)
+    }
+    settle()
+  }, [])
+
   const addSession = useCallback((session: SessionInfo) => {
     const dockApi = dockApiRef.current
     if (!dockApi) return
@@ -706,6 +775,7 @@ export function App(): JSX.Element {
     const existing = fromSaved ? dockApi.getPanel(fromSaved) : undefined
     if (existing) {
       savedIdForSessionRef.current.delete(session.id)
+      liveSessionRef.current.set(existing.id, session.id)
       existing.api.updateParameters({
         session,
         disconnected: false,
@@ -721,6 +791,7 @@ export function App(): JSX.Element {
     const placeholder = dockApi.getPanel('welcome')
     if (placeholder) dockApi.removePanel(placeholder)
 
+    liveSessionRef.current.set(session.id, session.id)
     dockApi.addPanel({
       id: session.id,
       component: 'terminal',
@@ -732,29 +803,11 @@ export function App(): JSX.Element {
     })
 
     /*
-     * Re-layout until the new pane has a real size.
-     *
-     * dockview measures itself when the panel is added. If that happens before
-     * the dock has been laid out — which is exactly what a session opened while
-     * the window is still settling does — the pane keeps a 100x100 placeholder
-     * and never grows, so its terminal paints in a 65px box. Retrying until the
-     * panel reports a plausible width makes that self-correcting instead of
-     * leaving a permanently broken pane.
-     *
-     * The retry continues while the *pane* is small, not only while the width is
-     * small: a pane whose width is right but whose height collapsed is the same
-     * bug, and it used to stop retrying right there.
+     * Then drive the layout until the pane agrees with its container; see
+     * `settlePanel` for why one layout pass is not enough.
      */
-    let attempts = 0
-    const settle = (): void => {
-      dockSyncRef.current?.()
-      const panel = dockApi.getPanel(session.id)
-      const tiny =
-        !panel || panel.api.width < 200 || panel.api.height < 200
-      if (attempts++ < 30 && tiny) window.setTimeout(settle, 100)
-    }
-    settle()
-  }, [])
+    settlePanel(session.id)
+  }, [settlePanel])
 
   /**
    * Save a session that was created by a quick connect.
@@ -1220,6 +1273,7 @@ export function App(): JSX.Element {
     setTabMenu({ x: e.clientX, y: e.clientY, panelId, title: panel.title || 'Session' })
   }, [])
 
+
   /** Close every tab in a group except the ones to keep. */
   const closePanels = useCallback(
     (ids: string[]) => {
@@ -1238,10 +1292,12 @@ export function App(): JSX.Element {
    *
    * This is the recovery path for a terminal that is still on screen but no
    * longer usable — the common case being an idle SSH connection the server has
-   * timed out. A saved session reconnect replaces the placeholder params exactly
-   * as the pane's own Reconnect button does; a pane with no saved session behind
-   * it (a quick connect, or a local shell) gets a fresh session and the pane is
-   * repointed at it, because there is nothing to reconnect *to*.
+   * timed out. A pane that came from a saved session reconnects through the
+   * saved entry; anything else is rebuilt by the main process from the options
+   * its live session was started with, so an SSH pane reloads as SSH.
+   *
+   * The old path created a *local* session for every pane that was not a saved
+   * entry, which is how "reload" turned an SSH terminal into a PowerShell prompt.
    */
   const reloadPanel = useCallback(
     (panelId: string) => {
@@ -1252,30 +1308,38 @@ export function App(): JSX.Element {
       const params = panel.api.getParameters<TerminalPanelMeta>() ?? {}
       const savedSessionId = params.savedSessionId
       const title = panel.title || params.title || 'Session'
+      const previous = liveSessionRef.current.get(panelId) ?? params.session?.id
 
       const saved = savedSessionId
         ? treeRef.current.sessions.find((s) => s.id === savedSessionId)
         : undefined
-      if (saved) {
+      if (saved && !previous) {
+        // A restored placeholder: its saved host is the only thing to go on.
         setToast(`Reconnecting “${title}”…`)
         void connectSavedRef.current(saved)
         return
       }
 
+      if (!previous) {
+        setAlert({
+          message: `“${title}” has no live connection to reload. Use its Reconnect button.`
+        })
+        return
+      }
+
       setToast(`Reloading “${title}”…`)
-      void api.createLocalSession({ title }).then((result) => {
+      void api.duplicateSession(previous).then((result) => {
         if (!result.ok) {
           setAlert({ message: result.error.message })
           return
         }
         const next = result.session
-        // Drop the old PTY, keep the pane: removing the panel would lose its
+        // Drop the old backend, keep the pane: removing the panel would lose its
         // position in the arrangement, which is exactly what a reload must not do.
-        const previous = params.session?.id
-        if (previous) {
-          api.closeSession(previous)
-          removeSessionState(previous)
-        }
+        api.closeSession(previous)
+        removeSessionState(previous)
+        // The pane keeps its id, so record which session now sits behind it.
+        liveSessionRef.current.set(panelId, next.id)
         setSessions((prev) => [...prev.filter((s) => s.id !== previous), next])
         panel.api.updateParameters({
           session: next,
@@ -1292,13 +1356,19 @@ export function App(): JSX.Element {
   )
 
   /**
-   * Open a second connection to the same host, in its own floating window.
+   * Open a second connection to the same host, as its own tab.
    *
    * "Duplicate this channel" rather than "duplicate this tab": the useful thing
-   * is another live login to the same box, which then behaves independently — and
-   * a floating group keeps it out of the way of the arrangement while still being
-   * one window. Falls back to a normal tab when dockview will not float it, so the
-   * action can never silently do nothing.
+   * is another live login to the same box, which then behaves independently.
+   *
+   * The connection itself is rebuilt by the main process from the options the
+   * original session was started with (`session:duplicate`). That is the whole
+   * point: it is the only place that knows the credentials. Resolving the host
+   * here from the saved-session list — by `savedSessionId`, and failing that by
+   * title — was the previous approach, and every connection that was not started
+   * from a saved entry (a quick connect, or a pane reconnected after a restart)
+   * fell through to *a local shell*, which is what "the copy is not even SSH"
+   * looked like.
    */
   const duplicateConnection = useCallback(
     (panelId: string) => {
@@ -1309,74 +1379,82 @@ export function App(): JSX.Element {
       const params = panel.api.getParameters<TerminalPanelMeta>() ?? {}
       const title = panel.title || params.title || 'Session'
 
+      /** Put the new session on screen as its own tab. */
       const open = (session: SessionInfo): void => {
-        // `floating` is an undocumented-by-types member of the API here; the cast
-        // is deliberate and the tab path below is the supported fallback.
-        const api = dockApi as unknown as {
-          addFloatingGroup?: (
-            item: unknown,
-            options: Record<string, unknown>
-          ) => void
-        }
-        if (typeof api.addFloatingGroup === 'function') {
-          try {
-            api.addFloatingGroup(
-              {
-                id: session.id,
-                component: 'terminal',
-                title: session.title,
-                params: { session, onEnded: (id: string) => endedRef.current(id) }
-              },
-              { width: 620, height: 420, position: { left: 120, top: 90 } }
-            )
-            dockSyncRef.current?.()
-            return
-          } catch {
-            // Fall through to a plain tab rather than losing the action.
-          }
-        }
+        setSessions((prev) => [...prev, session])
+        liveSessionRef.current.set(session.id, session.id)
         dockApi.addPanel({
           id: session.id,
           component: 'terminal',
           title: session.title,
           params: { session, onEnded: (id: string) => endedRef.current(id) }
         })
-        dockSyncRef.current?.()
-        setToast(`Opened “${session.title}” in a new tab`)
+        // A tab added to an existing group has the same collapse risk as the
+        // first connection, so it goes through the same convergence loop.
+        settlePanel(session.id)
+        setToast(`Opened a second login to “${title}”`)
       }
 
-      const savedSessionId = params.savedSessionId
-      const saved = savedSessionId
-        ? treeRef.current.sessions.find((s) => s.id === savedSessionId)
-        : undefined
-
-      if (saved) {
-        // Reconnect through the same path the pane uses, so credentials come from
-        // the encrypted store rather than being re-typed.
-        setToast(`Opening a second channel to “${title}”…`)
-        void connectSavedRef.current(saved)
+      if (panel.api.component !== 'terminal') {
+        setToast('Nothing to duplicate on the welcome tab.')
         return
       }
 
-      if (params.session?.kind === 'ssh' && params.session.title) {
-        const match = treeRef.current.sessions.find((s) => s.name === params.session?.title)
-        if (match) {
-          setToast(`Opening a second channel to “${title}”…`)
-          void connectSavedRef.current(match)
-          return
-        }
-      }
+      /*
+       * The panel id, not the session stored in its parameters.
+       *
+       * dockview only populates `getParameters()` when `updateParameters()` has
+       * been called: a panel added with `addPanel({ params })` hands them to the
+       * renderer but reads back as `{}`. Keying off that object is what made the
+       * old version always take its local-shell fallback.
+       *
+       * The panel id *is* the live session id for a connected pane; for a restored
+       * placeholder it is a stale one, and the main process rejects it, which is
+       * the honest answer for a pane that is not connected.
+       */
+      const current = liveSessionRef.current.get(panelId) ?? panelId
 
-      setToast(`Opening a new local shell, because “${title}” has no saved host`)
-      void api.createLocalSession({ title: `${title} (2)` }).then((result) => {
-        if (!result.ok) {
+      setToast(`Opening a second channel to “${title}”…`)
+      void api
+        .duplicateSession(current)
+        .then((result) => {
+          if (result.ok) {
+            open(result.session)
+            return
+          }
           setAlert({ message: result.error.message })
-          return
-        }
-        addSession(result.session)
-      })
+        })
+        .catch((err) => {
+          setAlert({ message: err instanceof Error ? err.message : String(err) })
+        })
     },
-    [addSession]
+    [settlePanel]
+  )
+
+  /**
+   * Double-clicking a tab opens a second connection to the same host.
+   *
+   * Same lookup as the context menu: dockview has no tab double-click event, but
+   * every tab element carries `data-tab-panel-id`. Only the tab strip matches, so
+   * a double-click in the terminal still selects a word as usual.
+   *
+   * Declared after `duplicateConnection` because it closes over it.
+   */
+  const onDockDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement
+      const tab = target.closest('[data-tab-panel-id]')
+      if (!tab) return
+      const panelId = tab.getAttribute('data-tab-panel-id')
+      if (!panelId) return
+      // The tab's close button is inside the tab; a double-click there is a
+      // double close, not a duplicate.
+      if (target.closest('.dv-default-tab-action')) return
+      e.preventDefault()
+      e.stopPropagation()
+      duplicateConnection(panelId)
+    },
+    [duplicateConnection]
   )
 
   const tabMenuItems = useMemo((): MenuItem[] => {
@@ -1392,7 +1470,7 @@ export function App(): JSX.Element {
       {
         id: 'duplicateConnection',
         label: 'Duplicate connection',
-        hint: 'new window',
+        hint: 'same host, new tab',
       },
       {
         id: 'reload',
@@ -1679,7 +1757,9 @@ export function App(): JSX.Element {
               <li key={s.id} className="td-session-item">
                 <button
                   className="td-session-open"
-                  onClick={() => dockApiRef.current?.getPanel(s.id)?.api.setActive()}
+                  onClick={() =>
+                    dockApiRef.current?.getPanel(resolvePanelId(s.id))?.api.setActive()
+                  }
                 >
                   <span className={`td-dot td-dot-${s.kind}`} />
                   <span className="td-session-title" title={s.title}>
@@ -1768,6 +1848,7 @@ export function App(): JSX.Element {
             className="td-dockview dockview-theme-abyss"
             ref={dockRef}
             onContextMenu={onDockContextMenu}
+            onDoubleClick={onDockDoubleClick}
           />
         </main>
 
