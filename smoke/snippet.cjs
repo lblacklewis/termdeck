@@ -157,14 +157,17 @@ async function main() {
         runBtn.click()
         const promptFollowed = await waitFor(() => {
           const text = bufferText()
-          return text.includes(runMarker) && /[>$#]\s*$/.test(text.trimEnd())
+          // trimEnd already removes the padding, so the check is just "does it
+          // now end at a prompt character". No whitespace escape here: the
+          // injected template would eat the backslash and leave a different regex.
+          return text.includes(runMarker) && /[$#>]$/.test(text.trimEnd())
         }, 10000)
         const afterRun = bufferText()
         const idx = afterRun.indexOf(runMarker)
         push('text ending in a line break IS executed', promptFollowed,
           JSON.stringify({
             context: idx >= 0 ? afterRun.slice(idx, idx + 90) : 'marker absent',
-            endsWithPrompt: /[>$#]\s*$/.test(afterRun.trimEnd())
+            endsWithPrompt: /[$#>]$/.test(afterRun.trimEnd())
           }))
       }
 
