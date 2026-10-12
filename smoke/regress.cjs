@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Reproduction and verification for two reported defects:
  *
  *   A. "Replace key and connect" in the host-key dialog does nothing.
@@ -93,7 +93,11 @@ async function main() {
       preload: path.join(ROOT, 'out', 'preload', 'index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // An occluded renderer is throttled and then serves stale computed styles
+      // (and never paints), which reads as a 65px pane in a 100x100 grid. See
+      // docs/项目会话总结.md.
+      backgroundThrottling: false
     }
   })
 
