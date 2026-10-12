@@ -19,12 +19,14 @@ import {
 import { dirname, join } from 'node:path'
 import {
   DEFAULT_BREAK_SETTINGS,
+  DEFAULT_BREAK_STATS,
   DEFAULT_SETTINGS,
   DEFAULT_SIDEBAR_SECTIONS,
   DEFAULT_SIDEBAR_WIDTH,
   HISTORY_RETENTION_DAYS,
   type AppSettings,
   type BreakSettings,
+  type BreakStats,
   type HistoryEntry,
   type HistorySessionSummary,
   type Keybinding,
@@ -104,6 +106,7 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
       width: clampSidebarWidth((stored.sidebar as { width?: unknown } | undefined)?.width)
     },
     break: mergeBreak(stored.break),
+    breakStats: mergeBreakStats(stored.breakStats),
     theme: typeof stored.theme === 'string' && stored.theme ? stored.theme : defaults.theme,
     // Clamped here so a hand-edited file cannot leave the UI unusable
     // (invisible at 0.1, unusable at 10).
@@ -166,7 +169,28 @@ function mergeBreak(stored: unknown): BreakSettings {
   const input = (stored ?? {}) as Partial<BreakSettings>
   return {
     enabled: input.enabled === true,
-    minutes: clampBreakMinutes(input.minutes ?? DEFAULT_BREAK_SETTINGS.minutes)
+    minutes: clampBreakMinutes(input.minutes ?? DEFAULT_BREAK_SETTINGS.minutes),
+    // Long enough that a command's output has stopped, short enough that the
+    // nudge still belongs to the moment it was earned in.
+    idleSeconds: Math.min(
+      120,
+      Math.max(2, Math.round(input.idleSeconds ?? DEFAULT_BREAK_SETTINGS.idleSeconds))
+    ),
+    snoozeMinutes: Math.min(
+      120,
+      Math.max(1, Math.round(input.snoozeMinutes ?? DEFAULT_BREAK_SETTINGS.snoozeMinutes))
+    )
+  }
+}
+
+function mergeBreakStats(stored: unknown): BreakStats {
+  const input = (stored ?? {}) as Partial<BreakStats>
+  const num = (value: unknown): number =>
+    typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
+  return {
+    longestMinutes: Math.min(24 * 60, num(input.longestMinutes)),
+    breaks: Math.min(100_000, num(input.breaks)),
+    lastBreakAt: num(input.lastBreakAt)
   }
 }
 

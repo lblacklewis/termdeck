@@ -418,16 +418,45 @@ export const DEFAULT_SIDEBAR_WIDTH = 268
  * A nudge to get up, after this much *focused* use.
  *
  * Counted only while the window has focus, so a reminder never fires at someone
- * who has already walked away.
+ * who has already walked away — and shown only once the terminals have gone
+ * quiet for `idleSeconds`, so it never lands in the middle of a command.
  */
 export interface BreakSettings {
   enabled: boolean
   minutes: number
+  /** How long every session must be silent before the nudge appears. */
+  idleSeconds: number
+  /** How long "later" means. */
+  snoozeMinutes: number
 }
 
 export const DEFAULT_BREAK_SETTINGS: BreakSettings = {
   enabled: false,
-  minutes: 45
+  minutes: 45,
+  idleSeconds: 5,
+  snoozeMinutes: 10
+}
+
+/**
+ * What the nudge has seen so far.
+ *
+ * The point of keeping this is that "longest unbroken stretch" is the number
+ * that actually tells you something about your day, and it is only meaningful if
+ * it survives a restart.
+ */
+export interface BreakStats {
+  /** Longest continuous stretch recorded, in minutes. */
+  longestMinutes: number
+  /** How many breaks have been taken. */
+  breaks: number
+  /** Epoch ms of the last one, 0 when there has never been one. */
+  lastBreakAt: number
+}
+
+export const DEFAULT_BREAK_STATS: BreakStats = {
+  longestMinutes: 0,
+  breaks: 0,
+  lastBreakAt: 0
 }
 
 // ---- lock screen ---------------------------------------------------------
@@ -530,10 +559,12 @@ export interface AppSettings {
   keybindings: Keybinding[]
   hostKeys: HostKeySettings
   snippets: Snippet[]
-  /** Terminal-page drawer: order and visibility of its sections. */
+  /** Terminal-page drawer: order, visibility and sizes of its sections. */
   sidebar: SidebarSettings
   /** Get-up-and-stretch reminder. */
   break: BreakSettings
+  /** What that reminder has recorded about the working day. */
+  breakStats: BreakStats
   /** Id of the active theme; see `THEMES` in shared/themes. */
   theme: string
   /**
@@ -609,6 +640,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   snippets: [],
   sidebar: { sections: DEFAULT_SIDEBAR_SECTIONS, width: DEFAULT_SIDEBAR_WIDTH },
   break: DEFAULT_BREAK_SETTINGS,
+  breakStats: DEFAULT_BREAK_STATS,
   theme: 'termius-dark',
   uiScale: 1
 }

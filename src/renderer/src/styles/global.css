@@ -4237,40 +4237,47 @@ html[data-theme-scheme='light'] .td-select {
   top: 6px;
 }
 
-/* ---- break reminder ---------------------------------------------------- */
+/* ---- break nudge ------------------------------------------------------- */
 
-.td-modal-break {
-  width: 780px;
-  max-width: 92vw;
-}
-
-.td-break-game {
+/*
+ * A bar, not a dialog.
+ *
+ * It has to be ignorable and it must not take the keyboard: a modal reminder
+ * interrupts the very thing it is reminding you to step away from. One row in the
+ * layout, an accent edge so it reads as "meant for you", and everything else left
+ * alone.
+ */
+.td-break-bar {
+  flex: 0 0 auto;
   display: flex;
-  flex-direction: column;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: var(--td-bg-raised);
+  border-bottom: 1px solid var(--td-border);
+  border-left: 3px solid var(--td-accent);
+  color: var(--td-text-dim);
+  font-size: 12.5px;
 }
 
-.td-break-game canvas {
-  width: 100%;
-  height: auto;
-  border: 1px solid var(--td-border);
-  border-radius: var(--td-radius);
-  background: #1b2740;
-  outline: none;
-  cursor: pointer;
+.td-break-icon {
+  font-size: 15px;
 }
 
-.td-break-game canvas:focus-visible {
-  border-color: var(--td-accent);
+.td-break-text {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-.td-break-game kbd {
-  padding: 1px 5px;
-  background: var(--td-bg-sunken);
-  border: 1px solid var(--td-border);
-  border-radius: 3px;
-  font-family: inherit;
-  font-size: 11px;
+.td-break-text b {
+  color: var(--td-text);
+}
+
+.td-break-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ---- lock screen ------------------------------------------------------- */

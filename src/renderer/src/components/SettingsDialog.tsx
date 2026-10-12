@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AppSettings,
   BreakSettings,
+  BreakStats,
   ClipboardSettings,
   CredentialStatus,
   FontChoices,
@@ -304,6 +305,7 @@ export function SettingsDialog({
             {tab === 'wellbeing' && (
               <WellbeingTab
                 breakSettings={draft.break}
+                breakStats={draft.breakStats}
                 sections={draft.sidebar.sections}
                 lockStatus={lockStatus}
                 onBreak={(patch) => setDraft((d) => ({ ...d, break: { ...d.break, ...patch } }))}
@@ -851,6 +853,7 @@ export function describeBinding(binding: string): string {
  */
 export function WellbeingTab({
   breakSettings,
+  breakStats,
   sections,
   lockStatus,
   onBreak,
@@ -859,6 +862,7 @@ export function WellbeingTab({
   onPreviewBreak
 }: {
   breakSettings: BreakSettings
+  breakStats: BreakStats
   sections: SidebarSectionState[]
   lockStatus: LockStatus
   onBreak: (patch: Partial<BreakSettings>) => void
@@ -909,9 +913,43 @@ export function WellbeingTab({
           </button>
         </div>
       </label>
+
+      <div className="td-field-row">
+        <label className="td-field td-field-grow">
+          <span>Wait for the terminals to be quiet for</span>
+          <input
+            type="number"
+            min={2}
+            max={120}
+            aria-label="break-idle"
+            value={breakSettings.idleSeconds}
+            onChange={(e) => onBreak({ idleSeconds: Number(e.target.value) })}
+          />
+        </label>
+        <label className="td-field td-field-grow">
+          <span>Snooze for</span>
+          <input
+            type="number"
+            min={1}
+            max={120}
+            aria-label="break-snooze"
+            value={breakSettings.snoozeMinutes}
+            onChange={(e) => onBreak({ snoozeMinutes: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+
       <p className="td-hint">
-        A quiet reminder when the window has been in focus for that long. Nothing else happens: take
-        the break, or put it off for ten minutes.
+        Counted only while this window is focused, and the nudge waits for {breakSettings.idleSeconds}
+        s of silence in every session so it never lands in the middle of a command. It appears as a
+        bar above the panes — take the break, cover the screen with the lock, or put it off.
+      </p>
+      <p className="td-hint" data-testid="break-stats">
+        {breakStats.breaks === 0
+          ? 'No breaks recorded yet.'
+          : `Longest stretch ${breakStats.longestMinutes} min · ${breakStats.breaks} break${
+              breakStats.breaks === 1 ? '' : 's'
+            } recorded.`}
       </p>
 
       <h3 className="td-settings-heading">Drawer sections</h3>

@@ -53,6 +53,10 @@ async function main() {
   await win.webContents.executeJavaScript('localStorage.setItem("tdDebug","1"); true')
   await win.reload()
   await sleep(3000)
+  // The break timer only counts while the window has focus — which is the point
+  // of it — so the suite has to actually focus the window.
+  win.focus()
+  await sleep(500)
 
   const probe = `
     (async () => {
@@ -106,21 +110,30 @@ async function main() {
       const live = await waitFor(async () => (await window.termdeck.listSessions()).length > 0, 15000)
       push('a terminal is open behind the overlays', live)
 
-      // ---- 1. the break reminder -----------------------------------------
-      step = 'break'
+      // ---- 1. the break nudge ---------------------------------------------
+      step = 'break settings'
       const settingsOpen = await openSettings('Wellbeing')
       push('settings has a Wellbeing tab', settingsOpen)
-      const tab = document.querySelector('[data-testid="wellbeing-tab"]')
-      push('the break reminder can be turned on', !!document.querySelector('[aria-label="break-enabled"]'))
+      push('the break reminder can be turned on',
+        !!document.querySelector('[aria-label="break-enabled"]'))
 
-      const minutes = document.querySelector('[aria-label="break-minutes"]')
-      if (minutes) {
+      // A one-minute interval with a three-second quiet gate: the point of this
+      // suite is the mechanism, and waiting 45 minutes for it is not a test.
+      const setNumber = async (label, value) => {
+        // No template literal here: this whole probe is itself a template literal,
+        // and a nested backtick would end it early.
+        const input = document.querySelector('[aria-label="' + label + '"]')
+        if (!input) return false
         // React tracks the value, so set it through the native setter.
         const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set
-        setter.call(minutes, '20')
-        minutes.dispatchEvent(new Event('input', { bubbles: true }))
-        await wait(200)
+        setter.call(input, String(value))
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(150)
+        return true
       }
+      await setNumber('break-minutes', 1)
+      await setNumber('break-idle', 10)
+      await setNumber('break-snooze', 10)
       const enabled = document.querySelector('[aria-label="break-enabled"]')
       if (enabled && !enabled.checked) {
         enabled.click()
@@ -131,48 +144,106 @@ async function main() {
       await wait(700)
       const stored = await window.termdeck.loadSettings()
       push('the reminder settings are saved',
-        stored.break.enabled === true && stored.break.minutes === 20,
+        stored.break.enabled === true && stored.break.minutes === 1 &&
+          stored.break.idleSeconds === 10 && stored.break.snoozeMinutes === 10,
         JSON.stringify(stored.break))
-
-      await openSettings('Wellbeing')
-      const preview = document.querySelector('[data-testid="break-preview"]')
-      push('the reminder can be tried immediately', !!preview)
-      if (preview) preview.click()
-      const raised = await waitFor(() => !!document.querySelector('[data-testid="break-reminder"]'), 5000)
-      push('the reminder appears', raised)
-      const reminderText = document.querySelector('[data-testid="break-reminder"]')?.innerText || ''
-      push('it explains how long you have been working', /20 minutes/.test(reminderText),
-        JSON.stringify(reminderText.slice(0, 90)))
+      await closeSettings()
 
       /*
-       * Two ways out and nothing else. An earlier version ran a game here; it is
-       * gone, and this checks the reminder really is just a reminder: snoozing
-       * closes it without touching the interval, and taking the break closes it
-       * and says so.
+       * The gate, end to end: with a command producing output every second for
+       * longer than the interval, the nudge must *not* appear — landing a banner
+       * on top of a running command is the failure this exists to avoid. Once the
+       * terminals go quiet it appears on its own.
        */
+      step = 'busy gate'
+      const busySession = (await window.termdeck.listSessions())[0]?.id
+      push('a session is available to keep busy', !!busySession)
+      for (let i = 0; i < 70; i++) {
+        window.termdeck.writeSession(busySession, 'echo TICK' + String.fromCharCode(13))
+        await wait(1000)
+      }
+      push('no nudge while a command is producing output',
+        !document.querySelector('[data-testid="break-bar"]'),
+        'after 70s of continuous output')
+
+      step = 'idle gate'
+      const appeared = await waitFor(() => !!document.querySelector('[data-testid="break-bar"]'), 25000)
+      push('the nudge appears once the terminals are quiet', appeared)
+
+      const bar = document.querySelector('[data-testid="break-bar"]')
+      push('it sits in the layout above the panes, not over them',
+        !!bar && !document.querySelector('.td-modal-backdrop'),
+        'bar=' + !!bar + ' modal=' + !!document.querySelector('.td-modal-backdrop'))
+      const host = document.querySelector('.td-terminal-host')
+      const hostBox = host && host.getBoundingClientRect()
+      push('the terminal keeps its box while the nudge is up',
+        !!hostBox && hostBox.height > 100 && hostBox.width > 200,
+        hostBox ? Math.round(hostBox.width) + 'x' + Math.round(hostBox.height) : 'none')
+      const barText = bar?.innerText || ''
+      push('it says how long it has been', /minute/i.test(barText), JSON.stringify(barText.slice(0, 70)))
+
+      step = 'break actions'
       const snooze = document.querySelector('[data-testid="break-snooze"]')
       const done = document.querySelector('[data-testid="break-done"]')
-      push('the reminder offers snooze and done, not a game',
-        !!snooze && !!done && !document.querySelector('[data-testid="break-game"]'),
-        'snooze=' + !!snooze + ' done=' + !!done)
+      const lockBtn = document.querySelector('[data-testid="break-lock"]')
+      push('it offers break, break-and-lock and snooze',
+        !!snooze && !!done && !!lockBtn && !document.querySelector('[data-testid="break-game"]'))
       if (snooze) snooze.click()
-      const snoozed = await waitFor(() => !document.querySelector('[data-testid="break-reminder"]'), 5000)
-      push('snoozing dismisses the reminder', snoozed)
+      const snoozed = await waitFor(() => !document.querySelector('[data-testid="break-bar"]'), 5000)
+      push('snoozing takes the nudge away', snoozed)
       const stillOn = await window.termdeck.loadSettings()
-      push('snoozing leaves the interval alone', stillOn.break.enabled && stillOn.break.minutes === 20,
-        JSON.stringify(stillOn.break))
+      push('snoozing leaves the interval alone',
+        stillOn.break.enabled && stillOn.break.minutes === 1, JSON.stringify(stillOn.break))
 
+      // Taking the break is what gets recorded.
       await openSettings('Wellbeing')
-      const preview2 = document.querySelector('[data-testid="break-preview"]')
-      if (preview2) preview2.click()
-      await waitFor(() => !!document.querySelector('[data-testid="break-reminder"]'), 5000)
+      const preview = document.querySelector('[data-testid="break-preview"]')
+      push('the nudge can be tried immediately', !!preview)
+      if (preview) preview.click()
+      const shown = await waitFor(() => !!document.querySelector('[data-testid="break-bar"]'), 5000)
+      push('the try-it button shows the nudge', shown)
       const taken = document.querySelector('[data-testid="break-done"]')
       if (taken) taken.click()
-      const cleared = await waitFor(() => !document.querySelector('[data-testid="break-reminder"]'), 5000)
-      push('taking the break dismisses the reminder', cleared)
-      const toast = document.querySelector('.td-toast')?.textContent || ''
-      push('and it says the timer restarts', /next reminder starts from now/i.test(toast),
-        JSON.stringify(toast))
+      const cleared = await waitFor(() => !document.querySelector('[data-testid="break-bar"]'), 5000)
+      push('taking the break clears the nudge', cleared)
+      const afterStats = await window.termdeck.loadSettings()
+      push('the break is recorded',
+        afterStats.breakStats.breaks === 1 && afterStats.breakStats.longestMinutes >= 1,
+        JSON.stringify(afterStats.breakStats))
+
+      // And it is written to the activity log, which is the page that keeps it.
+      step = 'break log'
+      const logsRail = document.querySelector('[data-testid="rail-logs"]')
+      if (logsRail) logsRail.click()
+      await wait(700)
+      const logText = document.body.innerText || ''
+      // Sliced rather than matched: an escape inside a regex in this template is
+      // eaten, and a swallowed newline escape arrives as a real newline, which is
+      // not a legal regex literal at all.
+      const logIndex = logText.indexOf('Break taken after ')
+      push('the break shows up in the activity log', logIndex >= 0,
+        logIndex >= 0
+          ? logText.slice(logIndex, logIndex + 44).split(String.fromCharCode(10))[0]
+          : 'not found')
+      const terminalRail = document.querySelector('[data-testid="rail-terminal"]')
+      if (terminalRail) terminalRail.click()
+      await wait(700)
+
+      // Break and lock: the version that actually gets someone to stand up.
+      step = 'break and lock'
+      await openSettings('Wellbeing')
+      const preview3 = document.querySelector('[data-testid="break-preview"]')
+      if (preview3) preview3.click()
+      await waitFor(() => !!document.querySelector('[data-testid="break-bar"]'), 5000)
+      const lockAction = document.querySelector('[data-testid="break-lock"]')
+      if (lockAction) lockAction.click()
+      const lockedByBreak = await waitFor(() => !!lockEl(), 5000)
+      push('break-and-lock covers the screen', lockedByBreak)
+      const afterLock = await window.termdeck.loadSettings()
+      push('it counts as a second break', afterLock.breakStats.breaks === 2,
+        JSON.stringify(afterLock.breakStats))
+      lockButton()?.click()
+      await waitFor(() => !lockEl(), 5000)
 
       // ---- 2. the lock screen --------------------------------------------
       step = 'lock'

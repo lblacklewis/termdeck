@@ -39,7 +39,7 @@ import { ContextMenu, type MenuItem } from './components/ContextMenu'
 import { ConnectionsWindow } from './components/ConnectionsWindow'
 import { PasswordPrompt } from './components/PasswordPrompt'
 import { QuitConfirmDialog } from './components/QuitConfirmDialog'
-import { BreakReminder } from './components/BreakReminder'
+import { BreakBar } from './components/BreakBar'
 import { LockScreen } from './components/LockScreen'
 import { HistoryPanel, SectionFrame, SftpPanel } from './components/DrawerSections'
 import { SnippetBar } from './components/SnippetBar'
@@ -231,11 +231,14 @@ export function App(): JSX.Element {
   /** Non-null while the lock screen is up. */
   const [locked, setLocked] = useState(false)
   const [lockStatus, setLockStatus] = useState<LockStatus | null>(null)
-  /** Non-null while the break reminder is up; carries the interval it fired for. */
-  const [breakDue, setBreakDue] = useState<{ minutes: number } | null>(null)
+  /** Non-null while the break nudge is on screen; carries the minutes behind it. */
+  const [breakBar, setBreakBar] = useState<{ minutes: number } | null>(null)
   /** Seconds of *focused* use since the last reminder. */
   const focusedSecondsRef = useRef(0)
   const breakDueRef = useRef(false)
+  const breakBarRef = useRef(false)
+  /** Last time any session produced output; the nudge waits for quiet. */
+  const lastActivityRef = useRef(Date.now())
   /**
    * The active pane, as React state.
    *
@@ -1200,27 +1203,102 @@ export function App(): JSX.Element {
   // ---- break reminder -----------------------------------------------------
 
   /**
-   * Count *focused* seconds and remind when they add up.
+   * Count *focused* seconds and nudge when they add up.
    *
-   * Only while the window has focus: a reminder that fires at someone who walked
-   * away twenty minutes ago is noise, not care.
+   * Two gates, both deliberate:
+   *
+   *  - only while the window has focus, because a reminder that fires at someone
+   *    who walked away twenty minutes ago is noise rather than care;
+   *  - only once the terminals have been quiet for `idleSeconds`, because landing
+   *    a banner on top of the command someone is in the middle of is worse than
+   *    not reminding them at all. `lastActivityRef` is driven by session output,
+   *    which covers both a running command and the echo of typing.
    */
   useEffect(() => {
-    const { enabled, minutes } = settings.break
+    const { enabled, minutes, idleSeconds } = settings.break
     if (!enabled) {
       focusedSecondsRef.current = 0
+      breakDueRef.current = false
+      breakBarRef.current = false
+      setBreakBar(null)
       return
     }
     const timer = window.setInterval(() => {
-      if (breakDueRef.current || !document.hasFocus()) return
-      focusedSecondsRef.current += 1
-      if (focusedSecondsRef.current >= minutes * 60) {
-        breakDueRef.current = true
-        setBreakDue({ minutes })
+      if (!document.hasFocus()) return
+      const worked = focusedSecondsRef.current
+
+      if (!breakDueRef.current) {
+        focusedSecondsRef.current = worked + 1
+        if (focusedSecondsRef.current >= minutes * 60) breakDueRef.current = true
+        return
+      }
+
+      if (breakBarRef.current) return
+      const quiet = Date.now() - lastActivityRef.current
+      if (quiet >= idleSeconds * 1000) {
+        breakBarRef.current = true
+        setBreakBar({ minutes: Math.round(focusedSecondsRef.current / 60) })
       }
     }, 1000)
     return () => window.clearInterval(timer)
   }, [settings.break])
+
+  /** Sessions' output, as the signal for "the terminals are busy". */
+  useEffect(() => api.onSessionData(() => (lastActivityRef.current = Date.now())), [])
+
+  /**
+   * A break happened: record it, then start counting again.
+   *
+   * `kind: 'lock'` covers the screen as well, which is the only version of this
+   * that actually gets someone to stand up.
+   */
+  const takeBreak = useCallback((kind: 'break' | 'lock') => {
+    const workedMinutes = Math.max(1, Math.round(focusedSecondsRef.current / 60))
+    const stats = settingsRef.current.breakStats
+    void api
+      .saveSettings({
+        ...settingsRef.current,
+        breakStats: {
+          longestMinutes: Math.max(stats.longestMinutes, workedMinutes),
+          breaks: stats.breaks + 1,
+          lastBreakAt: Date.now()
+        }
+      })
+      .then(setSettings)
+      .catch(() => {
+        /* losing the stat must not block the break */
+      })
+
+    focusedSecondsRef.current = 0
+    breakDueRef.current = false
+    breakBarRef.current = false
+    setBreakBar(null)
+    log('info', `Break taken after ${workedMinutes} min of continuous work`)
+    if (kind === 'lock') setLocked(true)
+    else setToast(`Break recorded — ${workedMinutes} min. The timer starts again from now.`)
+  }, [log])
+
+  const snoozeBreak = useCallback(
+    (snoozeMinutes: number) => {
+      // "Later" means later, not a full second interval: the countdown resumes
+      // `snoozeMinutes` short of the threshold.
+      focusedSecondsRef.current = Math.max(
+        0,
+        settingsRef.current.break.minutes * 60 - snoozeMinutes * 60
+      )
+      breakDueRef.current = false
+      breakBarRef.current = false
+      setBreakBar(null)
+      setToast(`Reminder snoozed for ${snoozeMinutes} minutes.`)
+    },
+    []
+  )
+
+  /** Hide the nudge without pretending a break was taken. */
+  const dismissBreak = useCallback(() => {
+    breakBarRef.current = false
+    setBreakBar(null)
+  }, [])
 
   // ---- drawer sections ----------------------------------------------------
 
@@ -2301,6 +2379,20 @@ export function App(): JSX.Element {
       */}
       <div className={'td-content' + (page === 'terminal' ? '' : ' is-hidden')}>
         {/*
+          The break nudge sits *in* the layout, above the panes, rather than over
+          them: it has to be ignorable, and it must not take the keyboard away.
+        */}
+        {breakBar && (
+          <BreakBar
+            minutes={breakBar.minutes}
+            snoozeMinutes={settings.break.snoozeMinutes}
+            onTakeBreak={() => takeBreak('break')}
+            onTakeBreakAndLock={() => takeBreak('lock')}
+            onSnooze={snoozeBreak}
+            onDismiss={dismissBreak}
+          />
+        )}
+        {/*
           Broadcast lives over the terminal itself rather than in the sidebar.
           It is a property of the workspace — how many panes a keystroke reaches —
           so it belongs with the panes, and it only appears once there is more than
@@ -2476,12 +2568,13 @@ export function App(): JSX.Element {
           lockStatus={lockStatus ?? { hasPassword: false }}
           onLockChanged={setLockStatus}
           onPreviewBreak={() => {
-            // The reminder is a modal of its own, so the settings drawer gets out
-            // of its way rather than stacking two dialogs.
+            // Shown straight away, without waiting for the idle gate: this button
+            // exists to see what the nudge looks like, and the settings drawer is
+            // in the way of it.
             setSettingsOpen(false)
-            focusedSecondsRef.current = 0
             breakDueRef.current = true
-            setBreakDue({ minutes: settings.break.minutes })
+            breakBarRef.current = true
+            setBreakBar({ minutes: settings.break.minutes })
           }}
         />
       </Drawer>
@@ -2612,25 +2705,6 @@ export function App(): JSX.Element {
             // linger if the quit is somehow refused.
             setQuitRequest(null)
             api.quitApp()
-          }}
-        />
-      )}
-
-      {breakDue && (
-        <BreakReminder
-          minutes={breakDue.minutes}
-          onSnooze={() => {
-            // A snooze is a short interval, not the full one: being asked again
-            // in ten minutes is the point of "later".
-            focusedSecondsRef.current = Math.max(0, settings.break.minutes * 60 - 10 * 60)
-            breakDueRef.current = false
-            setBreakDue(null)
-          }}
-          onDone={() => {
-            focusedSecondsRef.current = 0
-            breakDueRef.current = false
-            setBreakDue(null)
-            setToast('Break taken — the next reminder starts from now.')
           }}
         />
       )}
