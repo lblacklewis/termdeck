@@ -5,10 +5,16 @@
  *   const ok = await openFittedShell(win)
  *
  * Every suite that measures the terminal needs the pane to have reached its real
- * size first, and the app has an intermittent failure where one launch leaves the
- * pane at 65px with the terminal on xterm's 80x24 default — verified to be a stuck
- * state, not a slow settle: a window resize does not clear it. It is written up in
- * `docs/项目会话总结.md`.
+ * size first, and one launch can leave the pane at 65px with the terminal on
+ * xterm's 80x24 default. That state is now understood: Electron throttles an
+ * *occluded* renderer, and a throttled renderer serves stale computed styles,
+ * never paints, and therefore never lets xterm measure a cell — so `fit()` does
+ * nothing at all. It is a property of the harness window, not of the app, and
+ * `backgroundThrottling: false` on the probe window prevents it (see
+ * smoke/chrome.cjs and `docs/项目会话总结.md`).
+ *
+ * The retry is kept anyway: it also covers a genuinely slow settle, and it costs
+ * nothing when the first attempt already fits.
  *
  * A second page load is a genuinely fresh boot, and it is used here so a suite can
  * assert on the terminal's geometry without that intermittent state being reported

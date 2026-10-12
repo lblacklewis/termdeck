@@ -55,7 +55,11 @@ async function main() {
       preload: path.join(ROOT, 'out', 'preload', 'index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Never throttle an occluded renderer: a throttled one serves stale
+      // computed styles and never paints, so xterm never measures its cell and
+      // the probe reads a 65px pane with an empty screen. See docs/项目会话总结.md.
+      backgroundThrottling: false
     }
   })
 

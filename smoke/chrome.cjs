@@ -40,7 +40,17 @@ async function main() {
       preload: path.join(ROOT, 'out', 'preload', 'index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      /*
+       * Never throttle this (possibly occluded) renderer.
+       *
+       * A throttled renderer serves *stale computed styles* and never paints, so
+       * xterm never measures its cell, `fit()` does nothing and the pane reads
+       * 65px with an empty screen — the "stuck" state `openFittedShell` retries
+       * around. It is an artefact of the harness window, not of the app: with
+       * this flag the pane comes up fitted on the first attempt.
+       */
+      backgroundThrottling: false
     }
   })
 
