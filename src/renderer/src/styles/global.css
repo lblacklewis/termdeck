@@ -3897,3 +3897,389 @@ html[data-theme-scheme='light'] .td-select {
   border-color: var(--td-accent);
   color: var(--td-text);
 }
+
+/* ---- drawer sections --------------------------------------------------- */
+
+/*
+ * The drawer is a list of the user's own sections: each one has a heading that
+ * doubles as its drag handle, and the order they are in is the order stored in
+ * settings. It scrolls as a whole so every section stays reachable however many
+ * are showing.
+ */
+.td-sidebar {
+  overflow-y: auto;
+  gap: 6px;
+}
+
+.td-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 0 0 auto;
+}
+
+.td-section-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 1px 4px;
+  border-radius: var(--td-radius);
+  cursor: grab;
+  user-select: none;
+}
+
+.td-section-head:active {
+  cursor: grabbing;
+}
+
+.td-section-head:hover .td-drag-grip {
+  opacity: 1;
+}
+
+.td-section.is-dragging {
+  opacity: 0.5;
+}
+
+.td-drag-grip {
+  font-size: 10px;
+  line-height: 1;
+  color: var(--td-text-faint);
+  opacity: 0.45;
+}
+
+.td-section-title {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-section-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.td-section-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 34vh;
+  overflow: auto;
+}
+
+/* The session list is the one people actually work in, so it gets the room. */
+.td-section[data-section='sessions'] .td-section-body {
+  min-height: 140px;
+  max-height: 46vh;
+}
+
+.td-section-empty {
+  margin: 4px 4px 6px;
+  color: var(--td-text-faint);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+/* ---- command history --------------------------------------------------- */
+
+.td-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.td-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 2px;
+  border-radius: var(--td-radius);
+}
+
+.td-history-item:hover {
+  background: var(--td-elevated-hover);
+}
+
+.td-history-run {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 6px;
+  background: none;
+  border: 0;
+  border-radius: var(--td-radius);
+  color: var(--td-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.td-history-run:disabled {
+  color: var(--td-text-faint);
+  cursor: default;
+}
+
+.td-history-run code {
+  display: block;
+  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td-history-meta {
+  font-size: 10px;
+  color: var(--td-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td-history-remove {
+  flex: 0 0 auto;
+  padding: 4px 5px;
+  background: none;
+  border: 0;
+  color: var(--td-text-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.td-history-item:hover .td-history-remove {
+  opacity: 0.8;
+}
+
+.td-history-remove:hover {
+  color: var(--td-danger);
+}
+
+/* ---- sftp -------------------------------------------------------------- */
+
+.td-sftp {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.td-sftp-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 4px;
+}
+
+.td-sftp-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  color: var(--td-text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td-sftp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.td-sftp-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 5px;
+  border-radius: var(--td-radius);
+  font-size: 12px;
+  cursor: default;
+  user-select: none;
+}
+
+.td-sftp-row:hover {
+  background: var(--td-elevated-hover);
+}
+
+.td-sftp-row.is-selected {
+  background: color-mix(in srgb, var(--td-accent) 22%, transparent);
+}
+
+.td-sftp-row.is-dir .td-sftp-name {
+  color: var(--td-accent);
+}
+
+.td-sftp-icon {
+  flex: 0 0 auto;
+  width: 10px;
+  color: var(--td-text-faint);
+}
+
+.td-sftp-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.td-sftp-size {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--td-text-faint);
+}
+
+.td-sftp-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 5px;
+}
+
+/* ---- focus mode -------------------------------------------------------- */
+
+/*
+ * Focus mode is full screen in the window sense (main sets it), and this is the
+ * rest of it: the rail, the drawer and the snippet bar are not rendered at all,
+ * so the panes take the whole window.
+ */
+.td-root.is-focus .td-main {
+  padding: 0;
+}
+
+.td-root.is-focus .td-terminal-tools {
+  top: 6px;
+}
+
+/* ---- break reminder ---------------------------------------------------- */
+
+.td-modal-break {
+  width: 780px;
+  max-width: 92vw;
+}
+
+.td-break-game {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.td-break-game canvas {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius);
+  background: #1b2740;
+  outline: none;
+  cursor: pointer;
+}
+
+.td-break-game canvas:focus-visible {
+  border-color: var(--td-accent);
+}
+
+.td-break-game kbd {
+  padding: 1px 5px;
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: 11px;
+}
+
+/* ---- lock screen ------------------------------------------------------- */
+
+/*
+ * Opaque on purpose: this exists so whoever walks past cannot read the panes,
+ * which a translucent overlay would not achieve.
+ */
+.td-lock {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, var(--td-bg-sunken), var(--td-bg));
+}
+
+.td-lock-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 320px;
+  text-align: center;
+}
+
+.td-lock-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--td-text-dim);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+
+.td-lock-clock {
+  margin-top: 10px;
+  font-size: 46px;
+  font-weight: 300;
+  letter-spacing: 1px;
+  color: var(--td-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.td-lock-date {
+  color: var(--td-text-faint);
+  font-size: 12.5px;
+}
+
+.td-lock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  margin-top: 18px;
+}
+
+.td-lock-input {
+  padding: 9px 11px;
+  background: var(--td-bg-raised);
+  border: 1px solid var(--td-border-strong);
+  border-radius: var(--td-radius);
+  color: var(--td-text);
+  font-size: 14px;
+  text-align: center;
+}
+
+.td-lock-input:focus {
+  outline: none;
+  border-color: var(--td-accent);
+}
+
+.td-lock-unlock {
+  padding: 9px 11px;
+}
+
+.td-settings-heading {
+  margin: 14px 0 2px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--td-text-faint);
+}
+
+.td-settings-heading:first-child {
+  margin-top: 0;
+}
+
+.td-section-toggles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+}

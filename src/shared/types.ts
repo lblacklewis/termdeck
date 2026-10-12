@@ -368,6 +368,109 @@ export interface HostKeySettings {
   policy: 'ask' | 'strict' | 'trust'
 }
 
+// ---- the terminal drawer -------------------------------------------------
+
+/** A block in the Terminal page's sidebar. */
+export type SidebarSectionId = 'sessions' | 'openSessions' | 'history' | 'sftp'
+
+export interface SidebarSectionState {
+  id: SidebarSectionId
+  /** A hidden section keeps its place in the order. */
+  visible: boolean
+}
+
+export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionState[] = [
+  { id: 'sessions', visible: true },
+  { id: 'openSessions', visible: true },
+  { id: 'history', visible: true },
+  { id: 'sftp', visible: true }
+]
+
+export const SIDEBAR_SECTION_LABELS: Record<SidebarSectionId, string> = {
+  sessions: 'Sessions',
+  openSessions: 'Open sessions',
+  history: 'History',
+  sftp: 'SFTP'
+}
+
+export interface SidebarSettings {
+  /** Top-to-bottom order of the drawer, including the sections that are hidden. */
+  sections: SidebarSectionState[]
+}
+
+// ---- break reminder ------------------------------------------------------
+
+/**
+ * A nudge to get up, after this much *focused* use.
+ *
+ * Counted only while the window has focus, so a reminder never fires at someone
+ * who has already walked away.
+ */
+export interface BreakSettings {
+  enabled: boolean
+  minutes: number
+}
+
+export const DEFAULT_BREAK_SETTINGS: BreakSettings = {
+  enabled: false,
+  minutes: 45
+}
+
+// ---- lock screen ---------------------------------------------------------
+
+/**
+ * What the renderer is allowed to know about the lock.
+ *
+ * There is no "enabled" flag and no password in settings: the lock exists, the
+ * shortcut locks, and whether unlocking needs a password is decided by whether
+ * one is stored. The password itself lives in the encrypted vault and never
+ * crosses IPC — the renderer can only ask whether a guess matches.
+ */
+export interface LockStatus {
+  /** True when a non-empty password is stored. */
+  hasPassword: boolean
+}
+
+export interface SaveLockRequest {
+  /**
+   * `null` clears the stored password (the lock then unlocks on a click); a
+   * string, including the empty string, replaces it.
+   */
+  password: string | null
+}
+
+// ---- command history -----------------------------------------------------
+
+/** One command the user ran, recorded as it was typed. */
+export interface HistoryEntry {
+  id: string
+  command: string
+  /** Title of the session it was typed into. */
+  session: string
+  at: number
+}
+
+// ---- sftp ----------------------------------------------------------------
+
+export interface SftpEntry {
+  name: string
+  /** Absolute remote path. */
+  path: string
+  type: 'file' | 'directory' | 'link' | 'other'
+  size: number
+  /** Epoch ms, 0 when the server did not report one. */
+  modified: number
+}
+
+export type SftpListResult =
+  | { ok: true; path: string; entries: SftpEntry[] }
+  | { ok: false; message: string }
+
+export type SftpTransferResult =
+  | { ok: true; path: string }
+  | { ok: false; cancelled?: true; message?: string }
+
+
 /**
  * A saved command.
  *
@@ -394,6 +497,10 @@ export interface AppSettings {
   keybindings: Keybinding[]
   hostKeys: HostKeySettings
   snippets: Snippet[]
+  /** Terminal-page drawer: order and visibility of its sections. */
+  sidebar: SidebarSettings
+  /** Get-up-and-stretch reminder. */
+  break: BreakSettings
   /** Id of the active theme; see `THEMES` in shared/themes. */
   theme: string
   /**
@@ -431,7 +538,9 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
    * Deliberately not Ctrl+Q: that is XON (resume output) in a terminal, and
    * swallowing it would break the shell's flow control for anyone who uses it.
    */
-  { id: 'quitApp', label: 'Quit TermDeck', keys: 'Ctrl+Shift+Q', builtin: true }
+  { id: 'quitApp', label: 'Quit TermDeck', keys: 'Ctrl+Shift+Q', builtin: true },
+  { id: 'toggleFocus', label: 'Focus mode (full screen)', keys: 'F11', builtin: true },
+  { id: 'lockApp', label: 'Lock TermDeck', keys: 'Ctrl+Alt+L', builtin: true }
 ]
 
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
@@ -465,6 +574,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keybindings: DEFAULT_KEYBINDINGS,
   hostKeys: { policy: 'ask' },
   snippets: [],
+  sidebar: { sections: DEFAULT_SIDEBAR_SECTIONS },
+  break: DEFAULT_BREAK_SETTINGS,
   theme: 'termius-dark',
   uiScale: 1
 }
@@ -492,6 +603,29 @@ export interface TermDeckApi {
   copyToClipboard(text: string): Promise<void>
   readClipboard(): Promise<string>
   appInfo(): Promise<AppInfo>
+
+  // focus mode / full screen
+  /** Enter or leave full screen; resolves with the state that was applied. */
+  setFullScreen(on: boolean): Promise<boolean>
+  isFullScreen(): Promise<boolean>
+
+  // lock screen. The password never travels back out of the main process.
+  lockStatus(): Promise<LockStatus>
+  saveLock(request: SaveLockRequest): Promise<LockStatus>
+  /** True when the password unlocks (and true immediately for an empty one). */
+  verifyLock(password: string): Promise<boolean>
+
+  // command history
+  listHistory(): Promise<HistoryEntry[]>
+  deleteHistoryEntry(id: string): Promise<HistoryEntry[]>
+  clearHistory(): Promise<HistoryEntry[]>
+
+  // sftp, over the connection a live session is already using
+  sftpList(sessionId: string, path: string): Promise<SftpListResult>
+  /** Save one remote file to a local path the user picks. */
+  sftpDownload(sessionId: string, remotePath: string): Promise<SftpTransferResult>
+  /** Upload a local file the user picks into a remote directory. */
+  sftpUpload(sessionId: string, remoteDir: string): Promise<SftpTransferResult>
 
   // host keys
   trustHostKey(request: TrustHostKeyRequest): Promise<boolean>
@@ -565,6 +699,10 @@ export interface TermDeckApi {
   onQuitRequested(handler: (request: QuitRequest) => void): () => void
   /** Confirm a pending quit and exit. */
   quitApp(): void
+  /** Fired for every full-screen change, including ones the app did not start. */
+  onFullScreenChanged(handler: (on: boolean) => void): () => void
+  /** Fired when a command is recorded, with the whole (capped) history. */
+  onHistoryChanged(handler: (entries: HistoryEntry[]) => void): () => void
   /** Fires whenever settings are saved, so the UI never runs on stale values. */
   onSettingsChanged(handler: (settings: AppSettings) => void): () => void
   /** Fires on every saved-session or folder mutation. */

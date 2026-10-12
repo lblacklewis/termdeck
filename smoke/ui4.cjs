@@ -100,11 +100,14 @@ async function main() {
       push('sidebar actions no longer hold New session',
         !actions.some((t) => /New session/i.test(t)), actions.join(' | '))
 
-      const toolbar = document.querySelector('.td-tree-toolbar')
-      push('sessions header exists', !!toolbar)
+      // The Sessions heading is a drawer section header (draggable, with the
+      // tree's own buttons as its actions).
+      const header = document.querySelector('[data-section="sessions"] .td-section-head')
+      push('sessions header exists', !!header)
       const newBtn = document.querySelector('[data-testid="tree-new-session"]')
-      push('New session button is in the sessions header', !!newBtn,
-        toolbar ? toolbar.textContent.trim() : 'no toolbar')
+      push('New session button is in the sessions header',
+        !!newBtn && !!header && header.contains(newBtn),
+        header ? header.textContent.trim() : 'no header')
 
       // It must actually open the editor, at the root.
       newBtn.click()

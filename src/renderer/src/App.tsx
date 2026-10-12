@@ -3,16 +3,20 @@ import { DockviewComponent, type DockviewApi, type GroupPanelPartInitParameters 
 
 import {
   DEFAULT_SETTINGS,
+  SIDEBAR_SECTION_LABELS,
   type AppSettings,
   type CreateSessionResult,
   type CredentialStatus,
+  type HistoryEntry,
   type HostKeyPrompt,
   type LayoutState,
+  type LockStatus,
   type QuitRequest,
   type SavedSession,
   type SessionFolder,
   type SessionInfo,
   type SessionTree as Tree,
+  type SidebarSectionId,
   type Snippet,
   type SshConnectPayload,
   type TerminalPanelMeta
@@ -34,6 +38,9 @@ import { ContextMenu, type MenuItem } from './components/ContextMenu'
 import { ConnectionsWindow } from './components/ConnectionsWindow'
 import { PasswordPrompt } from './components/PasswordPrompt'
 import { QuitConfirmDialog } from './components/QuitConfirmDialog'
+import { BreakReminder } from './components/BreakReminder'
+import { LockScreen } from './components/LockScreen'
+import { HistoryPanel, SectionFrame, SftpPanel } from './components/DrawerSections'
 import { SnippetBar } from './components/SnippetBar'
 import { SnippetEditor } from './components/SnippetEditor'
 import { KnownHostsPage } from './components/KnownHostsPage'
@@ -201,6 +208,44 @@ export function App(): JSX.Element {
    * shortcut in the renderer. Non-null means the dialog is on screen.
    */
   const [quitRequest, setQuitRequest] = useState<QuitRequest | null>(null)
+
+  /** Focus mode: full screen with the app's own chrome out of the way. */
+  const [focusMode, setFocusMode] = useState(false)
+  /** Commands recorded by the main process as they were typed. */
+  const [history, setHistory] = useState<HistoryEntry[]>([])
+  /** Which drawer section is mid-drag, for the reorder affordance. */
+  const [draggingSection, setDraggingSection] = useState<SidebarSectionId | null>(null)
+  /**
+   * The same value as a ref.
+   *
+   * `dragstart` and `drop` are separate events in one gesture, and React state
+   * does not reach the next handler synchronously — the drop would read `null`
+   * and do nothing.
+   */
+  const draggingSectionRef = useRef<SidebarSectionId | null>(null)
+  /** Drawer section menu (reorder affordance lives on the header's right-click). */
+  const [sectionMenu, setSectionMenu] = useState<{
+    x: number
+    y: number
+    id: SidebarSectionId
+  } | null>(null)
+  /** Non-null while the lock screen is up. */
+  const [locked, setLocked] = useState(false)
+  const [lockStatus, setLockStatus] = useState<LockStatus | null>(null)
+  /** Non-null while the break reminder is up; carries the interval it fired for. */
+  const [breakDue, setBreakDue] = useState<{ minutes: number } | null>(null)
+  /** Seconds of *focused* use since the last reminder. */
+  const focusedSecondsRef = useRef(0)
+  const breakDueRef = useRef(false)
+  /**
+   * The active pane, as React state.
+   *
+   * dockview's `activePanel` cannot be read reactively, and switching tabs does
+   * not necessarily change the panel *count* — so anything derived from "what the
+   * user is looking at" (the SFTP listing, the tree's active row) needs this to
+   * re-render.
+   */
+  const [activePanelId, setActivePanelId] = useState<string | null>(null)
   /** Which rail section is showing. */
   const [page, setPage] = useState<PageId>('terminal')
   /** Mirrors the broadcast module, which owns the mode. */
@@ -475,6 +520,19 @@ export function App(): JSX.Element {
       removeSessionState(panel.id)
     })
 
+    /*
+     * Which pane is in front, as state.
+     *
+     * Switching tabs does not necessarily change the panel count, so nothing
+     * else would re-render — and the drawer's SFTP listing is keyed off exactly
+     * this. Without it, switching tabs could leave one host's files on screen
+     * while another host's terminal has focus.
+     */
+    const activeChanged = dock.api.onDidActivePanelChange((event) => {
+      setActivePanelId(event.panel?.id ?? null)
+    })
+    setActivePanelId(dock.api.activePanel?.id ?? null)
+
     // Persist on every layout change, debounced: dragging a divider fires many.
     let saveTimer: number | undefined
     let dirty = false
@@ -497,9 +555,7 @@ export function App(): JSX.Element {
       dirty = false
       if (json) void api.saveLayout({ dockview: json })
     }
-
-    const disposition = dock.api.onDidLayoutChange(() => {
-      dirty = true
+    const disposition = dock.api.onDidLayoutChange(() => {      dirty = true
       // How many panes a keystroke would reach, for the broadcast control. Counted
       // from the layout rather than from the session list, because a restored
       // placeholder is a pane too and the two must not disagree.
@@ -723,6 +779,7 @@ export function App(): JSX.Element {
       if (dirty) persist()
       disposition.dispose()
       removed.dispose()
+      activeChanged.dispose()
       dock.dispose()
       dockApiRef.current = null
       dockSyncRef.current = null
@@ -1016,6 +1073,186 @@ export function App(): JSX.Element {
       .then((live) => setQuitRequest({ sessions: live.length }))
       .catch(() => setQuitRequest({ sessions: 0 }))
   }, [])
+
+  // ---- focus mode ---------------------------------------------------------
+
+  /**
+   * Full screen with the app's own chrome out of the way.
+   *
+   * Main is the authority on the state: the shortcut is handled there (so the
+   * default menu's own F11 cannot swallow it), and the user can leave full screen
+   * by other means, so the renderer follows what the window actually reports.
+   */
+  useEffect(() => api.onFullScreenChanged(setFocusMode), [])
+  useEffect(() => {
+    // Tolerant of a missing handler: focus mode simply stays off rather than
+    // throwing an unhandled rejection out of an effect.
+    void api
+      .isFullScreen()
+      .then(setFocusMode)
+      .catch(() => setFocusMode(false))
+  }, [])
+
+  const toggleFocus = useCallback(() => {
+    void api
+      .setFullScreen(!focusMode)
+      .then(setFocusMode)
+      .catch(() => setToast('Full screen is unavailable in this window.'))
+  }, [focusMode])
+
+  // ---- lock screen --------------------------------------------------------
+
+  useEffect(() => {
+    void api.lockStatus().then(setLockStatus)
+  }, [])
+
+  const lockNow = useCallback(() => setLocked(true), [])
+
+  const unlock = useCallback(async (password: string): Promise<boolean> => {
+    const ok = await api.verifyLock(password)
+    if (ok) setLocked(false)
+    return ok
+  }, [])
+
+  // ---- command history ----------------------------------------------------
+
+  useEffect(() => {
+    void api.listHistory().then(setHistory)
+    return api.onHistoryChanged(setHistory)
+  }, [])
+
+  /** Send a command from history to the pane the user is looking at. */
+  const sendHistory = useCallback((command: string) => {
+    const active = dockApiRef.current?.activePanel
+    const sessionId = active && active.id !== 'welcome' ? active.id : null
+    if (!sessionId) {
+      setAlert({ message: 'No active terminal. Connect to a host first.' })
+      return
+    }
+    // The command was run once already, so Enter is part of it.
+    api.writeSession(sessionId, `${command}\r`)
+  }, [])
+
+  const deleteHistoryEntry = useCallback((id: string) => {
+    void api.deleteHistoryEntry(id).then(setHistory)
+  }, [])
+
+  const clearHistory = useCallback(() => {
+    void api.clearHistory().then(setHistory)
+  }, [])
+
+  // ---- break reminder -----------------------------------------------------
+
+  /**
+   * Count *focused* seconds and remind when they add up.
+   *
+   * Only while the window has focus: a reminder that fires at someone who walked
+   * away twenty minutes ago is noise, not care.
+   */
+  useEffect(() => {
+    const { enabled, minutes } = settings.break
+    if (!enabled) {
+      focusedSecondsRef.current = 0
+      return
+    }
+    const timer = window.setInterval(() => {
+      if (breakDueRef.current || !document.hasFocus()) return
+      focusedSecondsRef.current += 1
+      if (focusedSecondsRef.current >= minutes * 60) {
+        breakDueRef.current = true
+        setBreakDue({ minutes })
+      }
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [settings.break])
+
+  const dismissBreak = useCallback(() => {
+    focusedSecondsRef.current = 0
+    breakDueRef.current = false
+    setBreakDue(null)
+  }, [])
+
+  // ---- drawer sections ----------------------------------------------------
+
+  const sectionState = settings.sidebar.sections
+  const visibleSections = useMemo(
+    () => sectionState.filter((section) => section.visible),
+    [sectionState]
+  )
+
+  const saveSections = useCallback(
+    (sections: typeof sectionState) => {
+      void api.saveSettings({ ...settingsRef.current, sidebar: { sections } }).then(setSettings)
+    },
+    []
+  )
+
+  /**
+   * Move a section to the slot another one occupies.
+   *
+   * Reading the list from `settingsRef` rather than from the render closure
+   * matters when two drops land in the same tick: the state update from the first
+   * has not rendered yet, and a stale list would drop the first move.
+   */
+  const moveSection = useCallback(
+    (from: SidebarSectionId, to: SidebarSectionId) => {
+      if (from === to) return
+      const next = [...settingsRef.current.sidebar.sections]
+      const fromIndex = next.findIndex((s) => s.id === from)
+      const toIndex = next.findIndex((s) => s.id === to)
+      if (fromIndex < 0 || toIndex < 0) return
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      saveSections(next)
+    },
+    [saveSections]
+  )
+
+  const setSectionVisible = useCallback(
+    (id: SidebarSectionId, visible: boolean) => {
+      saveSections(sectionState.map((s) => (s.id === id ? { ...s, visible } : s)))
+    },
+    [saveSections, sectionState]
+  )
+
+  /**
+   * The SSH session behind the active pane, or null.
+   *
+   * Recomputed when the arrangement changes rather than read live, because the
+   * SFTP panel keys its listing off this: a stale value would list one host's
+   * files while the user is looking at another.
+   */
+  const activeSshSessionId = useMemo(() => {
+    if (!activePanelId || activePanelId === 'welcome') return null
+    const live = liveSessionRef.current.get(activePanelId) ?? activePanelId
+    return sessions.find((s) => s.id === live)?.kind === 'ssh' ? live : null
+  }, [sessions, activePanelId])
+
+  const sectionMenuItems = useMemo((): MenuItem[] => {
+    if (!sectionMenu) return []
+    const items: MenuItem[] = [
+      { id: 'hide', label: `Hide ${SIDEBAR_SECTION_LABELS[sectionMenu.id]}` }
+    ]
+    const hidden = sectionState.filter((s) => !s.visible)
+    if (hidden.length > 0) {
+      items.push({ id: 'show-heading', label: 'Show section', separatorBefore: true, disabled: true })
+      for (const section of hidden) {
+        items.push({ id: `show:${section.id}`, label: SIDEBAR_SECTION_LABELS[section.id] })
+      }
+    }
+    return items
+  }, [sectionMenu, sectionState])
+
+  const runSectionAction = useCallback(
+    (actionId: string) => {
+      if (!sectionMenu) return
+      if (actionId === 'hide') setSectionVisible(sectionMenu.id, false)
+      else if (actionId.startsWith('show:')) {
+        setSectionVisible(actionId.slice('show:'.length) as SidebarSectionId, true)
+      }
+    },
+    [sectionMenu, setSectionVisible]
+  )
 
   // ---- tree mutations -----------------------------------------------------
 
@@ -1631,6 +1868,8 @@ export function App(): JSX.Element {
     },
     nextTab: () => cycleTab(1),
     prevTab: () => cycleTab(-1),
+    toggleFocus,
+    lockApp: lockNow,
     quitApp: requestQuit
   })
 
@@ -1640,7 +1879,13 @@ export function App(): JSX.Element {
   )
 
   return (
-    <div className="td-root">
+    <div className={'td-root' + (focusMode ? ' is-focus' : '')}>
+      {/*
+        Focus mode hides the rail and the drawer outright rather than dimming
+        them: the panes get the whole window, which is the entire point of it.
+        F11 (or whatever the binding is) brings them back.
+      */}
+      {!focusMode && (
       <NavRail
         active={page}
         collapsed={railCollapsed}
@@ -1672,6 +1917,7 @@ export function App(): JSX.Element {
         appInfo={appMeta}
         settingsOpen={settingsOpen}
       />
+      )}
 
       {page === 'known-hosts' && <KnownHostsPage />}
 
@@ -1726,7 +1972,7 @@ export function App(): JSX.Element {
         and Local shell, which belong to the terminal workflow rather than to a
         host manager.
       */}
-      {!railCollapsed && page === 'terminal' && (
+      {!railCollapsed && page === 'terminal' && !focusMode && (
         <aside className="td-sidebar">
           {/* No brand here: the rail carries it, and repeating it made the pair
               read as two separate panels. */}
@@ -1753,64 +1999,147 @@ export function App(): JSX.Element {
             </button>
           </div>
 
-          <SessionTree
-            tree={tree}
-            activeSessionId={dockApiRef.current?.activePanel?.id ?? null}
-            selectedSavedId={selectedSavedId}
-            connectingId={connectingId}
-            tagFilter={tagFilter}
-            availableTags={knownTags}
-            onSelectSession={(s) => setSelectedSavedId(s.id)}
-            onOpenSession={(s) => void connectSaved(s)}
-            onEditSession={(s) => openEditor(s, s.parentId)}
-            onDeleteSession={(id) => void api.deleteSession(id)}
-            onDuplicateSession={(s) => void duplicateSession(s)}
-            onNewSession={() => openEditor(null, null)}
-            onContextMenu={setContextMenu}
-            onCreateFolder={(parentId) => void createFolder(parentId)}
-            onRenameFolder={(id, name) => void api.saveFolder({ id, name })}
-            onDeleteFolder={(id) => void api.deleteFolder(id)}
-            onToggleFolder={(id, expanded) =>
-              void api.saveFolder({ id, name: folderName(tree, id), expanded })
-            }
-            onMove={(payload, parentId) => void move(payload, parentId)}
-            onToggleTag={(tag) =>
-              setTagFilter((prev) =>
-                prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-              )
-            }
-          />
-
-          <div className="td-sidebar-section">Open sessions</div>
-          <ul className="td-session-list">
-            {sessions.length === 0 && (
-              <li className="td-session-empty">
-                None yet — double-click a saved session to connect.
-              </li>
-            )}
-            {sessions.map((s) => (
-              <li key={s.id} className="td-session-item">
-                <button
-                  className="td-session-open"
-                  onClick={() =>
-                    dockApiRef.current?.getPanel(resolvePanelId(s.id))?.api.setActive()
+          {/*
+            The sections are the user's: drag a heading to reorder, right-click
+            one to hide it or bring a hidden one back. `settings.sidebar.sections`
+            keeps the order *including* the hidden ones, so hiding a section never
+            loses where the user had put it.
+          */}
+          {visibleSections.map((section) => (
+            <SectionFrame
+              key={section.id}
+              id={section.id}
+              title={SIDEBAR_SECTION_LABELS[section.id]}
+              testId={`section-${section.id}`}
+              dragging={draggingSection}
+              onDragStart={(id) => {
+                draggingSectionRef.current = id
+                setDraggingSection(id)
+              }}
+              onDropOn={(id) => {
+                const from = draggingSectionRef.current
+                draggingSectionRef.current = null
+                setDraggingSection(null)
+                if (from) moveSection(from, id)
+              }}
+              onDragEnd={() => {
+                draggingSectionRef.current = null
+                setDraggingSection(null)
+              }}
+              onContextMenu={(id, x, y) => setSectionMenu({ id, x, y })}
+              actions={
+                section.id === 'sessions' ? (
+                  <>
+                    <button
+                      className="td-mini"
+                      title="New session"
+                      data-testid="tree-new-session"
+                      onClick={() => openEditor(null, null)}
+                    >
+                      +
+                    </button>
+                    <button
+                      className="td-mini"
+                      title="New folder"
+                      data-testid="tree-new-folder"
+                      onClick={() => void createFolder(null)}
+                    >
+                      ⊞
+                    </button>
+                  </>
+                ) : section.id === 'history' ? (
+                  <button
+                    className="td-mini"
+                    title="Clear history"
+                    data-testid="history-clear"
+                    onClick={clearHistory}
+                  >
+                    ⌫
+                  </button>
+                ) : null
+              }
+            >
+              {section.id === 'sessions' && (
+                <SessionTree
+                  showHeader={false}
+                  tree={tree}
+                  activeSessionId={activePanelId}
+                  selectedSavedId={selectedSavedId}
+                  connectingId={connectingId}
+                  tagFilter={tagFilter}
+                  availableTags={knownTags}
+                  onSelectSession={(s) => setSelectedSavedId(s.id)}
+                  onOpenSession={(s) => void connectSaved(s)}
+                  onEditSession={(s) => openEditor(s, s.parentId)}
+                  onDeleteSession={(id) => void api.deleteSession(id)}
+                  onDuplicateSession={(s) => void duplicateSession(s)}
+                  onNewSession={() => openEditor(null, null)}
+                  onContextMenu={setContextMenu}
+                  onCreateFolder={(parentId) => void createFolder(parentId)}
+                  onRenameFolder={(id, name) => void api.saveFolder({ id, name })}
+                  onDeleteFolder={(id) => void api.deleteFolder(id)}
+                  onToggleFolder={(id, expanded) =>
+                    void api.saveFolder({ id, name: folderName(tree, id), expanded })
                   }
-                >
-                  <span className={`td-dot td-dot-${s.kind}`} />
-                  <span className="td-session-title" title={s.title}>
-                    {s.title}
-                  </span>
-                </button>
-                <button
-                  className="td-session-close"
-                  title="Close session"
-                  onClick={() => closeSession(s.id)}
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
+                  onMove={(payload, parentId) => void move(payload, parentId)}
+                  onToggleTag={(tag) =>
+                    setTagFilter((prev) =>
+                      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+                    )
+                  }
+                />
+              )}
+
+              {section.id === 'openSessions' && (
+                <ul className="td-session-list">
+                  {sessions.length === 0 && (
+                    <li className="td-session-empty">
+                      None yet — double-click a saved session to connect.
+                    </li>
+                  )}
+                  {sessions.map((s) => (
+                    <li key={s.id} className="td-session-item">
+                      <button
+                        className="td-session-open"
+                        onClick={() =>
+                          dockApiRef.current?.getPanel(resolvePanelId(s.id))?.api.setActive()
+                        }
+                      >
+                        <span className={`td-dot td-dot-${s.kind}`} />
+                        <span className="td-session-title" title={s.title}>
+                          {s.title}
+                        </span>
+                      </button>
+                      <button
+                        className="td-session-close"
+                        title="Close session"
+                        onClick={() => closeSession(s.id)}
+                      >
+                        ✕
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {section.id === 'history' && (
+                <HistoryPanel
+                  entries={history}
+                  canSend={activeTerminalId() !== null}
+                  onSend={sendHistory}
+                  onDelete={deleteHistoryEntry}
+                />
+              )}
+
+              {section.id === 'sftp' && (
+                <SftpPanel
+                  sessionId={activeSshSessionId}
+                  onToast={setToast}
+                  onError={(message) => setAlert({ message })}
+                />
+              )}
+            </SectionFrame>
+          ))}
 
           <div className="td-sidebar-footer">
             <button
@@ -1857,7 +2186,7 @@ export function App(): JSX.Element {
           so it belongs with the panes, and it only appears once there is more than
           one to send to.
         */}
-        {panelCount > 1 && (
+        {panelCount > 1 && !focusMode && (
           <div className="td-terminal-tools" data-testid="terminal-tools">
             <button
               className={`td-broadcast${broadcasting ? ' is-on' : ''}`}
@@ -1888,7 +2217,7 @@ export function App(): JSX.Element {
         </main>
 
         {/* Bottom bar of saved commands; hidden until the user shows it again. */}
-        {snippetBarVisible && (
+        {snippetBarVisible && !focusMode && (
           <SnippetBar
             snippets={settings.snippets}
             canSend={activeTerminalId() !== null}
@@ -1902,7 +2231,7 @@ export function App(): JSX.Element {
           />
         )}
 
-        {!snippetBarVisible && (
+        {!snippetBarVisible && !focusMode && (
           <button
             className="td-snippet-restore"
             title="Show snippet bar"
@@ -1912,6 +2241,18 @@ export function App(): JSX.Element {
           </button>
         )}
       </div>
+
+      {/* The drawer section menu: hide a section, or bring one back. */}
+      {sectionMenu && (
+        <ContextMenu
+          x={sectionMenu.x}
+          y={sectionMenu.y}
+          items={sectionMenuItems}
+          testId="section-menu"
+          onSelect={runSectionAction}
+          onClose={() => setSectionMenu(null)}
+        />
+      )}
 
       {dialogOpen && (
         <ConnectionDialog
@@ -2011,6 +2352,16 @@ export function App(): JSX.Element {
           onCredentialChanged={(status) => {
             setCredentialStatus(status)
             void refreshCredentials()
+          }}
+          lockStatus={lockStatus ?? { hasPassword: false }}
+          onLockChanged={setLockStatus}
+          onPreviewBreak={() => {
+            // The reminder is a modal of its own, so the settings drawer gets out
+            // of its way rather than stacking two dialogs.
+            setSettingsOpen(false)
+            focusedSecondsRef.current = 0
+            breakDueRef.current = true
+            setBreakDue({ minutes: settings.break.minutes })
           }}
         />
       </Drawer>
@@ -2143,6 +2494,26 @@ export function App(): JSX.Element {
             api.quitApp()
           }}
         />
+      )}
+
+      {breakDue && (
+        <BreakReminder
+          minutes={breakDue.minutes}
+          onSkip={dismissBreak}
+          onDone={() => {
+            dismissBreak()
+            setToast('Break taken — the next reminder starts from now.')
+          }}
+        />
+      )}
+
+      {/*
+        Last, so it covers everything: dialogs, drawers and the panes themselves.
+        The sessions behind it keep running — this hides the screen, it does not
+        suspend anything.
+      */}
+      {locked && (
+        <LockScreen hasPassword={lockStatus?.hasPassword ?? false} onUnlock={unlock} />
       )}
 
       {toast && (

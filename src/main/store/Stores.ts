@@ -10,12 +10,18 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import {
+  DEFAULT_BREAK_SETTINGS,
   DEFAULT_SETTINGS,
+  DEFAULT_SIDEBAR_SECTIONS,
   type AppSettings,
+  type BreakSettings,
+  type HistoryEntry,
   type Keybinding,
   type SavedSession,
   type SessionFolder,
   type SessionTree,
+  type SidebarSectionId,
+  type SidebarSectionState,
   type Snippet
 } from '@shared/types'
 
@@ -82,10 +88,53 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
     hostKeys: { ...defaults.hostKeys, ...(stored.hostKeys ?? {}) },
     keybindings: mergeKeybindings(stored.keybindings),
     snippets: sanitiseSnippets(stored.snippets),
+    sidebar: { sections: mergeSidebarSections(stored.sidebar) },
+    break: mergeBreak(stored.break),
     theme: typeof stored.theme === 'string' && stored.theme ? stored.theme : defaults.theme,
     // Clamped here so a hand-edited file cannot leave the UI unusable
     // (invisible at 0.1, unusable at 10).
     uiScale: clampScale(stored.uiScale ?? screenDefaultScale)
+  }
+}
+
+/**
+ * Reconcile the drawer's sections with the built-in list.
+ *
+ * Same contract as the keybindings above: the stored **order wins** (that is the
+ * whole point of dragging them), an unknown id is dropped, and a section added by
+ * an app update is appended rather than silently missing.
+ */
+function mergeSidebarSections(stored: unknown): SidebarSectionState[] {
+  const known = new Set<string>(DEFAULT_SIDEBAR_SECTIONS.map((s) => s.id))
+  const input = (stored as { sections?: unknown } | null | undefined)?.sections
+
+  if (!Array.isArray(input)) return DEFAULT_SIDEBAR_SECTIONS.map((s) => ({ ...s }))
+
+  const merged: SidebarSectionState[] = []
+  for (const entry of input) {
+    const id = (entry as SidebarSectionState | null)?.id
+    if (typeof id !== 'string' || !known.has(id)) continue
+    if (merged.some((s) => s.id === id)) continue
+    merged.push({ id: id as SidebarSectionId, visible: (entry as SidebarSectionState).visible !== false })
+  }
+
+  for (const def of DEFAULT_SIDEBAR_SECTIONS) {
+    if (!merged.some((s) => s.id === def.id)) merged.push({ ...def })
+  }
+  return merged
+}
+
+/** The reminder interval, clamped to something a human would recognise. */
+export function clampBreakMinutes(value: unknown): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_BREAK_SETTINGS.minutes
+  return Math.min(240, Math.max(1, Math.round(n)))
+}
+
+function mergeBreak(stored: unknown): BreakSettings {
+  const input = (stored ?? {}) as Partial<BreakSettings>
+  return {
+    enabled: input.enabled === true,
+    minutes: clampBreakMinutes(input.minutes ?? DEFAULT_BREAK_SETTINGS.minutes)
   }
 }
 
@@ -440,5 +489,78 @@ export class SessionStore {
       for (const tag of session.tags) tags.add(tag)
     }
     return [...tags].sort((a, b) => a.localeCompare(b))
+  }
+}
+
+/**
+ * Commands the user has run, newest first.
+ *
+ * Recorded from what is *typed into a session*, so it is the shell's own history
+ * rather than a log of everything that reached a pty: control keys, arrow keys
+ * and terminal replies are assembled out by the caller and never appear here.
+ *
+ * Kept in its own file so clearing it can never touch settings or sessions, and
+ * capped so it cannot grow without bound.
+ */
+export class HistoryStore {
+  private readonly path: string
+  private entries: HistoryEntry[]
+
+  /** Newest first, and never longer than this. */
+  static readonly LIMIT = 300
+  /** A single command longer than this is truncated rather than stored whole. */
+  static readonly MAX_COMMAND = 500
+
+  constructor(configDir: string) {
+    this.path = join(configDir, 'history.json')
+    const stored = readJson<HistoryEntry[]>(this.path)
+    this.entries = Array.isArray(stored)
+      ? stored
+          .filter(
+            (e): e is HistoryEntry =>
+              !!e && typeof e.command === 'string' && typeof e.id === 'string'
+          )
+          .slice(0, HistoryStore.LIMIT)
+      : []
+  }
+
+  list(): HistoryEntry[] {
+    return this.entries.map((e) => ({ ...e }))
+  }
+
+  /**
+   * Record one command.
+   *
+   * Repeating the previous command is ignored: holding Enter or re-running the
+   * same line is not history worth keeping, and it would push everything else
+   * out of a capped list.
+   */
+  add(command: string, session: string, at = Date.now()): HistoryEntry[] {
+    const text = command.trim().slice(0, HistoryStore.MAX_COMMAND)
+    if (!text) return this.list()
+    if (this.entries[0]?.command === text && this.entries[0]?.session === session) {
+      return this.list()
+    }
+
+    this.entries.unshift({ id: randomUUID(), command: text, session, at })
+    if (this.entries.length > HistoryStore.LIMIT) {
+      this.entries.length = HistoryStore.LIMIT
+    }
+    return this.persist()
+  }
+
+  remove(id: string): HistoryEntry[] {
+    this.entries = this.entries.filter((e) => e.id !== id)
+    return this.persist()
+  }
+
+  clear(): HistoryEntry[] {
+    this.entries = []
+    return this.persist()
+  }
+
+  private persist(): HistoryEntry[] {
+    writeJsonAtomic(this.path, this.entries)
+    return this.list()
   }
 }

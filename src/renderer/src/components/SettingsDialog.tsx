@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AppSettings,
+  BreakSettings,
   ClipboardSettings,
   CredentialStatus,
   FontChoices,
   Keybinding,
+  LockStatus,
+  SidebarSectionState,
   TerminalSettings
 } from '@shared/types'
-import { DEFAULT_KEYBINDINGS } from '@shared/types'
+import { DEFAULT_KEYBINDINGS, SIDEBAR_SECTION_LABELS } from '@shared/types'
 import { THEMES, findTheme } from '@shared/themes'
 import { formatEvent, isValidBinding, parseBinding } from './useShortcuts'
 import { ContextMenu, type MenuItem } from './ContextMenu'
@@ -15,7 +18,14 @@ import { applyTheme } from './useTheme'
 
 const api = window.termdeck
 
-type Tab = 'appearance' | 'terminal' | 'clipboard' | 'shortcuts' | 'hostkeys' | 'credentials'
+type Tab =
+  | 'appearance'
+  | 'terminal'
+  | 'clipboard'
+  | 'shortcuts'
+  | 'hostkeys'
+  | 'wellbeing'
+  | 'credentials'
 
 interface SettingsDialogProps {
   settings: AppSettings
@@ -29,6 +39,11 @@ interface SettingsDialogProps {
   onClose: () => void
   onSaved: (settings: AppSettings) => void
   onCredentialChanged: (status: CredentialStatus) => void
+  /** Current lock state (the password itself never reaches the renderer). */
+  lockStatus: LockStatus
+  onLockChanged: (status: LockStatus) => void
+  /** Show the break reminder immediately, for "Try it now". */
+  onPreviewBreak: () => void
 }
 
 export function SettingsDialog({
@@ -37,7 +52,10 @@ export function SettingsDialog({
   onApplyScale,
   onClose,
   onSaved,
-  onCredentialChanged
+  onCredentialChanged,
+  lockStatus,
+  onLockChanged,
+  onPreviewBreak
 }: SettingsDialogProps): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [draft, setDraft] = useState<AppSettings>(settings)
@@ -249,6 +267,7 @@ export function SettingsDialog({
               ['clipboard', 'Clipboard'],
               ['shortcuts', 'Shortcuts'],
               ['hostkeys', 'Host keys'],
+              ['wellbeing', 'Wellbeing'],
               ['credentials', 'Credentials']
             ] as Array<[Tab, string]>
           ).map(([id, label]) => (
@@ -280,6 +299,18 @@ export function SettingsDialog({
 
             {tab === 'clipboard' && (
               <ClipboardTab settings={draft.clipboard} onChange={updateClipboard} />
+            )}
+
+            {tab === 'wellbeing' && (
+              <WellbeingTab
+                breakSettings={draft.break}
+                sections={draft.sidebar.sections}
+                lockStatus={lockStatus}
+                onBreak={(patch) => setDraft((d) => ({ ...d, break: { ...d.break, ...patch } }))}
+                onSections={(sections) => setDraft((d) => ({ ...d, sidebar: { sections } }))}
+                onLockChanged={onLockChanged}
+                onPreviewBreak={onPreviewBreak}
+              />
             )}
 
             {tab === 'shortcuts' && (
@@ -807,4 +838,146 @@ function ClipboardTab({
 export function describeBinding(binding: string): string {
   const parsed = parseBinding(binding)
   return parsed ? `${parsed.key} ctrl=${parsed.ctrl} shift=${parsed.shift}` : 'invalid'
+}
+
+/**
+ * Breaks, the lock, and which drawer sections are showing.
+ *
+ * The lock password is not part of `draft`: it lives in the encrypted vault and
+ * is written the moment it is set, so closing the dialog without saving never
+ * leaves the user believing a password is in place when it is not.
+ */
+export function WellbeingTab({
+  breakSettings,
+  sections,
+  lockStatus,
+  onBreak,
+  onSections,
+  onLockChanged,
+  onPreviewBreak
+}: {
+  breakSettings: BreakSettings
+  sections: SidebarSectionState[]
+  lockStatus: LockStatus
+  onBreak: (patch: Partial<BreakSettings>) => void
+  onSections: (sections: SidebarSectionState[]) => void
+  onLockChanged: (status: LockStatus) => void
+  onPreviewBreak: () => void
+}): JSX.Element {
+  const [password, setPassword] = useState('')
+  const [saved, setSaved] = useState<string | null>(null)
+
+  const commitLock = async (next: string | null): Promise<void> => {
+    const status = await api.saveLock({ password: next })
+    onLockChanged(status)
+    setPassword('')
+    setSaved(next ? 'Password saved.' : 'Password cleared — the lock now opens on a click.')
+  }
+
+  return (
+    <div className="td-field-stack" data-testid="wellbeing-tab">
+      <h3 className="td-settings-heading">Break reminder</h3>
+      <label className="td-check">
+        <input
+          type="checkbox"
+          aria-label="break-enabled"
+          checked={breakSettings.enabled}
+          onChange={(e) => onBreak({ enabled: e.target.checked })}
+        />
+        <span>
+          <b>Remind me to take a break</b> — counted only while this window is focused, so a
+          reminder never fires at an empty desk.
+        </span>
+      </label>
+
+      <label className="td-field">
+        <span>Minutes between reminders</span>
+        <div className="td-field-row">
+          <input
+            className="td-field-grow"
+            type="number"
+            min={1}
+            max={240}
+            aria-label="break-minutes"
+            value={breakSettings.minutes}
+            onChange={(e) => onBreak({ minutes: Number(e.target.value) })}
+          />
+          <button className="td-btn" data-testid="break-preview" onClick={onPreviewBreak}>
+            Try it now
+          </button>
+        </div>
+      </label>
+      <p className="td-hint">
+        The reminder plays a short side-scroller: reaching the flag in about half a minute clears
+        it, and “Skip for now” is always there.
+      </p>
+
+      <h3 className="td-settings-heading">Drawer sections</h3>
+      <p className="td-hint">
+        Which blocks the Terminal drawer shows. They can also be dragged into order, and hidden by
+        right-clicking a heading there.
+      </p>
+      <div className="td-section-toggles">
+        {sections.map((section) => (
+          <label className="td-check" key={section.id}>
+            <input
+              type="checkbox"
+              aria-label={`section-${section.id}`}
+              checked={section.visible}
+              onChange={(e) =>
+                onSections(
+                  sections.map((s) =>
+                    s.id === section.id ? { ...s, visible: e.target.checked } : s
+                  )
+                )
+              }
+            />
+            <span>{SIDEBAR_SECTION_LABELS[section.id]}</span>
+          </label>
+        ))}
+      </div>
+
+      <h3 className="td-settings-heading">Lock screen</h3>
+      <p className="td-hint">
+        <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> covers the window so the panes cannot be read.
+        It hides the screen rather than suspending anything: the sessions behind it stay
+        connected. Leave the password empty to unlock with a single click.
+      </p>
+      <div className="td-field-row">
+        <input
+          className="td-field-grow"
+          type="password"
+          aria-label="lock-password"
+          placeholder={lockStatus.hasPassword ? 'Change password' : 'Set a password'}
+          autoComplete="off"
+          value={password}
+          onChange={(e) => {
+            setPassword(e.target.value)
+            setSaved(null)
+          }}
+        />
+        <button
+          className="td-btn td-btn-primary"
+          data-testid="lock-save"
+          onClick={() => void commitLock(password)}
+        >
+          Save
+        </button>
+        <button
+          className="td-btn"
+          data-testid="lock-clear"
+          disabled={!lockStatus.hasPassword}
+          onClick={() => void commitLock(null)}
+        >
+          Clear
+        </button>
+      </div>
+      <p className="td-hint" data-testid="lock-status">
+        {saved ??
+          (lockStatus.hasPassword
+            ? 'A password is set.'
+            : 'No password set — the lock unlocks with one click.')}
+      </p>
+    </div>
+  )
 }

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron'
 import { access, constants, writeFile } from 'node:fs/promises'
+import { timingSafeEqual } from 'node:crypto'
 
 import { sessionManager } from './sessions/SessionManager'
 import { LocalShellBackend, isLocalShellAvailable } from './sessions/LocalShellBackend'
@@ -11,19 +12,24 @@ import {
 import { CredentialStore } from './store/CredentialStore'
 import { LayoutStore } from './store/LayoutStore'
 import { listFontChoices } from './fonts'
-import { clampScale, SettingsStore, SessionStore } from './store/Stores'
+import { clampScale, HistoryStore, SettingsStore, SessionStore } from './store/Stores'
 import { KnownHosts } from './ssh/KnownHosts'
+import { closeSftp, downloadFile, listDirectory, uploadFile } from './sftp'
 import type {
   AppSettings,
   CreateSessionResult,
   FontChoices,
   HostKeyPrompt,
   LayoutState,
+  LockStatus,
+  SaveLockRequest,
   SavedSession,
   SaveTextFileRequest,
   SaveTextFileResult,
   SessionFolder,
   SessionTree,
+  SftpListResult,
+  SftpTransferResult,
   Snippet,
   SshConnectPayload,
   TrustHostKeyRequest
@@ -53,6 +59,65 @@ type SessionBlueprint =
   | { kind: 'local'; title: string; cols: number; rows: number }
 
 const blueprints = new Map<string, SessionBlueprint>()
+
+/**
+ * What is being typed into each session, so history records commands.
+ *
+ * The pty sees a keystroke stream, not lines: arrow keys arrive as escape
+ * sequences, backspace as a control byte, and a terminal reply can land in the
+ * middle of it. This assembles the line the user actually ran and drops
+ * everything else, rather than logging whatever happened to reach the shell.
+ */
+const typing = new Map<string, { line: string; escape: boolean }>()
+
+/** Commands are recorded on Enter; this is what "Enter" means in a raw stream. */
+function noteTypedInput(sessionId: string, data: string): void {
+  const state = typing.get(sessionId) ?? { line: '', escape: false }
+
+  for (const ch of data) {
+    if (state.escape) {
+      // Skip a whole CSI/SS3 sequence: the final byte is a letter or `~`.
+      if (/[A-Za-z~]/.test(ch)) state.escape = false
+      continue
+    }
+    if (ch === '\u001b') {
+      state.escape = true
+      continue
+    }
+    if (ch === '\r' || ch === '\n') {
+      const line = state.line
+      state.line = ''
+      if (line.trim()) recordCommand(sessionId, line)
+      continue
+    }
+    if (ch === '\u007f' || ch === '\b') {
+      state.line = state.line.slice(0, -1)
+      continue
+    }
+    // Ctrl+C abandons the line, Ctrl+U clears it; other control bytes are keys
+    // (Tab completion, Ctrl+R, …) rather than text.
+    if (ch === '\u0003' || ch === '\u0015') {
+      state.line = ''
+      continue
+    }
+    if (ch < ' ') continue
+    state.line += ch
+  }
+
+  // A pasted wall of text must not grow the buffer without bound.
+  if (state.line.length > 4000) state.line = state.line.slice(-4000)
+  typing.set(sessionId, state)
+}
+
+/** Store one command and tell the UI, unless it was a no-op repeat. */
+function recordCommand(sessionId: string, command: string): void {
+  const store = getHistoryStore()
+  const before = store.list().length
+  const title = sessionManager.list().find((s) => s.id === sessionId)?.title ?? 'session'
+  const entries = store.add(command, title)
+  if (entries.length !== before) broadcast('history:changed', entries)
+}
+
 
 // Lazily created so `app.getPath('userData')` is available.
 let credentials: CredentialStore | null = null
@@ -97,6 +162,36 @@ function getSessionStore(): SessionStore {
   sessionStore ??= new SessionStore(configDir())
   return sessionStore
 }
+
+let historyStore: HistoryStore | null = null
+
+function getHistoryStore(): HistoryStore {
+  historyStore ??= new HistoryStore(configDir())
+  return historyStore
+}
+
+/**
+ * Where the lock screen's password lives.
+ *
+ * Not a session, but the same encrypted vault: a reserved id keeps the secret
+ * encrypted at rest and, more importantly, keeps it out of the renderer. The
+ * renderer can only ask "does it match", never read it back.
+ */
+const LOCK_CREDENTIAL_ID = '__termdeck_lock__'
+
+function lockStatus(): LockStatus {
+  const stored = getCredentials().get(LOCK_CREDENTIAL_ID)
+  return { hasPassword: (stored.password ?? '').length > 0 }
+}
+
+/** Compare two secrets without leaking how much of a prefix matched. */
+function sameSecret(a: string, b: string): boolean {
+  const left = Buffer.from(a, 'utf8')
+  const right = Buffer.from(b, 'utf8')
+  if (left.length !== right.length) return false
+  return timingSafeEqual(left, right)
+}
+
 
 /** Wire the SessionManager's event bus to every renderer window. */
 function broadcast(channel: string, ...args: unknown[]): void {
@@ -186,8 +281,11 @@ export function registerIpc(): void {
   sessionManager.on('data', (id, chunk, seq) => broadcast('session:data', id, chunk, seq))
   sessionManager.on('exit', (id, code, signal) => {
     // The blueprint describes a live session; drop it with the session so a
-    // duplicated pane can never reconnect with options belonging to a dead one.
+    // duplicated pane can never reconnect with options belonging to a dead one,
+    // and release the SFTP session that was riding on the same connection.
     blueprints.delete(id)
+    typing.delete(id)
+    closeSftp(id)
     broadcast('session:exit', id, { code, signal })
   })
   sessionManager.on('error', (id, error) =>
@@ -326,17 +424,83 @@ export function registerIpc(): void {
     return openSsh(blueprint.options, blueprint.cols, blueprint.rows)
   })
 
-  ipcMain.on('session:write', (_e, id: string, data: string) => sessionManager.write(id, data))
+  ipcMain.on('session:write', (_e, id: string, data: string) => {
+    noteTypedInput(id, data)
+    sessionManager.write(id, data)
+  })
   ipcMain.on('session:resize', (_e, id: string, cols: number, rows: number) =>
     sessionManager.resize(id, cols, rows)
   )
   ipcMain.on('session:close', (_e, id: string) => {
     blueprints.delete(id)
+    typing.delete(id)
+    closeSftp(id)
     sessionManager.close(id)
   })
 
   ipcMain.handle('session:list', () => sessionManager.list())
   ipcMain.handle('session:replay', (_e, id: string) => sessionManager.replay(id))
+
+  // ---- command history ---------------------------------------------------
+
+  ipcMain.handle('history:list', () => getHistoryStore().list())
+  ipcMain.handle('history:delete', (_e, id: string) => getHistoryStore().remove(id))
+  ipcMain.handle('history:clear', () => getHistoryStore().clear())
+
+  // ---- sftp --------------------------------------------------------------
+  // Everything is addressed by *session id*: the renderer has no credentials and
+  // must not need any, so the main process reuses the connection the pane was
+  // opened with.
+  const sftpTarget = (
+    sessionId: string
+  ): Extract<SessionBlueprint, { kind: 'ssh' }> | undefined => {
+    const blueprint = blueprints.get(sessionId)
+    return blueprint?.kind === 'ssh' ? blueprint : undefined
+  }
+
+  ipcMain.handle(
+    'sftp:list',
+    (_e, sessionId: string, path: string): Promise<SftpListResult> => {
+      const target = sftpTarget(sessionId)
+      if (!target) {
+        return Promise.resolve({
+          ok: false,
+          message: 'SFTP needs a live SSH session. Connect to a host first.'
+        })
+      }
+      return listDirectory(sessionId, target.options, { knownHosts }, path)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:download',
+    async (_e, sessionId: string, remotePath: string): Promise<SftpTransferResult> => {
+      const target = sftpTarget(sessionId)
+      if (!target) return { ok: false, message: 'SFTP needs a live SSH session.' }
+
+      const result = await dialog.showSaveDialog({
+        title: 'Save remote file',
+        defaultPath: remotePath.split('/').pop() ?? 'download'
+      })
+      if (result.canceled || !result.filePath) return { ok: false, cancelled: true }
+      return downloadFile(sessionId, target.options, { knownHosts }, remotePath, result.filePath)
+    }
+  )
+
+  ipcMain.handle(
+    'sftp:upload',
+    async (_e, sessionId: string, remoteDir: string): Promise<SftpTransferResult> => {
+      const target = sftpTarget(sessionId)
+      if (!target) return { ok: false, message: 'SFTP needs a live SSH session.' }
+
+      const result = await dialog.showOpenDialog({
+        title: 'Upload a file',
+        properties: ['openFile', 'showHiddenFiles']
+      })
+      if (result.canceled || result.filePaths.length === 0) return { ok: false, cancelled: true }
+      return uploadFile(sessionId, target.options, { knownHosts }, result.filePaths[0], remoteDir)
+    }
+  )
 
   // ---- host keys ---------------------------------------------------------
 
@@ -598,6 +762,29 @@ export function registerIpc(): void {
     localShellAvailable: isLocalShellAvailable(),
     configDir: configDir()
   }))
+
+  // ---- lock screen -------------------------------------------------------
+  // The password lives in the encrypted vault under a reserved id. The renderer
+  // can set it and check it, never read it.
+
+  ipcMain.handle('lock:status', () => lockStatus())
+
+  ipcMain.handle('lock:save', (_e, request: SaveLockRequest) => {
+    if (request.password === null) getCredentials().remove(LOCK_CREDENTIAL_ID)
+    else if (typeof request.password === 'string') {
+      // An empty string is a legitimate value: the lock screen then unlocks on a
+      // click, with no password to remember.
+      getCredentials().set(LOCK_CREDENTIAL_ID, { password: request.password })
+    }
+    return lockStatus()
+  })
+
+  ipcMain.handle('lock:verify', (_e, password: string) => {
+    const stored = getCredentials().get(LOCK_CREDENTIAL_ID).password ?? ''
+    // A constant-time compare is not a real defence here (this is a convenience
+    // lock, not disk encryption) but there is no reason to leak the prefix.
+    return sameSecret(stored, typeof password === 'string' ? password : '')
+  })
 }
 
 /** Exposed for the smoke harnesses, which need the same stores the app uses. */
@@ -607,6 +794,7 @@ export function storeAccess(): {
   sessions: SessionStore
   layout: LayoutStore
   knownHosts: KnownHosts
+  history: HistoryStore
   configDir: string
 } {
   return {
@@ -615,6 +803,7 @@ export function storeAccess(): {
     sessions: getSessionStore(),
     layout: getLayoutStore(),
     knownHosts,
+    history: getHistoryStore(),
     configDir: configDir()
   }
 }

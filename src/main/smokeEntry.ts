@@ -7,11 +7,20 @@
  */
 import { registerIpc, storeAccess } from './ipc'
 import { attachQuitConfirmation, registerQuitIpc, requestQuit, isQuitting } from './quit'
+import { attachFocusMode, registerFocusIpc, matchesBinding } from './focus'
+import { closeSftp, closeAllSftp } from './sftp'
 import { sessionManager } from './sessions/SessionManager'
 import { LocalShellBackend, isLocalShellAvailable } from './sessions/LocalShellBackend'
 import { SshShellBackend, HostKeyRequiredError } from './sessions/SshShellBackend'
 import { CredentialStore } from './store/CredentialStore'
-import { SettingsStore, SessionStore, clampScale, defaultScaleForWidth } from './store/Stores'
+import {
+  HistoryStore,
+  SettingsStore,
+  SessionStore,
+  clampBreakMinutes,
+  clampScale,
+  defaultScaleForWidth
+} from './store/Stores'
 import { LayoutStore } from './store/LayoutStore'
 import { KnownHosts, fingerprint } from './ssh/KnownHosts'
 
@@ -22,15 +31,22 @@ export {
   registerQuitIpc,
   requestQuit,
   isQuitting,
+  attachFocusMode,
+  registerFocusIpc,
+  matchesBinding,
+  closeSftp,
+  closeAllSftp,
   sessionManager,
   LocalShellBackend,
   isLocalShellAvailable,
   SshShellBackend,
   HostKeyRequiredError,
   CredentialStore,
+  HistoryStore,
   SettingsStore,
   SessionStore,
   LayoutStore,
+  clampBreakMinutes,
   clampScale,
   defaultScaleForWidth,
   KnownHosts,

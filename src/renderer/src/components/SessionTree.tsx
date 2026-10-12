@@ -28,6 +28,13 @@ interface SessionTreeProps {
   onMove: (payload: DragPayload, parentId: string | null) => void
   onToggleTag: (tag: string) => void
   availableTags: string[]
+  /**
+   * Render the "Sessions" toolbar row.
+   *
+   * Off when the tree is nested in a drawer section, which supplies the heading
+   * (and the drag handle) itself; two headings stacked read as a mistake.
+   */
+  showHeader?: boolean
 }
 
 /** Right-click target, forwarded to the app which owns the menu. */
@@ -108,7 +115,8 @@ export function SessionTree({
   onToggleFolder,
   onMove,
   onToggleTag,
-  availableTags
+  availableTags,
+  showHeader = true
 }: SessionTreeProps): JSX.Element {
   const children = useMemo(() => indexChildren(tree), [tree])
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -351,24 +359,26 @@ export function SessionTree({
 
   return (
     <div className="td-tree">
-      <div className="td-tree-toolbar">
-        <span className="td-sidebar-section">Sessions</span>
-        <span className="td-tree-toolbar-actions">
-          {/* Creating a session belongs with the session list, not in the
-              sidebar's global actions. */}
-          <button
-            className="td-mini"
-            title="New session"
-            data-testid="tree-new-session"
-            onClick={onNewSession}
-          >
-            +
-          </button>
-          <button className="td-mini" title="New folder" onClick={() => onCreateFolder(null)}>
-            ⊞
-          </button>
-        </span>
-      </div>
+      {showHeader && (
+        <div className="td-tree-toolbar">
+          <span className="td-sidebar-section">Sessions</span>
+          <span className="td-tree-toolbar-actions">
+            {/* Creating a session belongs with the session list, not in the
+                sidebar's global actions. */}
+            <button
+              className="td-mini"
+              title="New session"
+              data-testid="tree-new-session"
+              onClick={onNewSession}
+            >
+              +
+            </button>
+            <button className="td-mini" title="New folder" onClick={() => onCreateFolder(null)}>
+              ⊞
+            </button>
+          </span>
+        </div>
+      )}
 
       {availableTags.length > 0 && (
         <div className="td-tag-filter">

@@ -5,10 +5,13 @@ import type {
   CreateSessionResult,
   CredentialStatus,
   FontChoices,
+  HistoryEntry,
   KnownHostEntry,
   LayoutState,
   LocalConnectPayload,
+  LockStatus,
   QuitRequest,
+  SaveLockRequest,
   SavedSession,
   SaveTextFileRequest,
   SaveTextFileResult,
@@ -16,6 +19,8 @@ import type {
   SessionFolder,
   SessionInfo,
   SessionTree,
+  SftpListResult,
+  SftpTransferResult,
   Snippet,
   SshConnectPayload,
   TrustHostKeyRequest
@@ -127,11 +132,42 @@ const api = {
   // Confirming a pending quit. The window close itself is held in main.
   quitApp: (): void => ipcRenderer.send('app:quit'),
 
+  // ---- focus mode -------------------------------------------------------
+  setFullScreen: (on: boolean): Promise<boolean> =>
+    ipcRenderer.invoke('app:setFullScreen', on),
+  isFullScreen: (): Promise<boolean> => ipcRenderer.invoke('app:isFullScreen'),
+
+  // ---- lock screen ------------------------------------------------------
+  lockStatus: (): Promise<LockStatus> => ipcRenderer.invoke('lock:status'),
+  saveLock: (request: SaveLockRequest): Promise<LockStatus> =>
+    ipcRenderer.invoke('lock:save', request),
+  verifyLock: (password: string): Promise<boolean> =>
+    ipcRenderer.invoke('lock:verify', password),
+
+  // ---- command history --------------------------------------------------
+  listHistory: (): Promise<HistoryEntry[]> => ipcRenderer.invoke('history:list'),
+  deleteHistoryEntry: (id: string): Promise<HistoryEntry[]> =>
+    ipcRenderer.invoke('history:delete', id),
+  clearHistory: (): Promise<HistoryEntry[]> => ipcRenderer.invoke('history:clear'),
+
+  // ---- sftp -------------------------------------------------------------
+  sftpList: (sessionId: string, path: string): Promise<SftpListResult> =>
+    ipcRenderer.invoke('sftp:list', sessionId, path),
+  sftpDownload: (sessionId: string, remotePath: string): Promise<SftpTransferResult> =>
+    ipcRenderer.invoke('sftp:download', sessionId, remotePath),
+  sftpUpload: (sessionId: string, remoteDir: string): Promise<SftpTransferResult> =>
+    ipcRenderer.invoke('sftp:upload', sessionId, remoteDir),
+
   // ---- events -----------------------------------------------------------
   onSessionData: (handler: (id: string, chunk: string, seq: number) => void): (() => void) =>
     on<[string, string, number]>('session:data', handler),
   onQuitRequested: (handler: (request: QuitRequest) => void): (() => void) =>
     on<[QuitRequest]>('app:quit-requested', handler),
+  /** Full-screen state, including changes the app did not initiate. */
+  onFullScreenChanged: (handler: (on: boolean) => void): (() => void) =>
+    on<[boolean]>('app:focus-mode', handler),
+  onHistoryChanged: (handler: (entries: HistoryEntry[]) => void): (() => void) =>
+    on<[HistoryEntry[]]>('history:changed', handler),
   onSessionExit: (handler: (id: string, info: SessionExitInfo) => void): (() => void) =>
     on<[string, SessionExitInfo]>('session:exit', handler),
 

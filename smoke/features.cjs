@@ -476,6 +476,9 @@ async function main() {
 
   const consoleErrors = []
   win.webContents.on('console-message', (_e, level, message) => {
+    // Renderer diagnostics are otherwise invisible: `executeJavaScript` reports
+    // only "script failed to execute", with no line and no message.
+    if (/DRAWER-DEBUG/.test(message)) console.log(message)
     if (level >= 2) consoleErrors.push(message)
   })
 
@@ -512,7 +515,15 @@ async function main() {
       await new Promise((r) => setTimeout(r, 500))
 
       const tabs = [...document.querySelectorAll('.td-settings-tab')].map((t) => t.textContent)
-      push('settings tabs rendered', tabs.length === 6, tabs.join(' | '))
+      // The exact list, not just a count: a tab that silently disappears is as
+      // much a regression as one that breaks.
+      const expectedTabs = [
+        'Appearance', 'Terminal', 'Clipboard', 'Shortcuts', 'Host keys', 'Wellbeing', 'Credentials'
+      ]
+      push('settings tabs rendered',
+        tabs.length === expectedTabs.length &&
+          expectedTabs.every((name, i) => (tabs[i] || '').trim() === name),
+        tabs.join(' | '))
       push('appearance tab is first', /Appearance/i.test(tabs[0] || ''), tabs[0])
 
       // The theme picker lists every built-in theme and marks the active one.
@@ -646,8 +657,9 @@ async function main() {
 
       // The toolbar holds "new session" and "new folder"; target the latter by
       // its title rather than by position.
-      const folderBtn = [...document.querySelectorAll('.td-tree-toolbar .td-mini')]
-        .find((b) => /new folder/i.test(b.getAttribute('title') || ''))
+      // The tree's own buttons live in the Sessions section header now, so they
+      // are named by testid rather than by the toolbar they used to sit in.
+      const folderBtn = document.querySelector('[data-testid="tree-new-folder"]')
       push('new folder button present', !!folderBtn)
       folderBtn.click()
       await new Promise((r) => setTimeout(r, 500))
@@ -716,6 +728,23 @@ async function main() {
 
       const localBtn = [...document.querySelectorAll('.td-sidebar .td-btn')]
         .find((b) => /Local shell/i.test(b.textContent || ''))
+      if (!localBtn) {
+        // Named, not a bare crash: the drawer missing is the interesting part.
+        console.log('DRAWER-DEBUG ' + JSON.stringify({
+          drawer: !!document.querySelector('.td-sidebar'),
+          root: document.querySelector('.td-root')?.className ?? null,
+          rail: !!document.querySelector('.td-rail'),
+          sections: [...document.querySelectorAll('[data-section]')].map((s) =>
+            s.getAttribute('data-section')
+          ),
+          buttons: [...document.querySelectorAll('.td-sidebar .td-btn')].map((b) =>
+            (b.textContent || '').trim()
+          )
+        }))
+        push('the drawer still offers a local shell', false, 'drawer is not showing')
+        return out
+      }
+      push('the drawer still offers a local shell', true)
       localBtn.click()
       await new Promise((r) => setTimeout(r, 3500))
 
