@@ -44,6 +44,23 @@ for (const file of files) {
   }
 
   const source = fs.readFileSync(full, 'utf8')
+
+  /*
+   * An odd number of backticks means one is unbalanced, and the usual cause is a
+   * backtick inside a probe template — a comment quoting a selector — which ends
+   * the template early. `node --check` can miss it: the rest of the injected script
+   * then parses as ordinary statements, so the file is valid and the mistake only
+   * surfaces at runtime as "x is not defined" in the middle of a suite.
+   */
+  const ticks = source.split('`').length - 1
+  if (ticks % 2 !== 0) {
+    console.log(
+      `FAIL  ${file} — ${ticks} backticks (odd): a template literal is probably ending ` +
+        'early; take the backticks out of the probe source'
+    )
+    problems++
+  }
+
   const lines = source.split('\n')
   /** Only the injected templates are examined: a regex in ordinary code is fine. */
   let inTemplate = false

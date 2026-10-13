@@ -1,3 +1,49 @@
+/*
+ * The interface font.
+ *
+ * Inter, bundled rather than hoped for: it is the SF-like face that looks the same
+ * on every platform, and the alternative — whatever the OS happens to call its UI
+ * font — is exactly what made the same screen look different on Windows and macOS.
+ * It is *fixed*: the terminal's font setting is the terminal's, and nothing here
+ * reads it. Monospace stays monospace for the things that are data rather than
+ * chrome (fingerprints, paths, timestamps, commands).
+ *
+ * Only the latin subset and three weights are shipped; that is ~70 KB in total, and
+ * the licence (SIL OFL 1.1) sits beside the files.
+ */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/inter-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/inter-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./fonts/inter-latin-600-normal.woff2') format('woff2');
+}
+
+/* Real 700 rather than a synthesised one: `<b>` inside a hint was being faked. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/inter-latin-700-normal.woff2') format('woff2');
+}
+
 /* Theme tokens. `useTheme` overwrites these as inline properties on <html>, so
    the values here are only a fallback for the pre-theme first paint. */
 :root {
@@ -60,6 +106,30 @@
   --td-shadow-lg: 0 4px 12px rgba(8, 12, 22, 0.34), 0 28px 64px rgba(8, 12, 22, 0.46);
   --td-ring: 0 0 0 3px color-mix(in srgb, var(--td-accent) 32%, transparent);
   --td-blur: saturate(180%) blur(22px);
+
+  /*
+   * Type.
+   *
+   * One stack for the interface and one for data, plus a short scale. Before this
+   * the sizes were whatever each rule happened to want (10.5, 11, 11.5, 12, 12.5,
+   * 13, 13.5, 14, 14.5, 15) and the same "small label" was three different sizes
+   * on three different screens. Six steps and a single line-height is what makes
+   * a dense UI read as one thing.
+   */
+  --td-font-ui: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI Variable Text', 'Segoe UI',
+    system-ui, sans-serif;
+  --td-font-mono: 'Cascadia Mono', 'JetBrains Mono', 'SF Mono', Consolas, 'DejaVu Sans Mono',
+    monospace;
+
+  --td-text-2xs: 10.5px; /* badge counts, the smallest chips */
+  --td-text-xs: 11.5px; /* overline labels, hints under a field */
+  --td-text-sm: 12.5px; /* secondary copy, list rows */
+  --td-text-base: 13px; /* body */
+  --td-text-md: 14px; /* dialog titles, emphasised copy */
+  --td-text-lg: 15.5px; /* page titles, the clock */
+  --td-leading: 1.55;
+  /* Upper-case labels are the one place tighter tracking reads as deliberate. */
+  --td-tracking-label: 0.55px;
 }
 
 /* Light themes need softer shadows, not darker ones. */
@@ -86,8 +156,14 @@ body,
 body {
   background: var(--td-bg);
   color: var(--td-text);
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
-  font-size: 13px;
+  font-family: var(--td-font-ui);
+  font-size: var(--td-text-base);
+  line-height: var(--td-leading);
+  /*
+   * Inter is drawn for this: the web build has slightly wider spacing than the
+   * print one, and the default tracking makes a 13px UI look loose.
+   */
+  letter-spacing: -0.006em;
   overflow: hidden;
 }
 
@@ -98,7 +174,7 @@ kbd {
   border-radius: 3px;
   padding: 0 4px;
   font-family: inherit;
-  font-size: 11px;
+  font-size: var(--td-text-xs);
 }
 
 /* ---- shell ------------------------------------------------------------- */
@@ -153,10 +229,10 @@ kbd {
 .td-sidebar-section {
   margin-top: 10px;
   padding: 0 4px;
-  font-size: 11px;
+  font-size: var(--td-text-xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
+  letter-spacing: var(--td-tracking-label);
   color: var(--td-text-faint);
 }
 
@@ -751,6 +827,29 @@ kbd {
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
 }
 
+/*
+ * The dialog's content area.
+ *
+ * A dialog whose body is bare paragraphs used to have no gutter at all, so the
+ * text ran into the frame; the ones with a form were fine because `.td-form`
+ * brings its own padding. One wrapper with one padding is what makes every dialog
+ * agree, and it keeps the head and foot bars full-width.
+ */
+.td-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 20px;
+}
+
+.td-modal-body > :first-child {
+  margin-top: 0;
+}
+
+.td-modal-body > :last-child {
+  margin-bottom: 0;
+}
+
 .td-modal-head {
   display: flex;
   align-items: center;
@@ -864,8 +963,9 @@ kbd {
  * how many live connections the quit is about to end.
  */
 .td-quit-text {
-  margin: 0 0 8px;
-  font-size: 13.5px;
+  /* Spacing comes from the body wrapper's gap; a margin here was fighting it. */
+  margin: 0;
+  font-size: var(--td-text-md);
   font-weight: 600;
   color: var(--td-text);
 }
@@ -883,7 +983,9 @@ kbd {
 }
 
 .td-settings-tabs {
-  flex: 0 0 150px;
+  /* Wide enough for "Known Hosts" and "Credentials" on one line in Inter: at 150px
+     the longest label wrapped, which made the strip look broken. */
+  flex: 0 0 172px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1098,7 +1200,8 @@ kbd {
 }
 
 .td-hostkey-body {
-  padding: 16px;
+  /* The same gutter the dialog head and foot use, so the text lines up with them. */
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1113,9 +1216,9 @@ kbd {
 
 .td-kv dt {
   color: var(--td-text-dim);
-  font-size: 11px;
+  font-size: var(--td-text-xs);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: var(--td-tracking-label);
 }
 
 .td-kv dd {
@@ -1469,13 +1572,14 @@ kbd {
   position: absolute;
   top: -3px;
   right: -4px;
-  min-width: 14px;
+  min-width: 15px;
   padding: 0 3px;
   background: var(--td-accent);
-  border-radius: 7px;
+  border-radius: 8px;
   color: var(--td-on-accent);
-  font-size: 9px;
-  line-height: 14px;
+  font-size: var(--td-text-2xs);
+  font-weight: 600;
+  line-height: 15px;
   text-align: center;
 }
 
@@ -2380,14 +2484,14 @@ body {
 }
 
 .td-brand-name {
-  font-size: 14.5px;
-  font-weight: 620;
+  font-size: var(--td-text-md);
+  font-weight: 600;
   letter-spacing: 0.2px;
 }
 
 .td-sidebar-section {
-  font-size: 10px;
-  letter-spacing: 0.9px;
+  /* Size and tracking come from the overline tokens: the same label was 11px on
+     one screen and 10px on another, which is what "not quite consistent" was. */
   color: var(--td-text-faint);
 }
 
@@ -2575,14 +2679,14 @@ body {
 }
 
 .td-hint {
-  font-size: 12px;
+  font-size: var(--td-text-sm);
 }
 
 /* ---- modals ------------------------------------------------------------ */
 
 .td-modal-head h2 {
-  font-size: 14.5px;
-  font-weight: 620;
+  font-size: var(--td-text-md);
+  font-weight: 600;
   letter-spacing: 0.1px;
 }
 
@@ -2944,8 +3048,8 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
 
 .td-drawer-head h2 {
   margin: 0;
-  font-size: 14.5px;
-  font-weight: 620;
+  font-size: var(--td-text-md);
+  font-weight: 600;
 }
 
 .td-drawer-body {
@@ -3031,9 +3135,9 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
 
 .td-page-head h1 {
   margin: 0;
-  font-size: 17px;
-  font-weight: 640;
-  letter-spacing: -0.1px;
+  font-size: var(--td-text-lg);
+  font-weight: 600;
+  letter-spacing: -0.2px;
 }
 
 .td-page-sub {
@@ -4146,7 +4250,7 @@ html[data-theme-scheme='light'] .td-select {
 .td-section-note {
   margin: 6px 4px 2px;
   color: var(--td-text-faint);
-  font-size: 10.5px;
+  font-size: var(--td-text-xs);
 }
 
 /* ---- history panel ----------------------------------------------------- */
@@ -4227,7 +4331,7 @@ html[data-theme-scheme='light'] .td-select {
 }
 
 .td-history-meta {
-  font-size: 10px;
+  font-size: var(--td-text-2xs);
   color: var(--td-text-faint);
   white-space: nowrap;
   overflow: hidden;
@@ -4469,10 +4573,10 @@ html[data-theme-scheme='light'] .td-select {
 
 .td-settings-heading {
   margin: 14px 0 2px;
-  font-size: 12px;
+  font-size: var(--td-text-xs);
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.6px;
+  letter-spacing: var(--td-tracking-label);
   color: var(--td-text-faint);
 }
 

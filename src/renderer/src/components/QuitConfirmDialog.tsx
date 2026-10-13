@@ -48,15 +48,17 @@ export function QuitConfirmDialog({
         </button>
       </div>
 
-      <p className="td-quit-text" data-testid="quit-detail">
-        {sessions > 0
-          ? `${sessions} active connection${sessions === 1 ? '' : 's'} will be closed.`
-          : 'No connections are open.'}
-      </p>
-      <p className="td-hint">
-        Saved sessions, settings and this window arrangement are kept — only the live
-        connections end.
-      </p>
+      <div className="td-modal-body">
+        <p className="td-quit-text" data-testid="quit-detail">
+          {sessions > 0
+            ? `${sessions} active connection${sessions === 1 ? '' : 's'} will be closed.`
+            : 'No connections are open.'}
+        </p>
+        <p className="td-hint">
+          Saved sessions, settings and this window arrangement are kept — only the live
+          connections end.
+        </p>
+      </div>
 
       <div className="td-modal-foot">
         <span className="td-spacer" />
