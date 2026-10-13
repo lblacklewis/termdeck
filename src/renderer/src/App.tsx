@@ -51,7 +51,7 @@ import { SnippetsPage } from './components/SnippetsPage'
 import { LogsPage, type LogEntry } from './components/LogsPage'
 import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
-import { NavRail, type PageId } from './components/NavRail'
+import { NavRail, PAGE_CYCLE, PAGE_ORDER, type PageId } from './components/NavRail'
 import { readScrollback } from './components/terminalRegistry'
 import {
   broadcastSummary,
@@ -2131,6 +2131,80 @@ export function App(): JSX.Element {
     next?.api.setActive()
   }, [])
 
+  /**
+   * Show a rail section.
+   *
+   * The same path the rail's own icons take, so a shortcut and a click can never
+   * disagree about what "Terminal" means — including the rule that selecting the
+   * section you are already on toggles its drawer.
+   */
+  const selectPage = useCallback(
+    (next: PageId) => {
+      // Settings is drawer-only: it has no page of its own, so selecting it opens
+      // the drawer over whatever page is showing.
+      if (next === 'settings') {
+        setSettingsOpen(true)
+        return
+      }
+      setSettingsOpen(false)
+      /*
+       * The rail and its list are one column, so the same icon shows and hides the
+       * list. Measured on whether the drawer is *showing*, not on whether the rail
+       * is nominally expanded — the drawer only exists on the Terminal page, so a
+       * collapsed flag alone would make the first click there do nothing.
+       */
+      const drawerShowing = !railCollapsed && page === 'terminal'
+      if (next === page) setRailCollapsed(drawerShowing)
+      else {
+        setPage(next)
+        setRailCollapsed(false)
+      }
+    },
+    [page, railCollapsed]
+  )
+
+  /** `Alt`+digit: the rail's own order decides which number is which section. */
+  const jumpToPage = useCallback(
+    (index: number) => {
+      const target = PAGE_ORDER[index]
+      if (target) selectPage(target)
+    },
+    [selectPage]
+  )
+
+  /** `Alt+[` / `Alt+]`, wrapping at both ends so neither is a dead end. */
+  const stepPage = useCallback(
+    (delta: number) => {
+      // Walk the pages, not the rail entries: Settings is a drawer over whatever
+      // is showing, so stopping there would look like the key did nothing.
+      const here = PAGE_CYCLE.indexOf(page)
+      const from = here < 0 ? 0 : here
+      const next = PAGE_CYCLE[(from + delta + PAGE_CYCLE.length) % PAGE_CYCLE.length]
+      if (next) selectPage(next)
+    },
+    [page, selectPage]
+  )
+
+  /**
+   * `Alt`+digit jumps straight to a rail section.
+   *
+   * Deliberately not nine settings rows: which number means which section is the
+   * rail's order, not a preference — it is something to match, not to configure.
+   * The two configurable bindings below walk the same list.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!event.altKey || event.ctrlKey || event.metaKey) return
+      const digit = Number(event.key)
+      if (!Number.isInteger(digit) || digit < 1 || digit > PAGE_ORDER.length) return
+      event.preventDefault()
+      event.stopPropagation()
+      jumpToPage(digit - 1)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [jumpToPage])
+
   useShortcuts(settings.keybindings, {
     newConnection: () => setDialogOpen(true),
     closeSession: () => {
@@ -2158,6 +2232,8 @@ export function App(): JSX.Element {
     },
     nextTab: () => cycleTab(1),
     prevTab: () => cycleTab(-1),
+    prevPage: () => stepPage(-1),
+    nextPage: () => stepPage(1),
     toggleFocus,
     lockApp: lockNow,
     quitApp: requestQuit
@@ -2181,28 +2257,7 @@ export function App(): JSX.Element {
         collapsed={railCollapsed}
         ready={layoutReady}
         onToggleCollapsed={() => setRailCollapsed((v) => !v)}
-        onSelect={(next) => {
-          // Settings is drawer-only: it has no page of its own, so selecting it
-          // opens the drawer over whatever page is showing.
-          if (next === 'settings') {
-            setSettingsOpen(true)
-            return
-          }
-          setSettingsOpen(false)
-          /*
-           * The rail and its list are one column, so the same icon shows and hides
-           * the list: clicking the section you are already on toggles it. Measured
-           * on whether the drawer is *showing*, not on whether the rail is
-           * nominally expanded — the drawer only exists on the Terminal page, so a
-           * collapsed flag alone would make the first click there do nothing.
-           */
-          const drawerShowing = !railCollapsed && page === 'terminal'
-          if (next === page) setRailCollapsed(drawerShowing)
-          else {
-            setPage(next)
-            setRailCollapsed(false)
-          }
-        }}
+        onSelect={selectPage}
         badges={{ terminal: sessions.length }}
         appInfo={appMeta}
         settingsOpen={settingsOpen}
@@ -2606,6 +2661,11 @@ export function App(): JSX.Element {
         */}
         {panelCount > 1 && !focusMode && (
           <div className="td-terminal-tools" data-testid="terminal-tools">
+            {/*
+              No count on the label: the button sits over the panes it talks about,
+              so "all 3" was telling the reader something the screen already said.
+              The number is still in the tooltip, which is where a detail belongs.
+            */}
             <button
               className={`td-broadcast${broadcasting ? ' is-on' : ''}`}
               title={
@@ -2619,9 +2679,6 @@ export function App(): JSX.Element {
             >
               <span aria-hidden="true">⇶</span>
               <span>{broadcasting ? 'Typing to all' : 'Broadcast'}</span>
-              <span className="td-broadcast-count" data-contrast-exempt>
-                {panelCount}
-              </span>
             </button>
           </div>
         )}

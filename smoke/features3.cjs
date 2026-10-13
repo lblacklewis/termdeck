@@ -208,6 +208,18 @@ async function main() {
       push('a broadcast button is present', toggle)
       push('broadcast starts off', toggle && toggle.getAttribute('aria-pressed') === 'false',
         toggle ? 'aria-pressed=' + toggle.getAttribute('aria-pressed') : 'no button')
+      /*
+       * The button carries no count any more: it sits over the panes it talks
+       * about, so "all 3" was repeating what the screen already showed. The number
+       * is still in the tooltip, which is where a detail like that belongs.
+       */
+      push('the broadcast button shows no pane count',
+        !!toggle && !document.querySelector('.td-broadcast-count') &&
+          !/[0-9]/.test(toggle.textContent || ''),
+        'label=' + JSON.stringify((toggle?.textContent || '').trim()) +
+          ' title=' + JSON.stringify(toggle?.getAttribute('title') || ''))
+      push('the count is still in the tooltip', /[0-9]+ panes/.test(toggle?.getAttribute('title') || ''),
+        toggle?.getAttribute('title') || 'no title')
 
       // With it OFF, typing in one pane must not reach the other.
       const soloMarker = 'SOLO_' + Date.now()

@@ -15,6 +15,7 @@ import type {
 import { DEFAULT_KEYBINDINGS, SIDEBAR_SECTION_LABELS } from '@shared/types'
 import { THEMES, findTheme } from '@shared/themes'
 import { formatEvent, isValidBinding, parseBinding } from './useShortcuts'
+import { PAGE_CYCLE, PAGE_LABELS, PAGE_ORDER } from './NavRail'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { applyTheme } from './useTheme'
 
@@ -323,6 +324,16 @@ export function SettingsDialog({
                 <p className="td-hint">
                   Click a shortcut and press the new combination (<kbd>Esc</kbd> cancels), or
                   right-click a row for more. Drag rows to change their order.
+                </p>
+                {/*
+                  The digit family is not a row: which number means which section is
+                  the rail's order, so it is shown here instead of being editable.
+                */}
+                <p className="td-hint" data-testid="page-shortcuts">
+                  <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>{PAGE_ORDER.length}</kbd> jumps straight to a rail
+                  entry ({PAGE_ORDER.map((id, i) => `${i + 1} ${PAGE_LABELS[id]}`).join(' · ')}).
+                  <kbd>Alt</kbd>+<kbd>[</kbd> and <kbd>Alt</kbd>+<kbd>]</kbd> step through the
+                  sections ({PAGE_CYCLE.map((id) => PAGE_LABELS[id]).join(' → ')}) and wrap around.
                 </p>
                 {[...conflicts.entries()].map(([keys, labels]) => (
                   <div key={keys} className="td-form-error">

@@ -8,6 +8,7 @@
 import { registerIpc, storeAccess } from './ipc'
 import { attachQuitConfirmation, registerQuitIpc, requestQuit, isQuitting } from './quit'
 import { attachFocusMode, registerFocusIpc, matchesBinding } from './focus'
+import { attachDevShortcuts, removeApplicationMenu } from './shortcuts'
 import { closeSftp, closeAllSftp } from './sftp'
 import { sessionManager } from './sessions/SessionManager'
 import { LocalShellBackend, isLocalShellAvailable } from './sessions/LocalShellBackend'
@@ -34,6 +35,8 @@ export {
   attachFocusMode,
   registerFocusIpc,
   matchesBinding,
+  attachDevShortcuts,
+  removeApplicationMenu,
   closeSftp,
   closeAllSftp,
   sessionManager,

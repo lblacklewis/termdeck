@@ -627,7 +627,15 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
    */
   { id: 'quitApp', label: 'Quit TermDeck', keys: 'Ctrl+Shift+Q', builtin: true },
   { id: 'toggleFocus', label: 'Focus mode (full screen)', keys: 'F11', builtin: true },
-  { id: 'lockApp', label: 'Lock TermDeck', keys: 'Ctrl+Alt+L', builtin: true }
+  { id: 'lockApp', label: 'Lock TermDeck', keys: 'Ctrl+Alt+L', builtin: true },
+  /*
+   * Page navigation. `Alt`+digit jumps straight to a rail section (1 = Terminal,
+   * and so on down the rail); these two walk the same list and wrap around, so
+   * there is no dead end at either edge. The digits are a family rather than one
+   * binding: which number means what is the rail's order, not a setting.
+   */
+  { id: 'prevPage', label: 'Previous section', keys: 'Alt+[', builtin: true },
+  { id: 'nextPage', label: 'Next section', keys: 'Alt+]', builtin: true }
 ]
 
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {

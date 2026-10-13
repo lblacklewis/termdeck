@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { registerIpc, loadSettingsForStartup } from './ipc'
 import { attachFocusMode, registerFocusIpc } from './focus'
 import { attachQuitConfirmation, registerQuitIpc } from './quit'
+import { attachDevShortcuts, removeApplicationMenu } from './shortcuts'
 import { sessionManager } from './sessions/SessionManager'
 import { defaultScaleForWidth, setScreenDefaultScale } from './store/Stores'
 
@@ -53,12 +54,14 @@ function createWindow(): BrowserWindow {
   })
 
   win.on('ready-to-show', () => win.show())
-
   // Closing the window asks the user first: every open pane is a live login.
   attachQuitConfirmation(win)
 
   // Focus mode: full screen on one key, with the app's own chrome out of the way.
   attachFocusMode(win)
+
+  // The two accelerators development still wants from the menu that is now gone.
+  attachDevShortcuts(win)
 
   /**
    * Start at the saved interface scale.
@@ -102,6 +105,16 @@ if (!gotLock) {
     registerIpc()
     registerQuitIpc()
     registerFocusIpc()
+
+    /*
+     * No application menu.
+     *
+     * The default one is invisible until Alt is pressed, and every Alt-based
+     * shortcut in the app would also reveal the menu bar — which shifts the whole
+     * layout down for as long as the modifier is held. The app has its own UI for
+     * everything the default menu offered.
+     */
+    removeApplicationMenu()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
