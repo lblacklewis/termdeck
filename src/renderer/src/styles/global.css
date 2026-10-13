@@ -247,7 +247,9 @@ kbd {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
+  margin-top: auto;
   padding-top: 8px;
   border-top: 1px solid var(--td-border);
   color: var(--td-text-faint);
@@ -3906,11 +3908,52 @@ html[data-theme-scheme='light'] .td-select {
  * settings. It scrolls as a whole so every section stays reachable however many
  * are showing.
  */
+/*
+ * The drawer is a fixed column with a scrolling middle: the sections scroll, the
+ * footer does not. With four sections open the icons used to be pushed past the
+ * bottom of the drawer and out of reach, which is the one row that has to be
+ * there whatever else is showing.
+ */
 .td-sidebar {
-  overflow-y: auto;
-  gap: 6px;
-  /* The width handle is positioned against the drawer's right edge. */
+  gap: 0;
   position: relative;
+}
+
+.td-sidebar-sections {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 6px;
+}
+
+/*
+ * Docked to the right.
+ *
+ * `order` rather than a second layout: the rail stays first, the workspace takes
+ * the middle, and the drawer moves past it. Nothing else about the drawer changes
+ * except which of its edges is the inner one.
+ */
+.td-sidebar.is-right {
+  order: 2;
+}
+
+.td-sidebar.is-right .td-sidebar-resize {
+  right: auto;
+  left: 0;
+}
+
+.td-sidebar.is-right .td-section-head {
+  /* The fold triangle should point into the content, not off-screen. */
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+.td-sidebar.is-right .td-section-actions {
+  margin-left: 0;
+  margin-right: auto;
 }
 
 /*
@@ -3931,6 +3974,74 @@ html[data-theme-scheme='light'] .td-select {
 
 .td-sidebar-resize:hover {
   background: color-mix(in srgb, var(--td-accent) 35%, transparent);
+}
+
+/*
+ * Drop hint while the drawer is being dragged to the other edge.
+ *
+ * Two lanes rather than a free drop: there are only two places it can be, and
+ * showing which one it would take is the whole feedback the gesture needs.
+ */
+.td-drawer-hint {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 50vw;
+  z-index: 30;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--td-accent) 12%, transparent);
+  border: 2px dashed color-mix(in srgb, var(--td-accent) 55%, transparent);
+}
+
+.td-drawer-hint.is-left {
+  left: 0;
+}
+
+.td-drawer-hint.is-right {
+  right: 0;
+}
+
+/* The grip that moves the whole drawer; idle until you reach for it. */
+.td-drawer-grip {
+  padding: 0 2px;
+  color: var(--td-text-faint);
+  cursor: grab;
+  opacity: 0.55;
+  user-select: none;
+}
+
+.td-drawer-grip:hover {
+  opacity: 1;
+}
+
+.td-drawer-grip:active {
+  cursor: grabbing;
+}
+
+/* ---- pomodoro chip ----------------------------------------------------- */
+
+.td-wellness-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 5px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--td-text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.td-wellness-chip:hover {
+  border-color: var(--td-border);
+  color: var(--td-text);
+}
+
+.td-wellness-chip.is-break {
+  color: var(--td-accent);
+  border-color: color-mix(in srgb, var(--td-accent) 45%, transparent);
 }
 
 .td-section {

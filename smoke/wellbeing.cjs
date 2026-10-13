@@ -341,6 +341,70 @@ async function main() {
       const finalUnlock = await waitFor(() => !lockEl(), 4000)
       push('and one click opens it again', finalUnlock)
 
+      // ---- 5. the pomodoro cycle ------------------------------------------
+      /*
+       * A one-minute round and a one-minute break, so the whole cycle can be
+       * watched. The work half is driven by *focused* time, so it is earned the
+       * same way the reminder is: by keeping the window in front while the
+       * terminals are busy.
+       */
+      step = 'pomodoro setup'
+      await openSettings('Wellbeing')
+      const pomodoroBtn = document.querySelector('[data-testid="break-mode-pomodoro"]')
+      push('the wellness timer can be switched to a pomodoro cycle', !!pomodoroBtn)
+      if (pomodoroBtn) pomodoroBtn.click()
+      await wait(300)
+      await setNumber('break-minutes', 1)
+      await setNumber('break-length', 1)
+      const savePomodoro = document.querySelector('[data-testid="settings-save"]')
+      if (savePomodoro) savePomodoro.click()
+      await wait(700)
+      const pomodoroSettings = await window.termdeck.loadSettings()
+      push('the cycle settings are saved',
+        pomodoroSettings.break.mode === 'pomodoro' &&
+          pomodoroSettings.break.minutes === 1 &&
+          pomodoroSettings.break.breakMinutes === 1,
+        JSON.stringify(pomodoroSettings.break))
+      await closeSettings()
+
+      step = 'pomodoro chip'
+      const chip = await waitFor(() => !!document.querySelector('[data-testid="wellness-chip"]'), 5000)
+      push('the drawer footer shows the cycle', chip,
+        document.querySelector('[data-testid="wellness-clock"]')?.textContent || 'none')
+      push('the chip starts on the work half',
+        document.querySelector('[data-testid="wellness-chip"]')?.getAttribute('data-phase') === 'work')
+
+      const roundSession = (await window.termdeck.listSessions())[0]?.id
+      for (let i = 0; i < 70; i++) {
+        window.termdeck.writeSession(roundSession, 'echo ROUND' + String.fromCharCode(13))
+        await wait(1000)
+      }
+
+      step = 'pomodoro break'
+      const breakBar = await waitFor(
+        () => document.querySelector('[data-testid="break-bar"]')?.getAttribute('data-kind') === 'break',
+        30000
+      )
+      push('the round ends at the first quiet moment after the mark', breakBar)
+      const countdown = document.querySelector('[data-testid="break-countdown"]')?.textContent || ''
+      push('the break counts down in the bar', /[0-9]:[0-9][0-9]/.test(countdown),
+        JSON.stringify(countdown.slice(0, 60)))
+      push('the chip switches to the break half',
+        document.querySelector('[data-testid="wellness-chip"]')?.getAttribute('data-phase') === 'break',
+        document.querySelector('[data-testid="wellness-clock"]')?.textContent || 'none')
+
+      const backToWork = document.querySelector('[data-testid="break-end"]')
+      push('a break can be cut short', !!backToWork)
+      if (backToWork) backToWork.click()
+      const barGone = await waitFor(() => !document.querySelector('[data-testid="break-bar"]'), 5000)
+      push('ending the break clears the bar', barGone)
+      const afterRound = await window.termdeck.loadSettings()
+      push('the finished round is recorded',
+        afterRound.breakStats.pomodoros === 1 && afterRound.breakStats.breaks >= 3,
+        JSON.stringify(afterRound.breakStats))
+      push('the chip is back on the work half',
+        document.querySelector('[data-testid="wellness-chip"]')?.getAttribute('data-phase') === 'work')
+
       return out
       } catch (err) {
         out.push({

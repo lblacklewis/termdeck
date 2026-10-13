@@ -103,7 +103,9 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
     snippets: sanitiseSnippets(stored.snippets),
     sidebar: {
       sections: mergeSidebarSections(stored.sidebar),
-      width: clampSidebarWidth((stored.sidebar as { width?: unknown } | undefined)?.width)
+      width: clampSidebarWidth((stored.sidebar as { width?: unknown } | undefined)?.width),
+      side:
+        (stored.sidebar as { side?: unknown } | undefined)?.side === 'right' ? 'right' : 'left'
     },
     break: mergeBreak(stored.break),
     breakStats: mergeBreakStats(stored.breakStats),
@@ -169,7 +171,12 @@ function mergeBreak(stored: unknown): BreakSettings {
   const input = (stored ?? {}) as Partial<BreakSettings>
   return {
     enabled: input.enabled === true,
+    mode: input.mode === 'pomodoro' ? 'pomodoro' : 'reminder',
     minutes: clampBreakMinutes(input.minutes ?? DEFAULT_BREAK_SETTINGS.minutes),
+    breakMinutes: Math.min(
+      60,
+      Math.max(1, Math.round(input.breakMinutes ?? DEFAULT_BREAK_SETTINGS.breakMinutes))
+    ),
     // Long enough that a command's output has stopped, short enough that the
     // nudge still belongs to the moment it was earned in.
     idleSeconds: Math.min(
@@ -190,6 +197,7 @@ function mergeBreakStats(stored: unknown): BreakStats {
   return {
     longestMinutes: Math.min(24 * 60, num(input.longestMinutes)),
     breaks: Math.min(100_000, num(input.breaks)),
+    pomodoros: Math.min(100_000, num(input.pomodoros)),
     lastBreakAt: num(input.lastBreakAt)
   }
 }

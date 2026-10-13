@@ -18,6 +18,7 @@ import {
   type SessionInfo,
   type SessionTree as Tree,
   type SidebarSectionId,
+  type SidebarSide,
   type Snippet,
   type SshConnectPayload,
   type TerminalPanelMeta
@@ -40,6 +41,7 @@ import { ConnectionsWindow } from './components/ConnectionsWindow'
 import { PasswordPrompt } from './components/PasswordPrompt'
 import { QuitConfirmDialog } from './components/QuitConfirmDialog'
 import { BreakBar } from './components/BreakBar'
+import { WellnessChip } from './components/WellnessChip'
 import { LockScreen } from './components/LockScreen'
 import { HistoryPanel, SectionFrame, SftpPanel } from './components/DrawerSections'
 import { SnippetBar } from './components/SnippetBar'
@@ -65,6 +67,17 @@ import { refitAll } from './components/terminalRegistry'
 import { useTheme } from './components/useTheme'
 
 const api = window.termdeck
+
+/**
+ * What the wellness bar is saying.
+ *
+ * `reminder` is the plain nudge; `break` and `work` are the two halves of a
+ * pomodoro round ("break is running", "break is over, back to it").
+ */
+interface BreakBarState {
+  kind: 'reminder' | 'break' | 'work'
+  minutes: number
+}
 
 /**
  * What dockview carries for a terminal panel. A pane restored from a saved
@@ -231,12 +244,20 @@ export function App(): JSX.Element {
   /** Non-null while the lock screen is up. */
   const [locked, setLocked] = useState(false)
   const [lockStatus, setLockStatus] = useState<LockStatus | null>(null)
-  /** Non-null while the break nudge is on screen; carries the minutes behind it. */
-  const [breakBar, setBreakBar] = useState<{ minutes: number } | null>(null)
+  /** Non-null while the wellness nudge is on screen. */
+  const [breakBar, setBreakBar] = useState<BreakBarState | null>(null)
+  /** Pomodoro phase, for the countdown chip in the drawer. */
+  const [wellness, setWellness] = useState<{ phase: 'work' | 'break'; endsAt: number }>({
+    phase: 'work',
+    endsAt: 0
+  })
   /** Seconds of *focused* use since the last reminder. */
   const focusedSecondsRef = useRef(0)
   const breakDueRef = useRef(false)
   const breakBarRef = useRef(false)
+  /** Pomodoro: which half of the cycle we are in, and when the break ends. */
+  const phaseRef = useRef<'work' | 'break'>('work')
+  const breakEndsAtRef = useRef(0)
   /** Last time any session produced output; the nudge waits for quiet. */
   const lastActivityRef = useRef(Date.now())
   /**
@@ -1200,10 +1221,44 @@ export function App(): JSX.Element {
     void api.clearHistory(historySessionId).then(forgetHistory)
   }, [forgetHistory, historySessionId])
 
-  // ---- break reminder -----------------------------------------------------
+  // ---- wellness timer: reminder and pomodoro ------------------------------
 
   /**
-   * Count *focused* seconds and nudge when they add up.
+   * Record a finished stretch of work.
+   *
+   * `longestMinutes` is the number that actually says something about a day, so
+   * it is what gets kept; `pomodoros` only moves in pomodoro mode.
+   */
+  const recordBreak = useCallback(
+    (workedMinutes: number) => {
+      const stats = settingsRef.current.breakStats
+      const pomodoro = settingsRef.current.break.mode === 'pomodoro'
+      void api
+        .saveSettings({
+          ...settingsRef.current,
+          breakStats: {
+            longestMinutes: Math.max(stats.longestMinutes, workedMinutes),
+            breaks: stats.breaks + 1,
+            pomodoros: stats.pomodoros + (pomodoro ? 1 : 0),
+            lastBreakAt: Date.now()
+          }
+        })
+        .then(setSettings)
+        .catch(() => {
+          /* losing the stat must not block the break */
+        })
+      log('info', `Break taken after ${workedMinutes} min of continuous work`)
+    },
+    [log]
+  )
+
+  /**
+   * One timer, two behaviours.
+   *
+   * `reminder` counts focused work and nudges once it has gone on long enough;
+   * `pomodoro` runs fixed rounds — work, then a break of its own length, then the
+   * next round. Both share the idle gate below, because interrupting a running
+   * command is the one thing a wellness timer must not do.
    *
    * Two gates, both deliberate:
    *
@@ -1213,35 +1268,70 @@ export function App(): JSX.Element {
    *    a banner on top of the command someone is in the middle of is worse than
    *    not reminding them at all. `lastActivityRef` is driven by session output,
    *    which covers both a running command and the echo of typing.
+   *
+   * A pomodoro break, once it has started, counts in wall-clock time: the whole
+   * point is that you are away from the keyboard, so requiring focus would stop
+   * the clock exactly when you are doing the right thing.
    */
   useEffect(() => {
-    const { enabled, minutes, idleSeconds } = settings.break
+    const { enabled, mode, minutes, breakMinutes, idleSeconds } = settings.break
     if (!enabled) {
       focusedSecondsRef.current = 0
       breakDueRef.current = false
       breakBarRef.current = false
+      phaseRef.current = 'work'
       setBreakBar(null)
+      setWellness({ phase: 'work', endsAt: 0 })
       return
     }
-    const timer = window.setInterval(() => {
-      if (!document.hasFocus()) return
-      const worked = focusedSecondsRef.current
 
-      if (!breakDueRef.current) {
-        focusedSecondsRef.current = worked + 1
-        if (focusedSecondsRef.current >= minutes * 60) breakDueRef.current = true
+    const timer = window.setInterval(() => {
+      // ---- pomodoro ------------------------------------------------------
+      if (mode === 'pomodoro') {
+        if (phaseRef.current === 'break') {
+          const left = Math.max(0, (breakEndsAtRef.current - Date.now()) / 1000)
+          if (left > 0) return
+          // Break over: record it and start the next round.
+          recordBreak(Math.max(1, Math.round(settingsRef.current.break.minutes)))
+          phaseRef.current = 'work'
+          focusedSecondsRef.current = 0
+          breakDueRef.current = false
+          setWellness({ phase: 'work', endsAt: 0 })
+          breakBarRef.current = true
+          setBreakBar({ kind: 'work', minutes: settingsRef.current.break.minutes })
+          return
+        }
+
+        if (document.hasFocus()) focusedSecondsRef.current += 1
+        if (focusedSecondsRef.current < minutes * 60) return
+
+        // The round is done; wait for the terminals to go quiet before saying so,
+        // and the break starts when it appears.
+        if (breakBarRef.current) return
+        if (Date.now() - lastActivityRef.current < idleSeconds * 1000) return
+        breakEndsAtRef.current = Date.now() + breakMinutes * 60 * 1000
+        phaseRef.current = 'break'
+        breakBarRef.current = true
+        setWellness({ phase: 'break', endsAt: breakEndsAtRef.current })
+        setBreakBar({ kind: 'break', minutes: breakMinutes })
         return
       }
 
+      // ---- reminder ------------------------------------------------------
+      if (!document.hasFocus()) return
+      if (!breakDueRef.current) {
+        focusedSecondsRef.current += 1
+        if (focusedSecondsRef.current >= minutes * 60) breakDueRef.current = true
+        return
+      }
       if (breakBarRef.current) return
-      const quiet = Date.now() - lastActivityRef.current
-      if (quiet >= idleSeconds * 1000) {
+      if (Date.now() - lastActivityRef.current >= idleSeconds * 1000) {
         breakBarRef.current = true
-        setBreakBar({ minutes: Math.round(focusedSecondsRef.current / 60) })
+        setBreakBar({ kind: 'reminder', minutes: Math.round(focusedSecondsRef.current / 60) })
       }
     }, 1000)
     return () => window.clearInterval(timer)
-  }, [settings.break])
+  }, [recordBreak, settings.break])
 
   /** Sessions' output, as the signal for "the terminals are busy". */
   useEffect(() => api.onSessionData(() => (lastActivityRef.current = Date.now())), [])
@@ -1252,53 +1342,61 @@ export function App(): JSX.Element {
    * `kind: 'lock'` covers the screen as well, which is the only version of this
    * that actually gets someone to stand up.
    */
-  const takeBreak = useCallback((kind: 'break' | 'lock') => {
-    const workedMinutes = Math.max(1, Math.round(focusedSecondsRef.current / 60))
-    const stats = settingsRef.current.breakStats
-    void api
-      .saveSettings({
-        ...settingsRef.current,
-        breakStats: {
-          longestMinutes: Math.max(stats.longestMinutes, workedMinutes),
-          breaks: stats.breaks + 1,
-          lastBreakAt: Date.now()
-        }
-      })
-      .then(setSettings)
-      .catch(() => {
-        /* losing the stat must not block the break */
-      })
+  const takeBreak = useCallback(
+    (kind: 'break' | 'lock') => {
+      const workedMinutes = Math.max(1, Math.round(focusedSecondsRef.current / 60))
+      recordBreak(workedMinutes)
 
-    focusedSecondsRef.current = 0
+      focusedSecondsRef.current = 0
+      breakDueRef.current = false
+      breakBarRef.current = false
+      // In pomodoro mode "break taken" also ends the break: the next round starts
+      // now rather than waiting out a timer nobody is watching.
+      phaseRef.current = 'work'
+      setWellness({ phase: 'work', endsAt: 0 })
+      setBreakBar(null)
+      if (kind === 'lock') setLocked(true)
+      else setToast(`Break recorded — ${workedMinutes} min. The timer starts again from now.`)
+    },
+    [recordBreak]
+  )
+
+  const snoozeBreak = useCallback((snoozeMinutes: number) => {
+    // "Later" means later, not a full second interval: the countdown resumes
+    // `snoozeMinutes` short of the threshold.
+    focusedSecondsRef.current = Math.max(
+      0,
+      settingsRef.current.break.minutes * 60 - snoozeMinutes * 60
+    )
     breakDueRef.current = false
     breakBarRef.current = false
     setBreakBar(null)
-    log('info', `Break taken after ${workedMinutes} min of continuous work`)
-    if (kind === 'lock') setLocked(true)
-    else setToast(`Break recorded — ${workedMinutes} min. The timer starts again from now.`)
-  }, [log])
-
-  const snoozeBreak = useCallback(
-    (snoozeMinutes: number) => {
-      // "Later" means later, not a full second interval: the countdown resumes
-      // `snoozeMinutes` short of the threshold.
-      focusedSecondsRef.current = Math.max(
-        0,
-        settingsRef.current.break.minutes * 60 - snoozeMinutes * 60
-      )
-      breakDueRef.current = false
-      breakBarRef.current = false
-      setBreakBar(null)
-      setToast(`Reminder snoozed for ${snoozeMinutes} minutes.`)
-    },
-    []
-  )
+    setToast(`Reminder snoozed for ${snoozeMinutes} minutes.`)
+  }, [])
 
   /** Hide the nudge without pretending a break was taken. */
   const dismissBreak = useCallback(() => {
     breakBarRef.current = false
     setBreakBar(null)
   }, [])
+
+  /**
+   * Give up on a pomodoro break and start the next round now.
+   *
+   * The work round behind it is still recorded: it happened, and losing it
+   * because the break was cut short would make the counter lie.
+   */
+  const endPomodoroBreak = useCallback(() => {
+    if (phaseRef.current === 'break') {
+      recordBreak(Math.max(1, Math.round(settingsRef.current.break.minutes)))
+    }
+    phaseRef.current = 'work'
+    focusedSecondsRef.current = 0
+    breakDueRef.current = false
+    breakBarRef.current = false
+    setWellness({ phase: 'work', endsAt: 0 })
+    setBreakBar(null)
+  }, [recordBreak])
 
   // ---- drawer sections ----------------------------------------------------
 
@@ -1360,21 +1458,26 @@ export function App(): JSX.Element {
   )
 
   /**
-   * Drag the drawer's right edge.
+   * Drag the drawer's inner edge.
    *
    * The width is held locally during the gesture and saved on release: a settings
    * save writes the file and broadcasts to every window, which is not something
-   * to do on every pointer move.
+   * to do on every pointer move. A drawer docked to the right grows the other way,
+   * so the delta is inverted for it.
    */
   const startDrawerResize = useCallback(
     (event: React.PointerEvent<HTMLDivElement>) => {
       event.preventDefault()
       const startX = event.clientX
       const startWidth = drawerWidth
+      const direction = settingsRef.current.sidebar.side === 'right' ? -1 : 1
       let last = startWidth
 
       const move = (e: PointerEvent): void => {
-        last = Math.min(560, Math.max(200, Math.round(startWidth + e.clientX - startX)))
+        last = Math.min(
+          560,
+          Math.max(200, Math.round(startWidth + (e.clientX - startX) * direction))
+        )
         setLiveDrawerWidth(last)
       }
       const up = (): void => {
@@ -1389,6 +1492,31 @@ export function App(): JSX.Element {
     },
     [drawerWidth, saveSidebar]
   )
+
+  /**
+   * Move the whole drawer to the other edge of the window.
+   *
+   * Dragged by its grip in the footer and dropped on one of the two lanes: the
+   * rail column means the left edge, the workspace means the right. Dropping
+   * "somewhere in the middle" is not a question worth asking — whichever half of
+   * the window the pointer is over is the answer.
+   */
+  const dockDrawer = useCallback(
+    (clientX: number) => {
+      const side: SidebarSide = clientX > window.innerWidth / 2 ? 'right' : 'left'
+      if (settingsRef.current.sidebar.side === side) {
+        setToast(`The drawer is already docked on the ${side}.`)
+        return
+      }
+      saveSidebar({ side })
+      setToast(`Drawer moved to the ${side}.`)
+    },
+    [saveSidebar]
+  )
+
+  const [drawerDropHint, setDrawerDropHint] = useState<SidebarSide | null>(null)
+  /** True while the drawer's grip is being dragged to the other edge. */
+  const [draggingDrawer, setDraggingDrawer] = useState(false)
 
   const sectionMenuItems = useMemo((): MenuItem[] => {
     if (!sectionMenu) return []
@@ -2136,7 +2264,7 @@ export function App(): JSX.Element {
       */}
       {!railCollapsed && page === 'terminal' && (
         <aside
-          className="td-sidebar"
+          className={'td-sidebar' + (settings.sidebar.side === 'right' ? ' is-right' : '')}
           /*
            * `sidebar`, not `drawer`: the Drawer component (quick connect, editors,
            * settings) is `data-testid="drawer"`, and two elements answering to the
@@ -2144,23 +2272,45 @@ export function App(): JSX.Element {
            * matched first and the dialog was reported missing.
            */
           data-testid="sidebar"
+          data-side={settings.sidebar.side}
           style={{ width: drawerWidth, flexBasis: drawerWidth }}
+          // The footer's grip can be dropped anywhere over the window: which half
+          // decides the edge it docks to.
+          onDragOver={(e) => {
+            if (!draggingDrawer) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            setDrawerDropHint(e.clientX > window.innerWidth / 2 ? 'right' : 'left')
+          }}
+          onDrop={(e) => {
+            if (!draggingDrawer) return
+            e.preventDefault()
+            dockDrawer(e.clientX)
+            setDraggingDrawer(false)
+            setDrawerDropHint(null)
+          }}
         >
           {/*
-            The sections are the user's: drag a heading to reorder, fold it with
-            the triangle, drag its bottom edge to size it, right-click it to hide
-            it or bring a hidden one back. `settings.sidebar.sections` keeps the
-            order *including* hidden ones, so hiding a section never loses where
-            the user had put it.
-
-            The Connect / Local shell row that used to sit here is gone: it took
-            the first thing you saw in the drawer to offer two actions that live
-            in the footer icons now.
+            The sections scroll; the footer below them does not. That is the point
+            of the wrapper: with four sections open the icons used to be pushed
+            past the bottom of the drawer and out of reach.
           */}
-          {visibleSections.map((section) => (
-            <SectionFrame
-              key={section.id}
-              id={section.id}
+          <div className="td-sidebar-sections">
+            {/*
+              The sections are the user's: drag a heading to reorder, fold it with
+              the triangle, drag its bottom edge to size it, right-click it to hide
+              it or bring a hidden one back. `settings.sidebar.sections` keeps the
+              order *including* hidden ones, so hiding a section never loses where
+              the user had put it.
+
+              The Connect / Local shell row that used to sit here is gone: it took
+              the first thing you saw in the drawer to offer two actions that live
+              in the footer icons now.
+            */}
+            {visibleSections.map((section) => (
+              <SectionFrame
+                key={section.id}
+                id={section.id}
               title={SIDEBAR_SECTION_LABELS[section.id]}
               testId={`section-${section.id}`}
               collapsed={section.collapsed === true}
@@ -2299,11 +2449,12 @@ export function App(): JSX.Element {
               )}
             </SectionFrame>
           ))}
+          </div>
 
           {/*
-            The drawer's own actions. They used to be a full-width row above the
-            sections, which put two buttons in the most valuable place on the page;
-            as icons beside the others they are still one click away.
+            The drawer's own actions, pinned to the bottom of the drawer rather
+            than scrolling away with the sections. The grip is how the whole drawer
+            is moved to the other edge of the window.
           */}
           <div className="td-sidebar-footer">
             <button
@@ -2357,16 +2508,68 @@ export function App(): JSX.Element {
             >
               ⚙
             </button>
+
+            {/*
+              The pomodoro chip lives here because this is where your eye already
+              is: it shows which half of the cycle is running and how long is left,
+              and it is the only place the cycle is visible without the bar.
+            */}
+            {settings.break.enabled && settings.break.mode === 'pomodoro' && (
+              <WellnessChip
+                phase={wellness.phase}
+                endsAt={wellness.endsAt}
+                round={settings.break.minutes}
+                title="Pomodoro — click for the settings"
+                onClick={() => setSettingsOpen(true)}
+              />
+            )}
+
+            {/*
+              The grip: drag it onto the other half of the window and the whole
+              drawer moves to that edge.
+            */}
+            <span
+              className="td-drawer-grip"
+              data-testid="drawer-grip"
+              draggable
+              title="Drag to the other edge to move the whole drawer"
+              onDragStart={(e) => {
+                e.dataTransfer.effectAllowed = 'move'
+                e.dataTransfer.setData('text/plain', 'drawer')
+                setDraggingDrawer(true)
+              }}
+              onDragEnd={() => {
+                setDraggingDrawer(false)
+                setDrawerDropHint(null)
+              }}
+              onDoubleClick={() =>
+                dockDrawer(settings.sidebar.side === 'left' ? window.innerWidth : 0)
+              }
+            >
+              ⠿
+            </span>
             <span>{platformLabel}</span>
           </div>
 
-          {/* Drag the right edge to set the drawer's width. */}
+          {/* Drag the inner edge to set the drawer's width. */}
           <div
             className="td-sidebar-resize"
             data-testid="drawer-resize"
             title="Drag to resize the drawer"
             onPointerDown={startDrawerResize}
           />
+
+          {/*
+            Which edge the drawer would land on, while the grip is being dragged.
+            Two lanes rather than a free-floating drop: there are only two places
+            the drawer can be.
+          */}
+          {draggingDrawer && (
+            <div
+              className={`td-drawer-hint is-${drawerDropHint ?? settings.sidebar.side}`}
+              aria-hidden="true"
+            />
+          )}
         </aside>
       )}
 
@@ -2384,11 +2587,14 @@ export function App(): JSX.Element {
         */}
         {breakBar && (
           <BreakBar
+            kind={breakBar.kind}
             minutes={breakBar.minutes}
+            endsAt={wellness.phase === 'break' ? wellness.endsAt : 0}
             snoozeMinutes={settings.break.snoozeMinutes}
             onTakeBreak={() => takeBreak('break')}
             onTakeBreakAndLock={() => takeBreak('lock')}
             onSnooze={snoozeBreak}
+            onEndBreak={endPomodoroBreak}
             onDismiss={dismissBreak}
           />
         )}
@@ -2574,7 +2780,7 @@ export function App(): JSX.Element {
             setSettingsOpen(false)
             breakDueRef.current = true
             breakBarRef.current = true
-            setBreakBar({ minutes: settings.break.minutes })
+            setBreakBar({ kind: 'reminder', minutes: settings.break.minutes })
           }}
         />
       </Drawer>

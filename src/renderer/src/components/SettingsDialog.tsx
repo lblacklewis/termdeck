@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
   AppSettings,
+  BreakMode,
   BreakSettings,
   BreakStats,
   ClipboardSettings,
@@ -896,8 +897,29 @@ export function WellbeingTab({
         </span>
       </label>
 
+      <div className="td-field-row" data-testid="break-mode">
+        {(
+          [
+            ['reminder', 'Nudge me'],
+            ['pomodoro', 'Pomodoro cycle']
+          ] as Array<[BreakMode, string]>
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            className={`td-btn td-field-grow${breakSettings.mode === id ? ' td-btn-primary' : ''}`}
+            data-testid={`break-mode-${id}`}
+            aria-pressed={breakSettings.mode === id}
+            onClick={() => onBreak({ mode: id })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <label className="td-field">
-        <span>Minutes between reminders</span>
+        <span>
+          {breakSettings.mode === 'pomodoro' ? 'Minutes per work round' : 'Minutes between reminders'}
+        </span>
         <div className="td-field-row">
           <input
             className="td-field-grow"
@@ -913,6 +935,20 @@ export function WellbeingTab({
           </button>
         </div>
       </label>
+
+      {breakSettings.mode === 'pomodoro' && (
+        <label className="td-field">
+          <span>Minutes per break</span>
+          <input
+            type="number"
+            min={1}
+            max={60}
+            aria-label="break-length"
+            value={breakSettings.breakMinutes}
+            onChange={(e) => onBreak({ breakMinutes: Number(e.target.value) })}
+          />
+        </label>
+      )}
 
       <div className="td-field-row">
         <label className="td-field td-field-grow">
@@ -943,13 +979,15 @@ export function WellbeingTab({
         Counted only while this window is focused, and the nudge waits for {breakSettings.idleSeconds}
         s of silence in every session so it never lands in the middle of a command. It appears as a
         bar above the panes — take the break, cover the screen with the lock, or put it off.
+        {breakSettings.mode === 'pomodoro' &&
+          ' A pomodoro break counts down in wall-clock time, because you are supposed to be away; the countdown sits in the drawer footer.'}
       </p>
       <p className="td-hint" data-testid="break-stats">
         {breakStats.breaks === 0
           ? 'No breaks recorded yet.'
           : `Longest stretch ${breakStats.longestMinutes} min · ${breakStats.breaks} break${
               breakStats.breaks === 1 ? '' : 's'
-            } recorded.`}
+            }${breakStats.pomodoros > 0 ? ` · ${breakStats.pomodoros} pomodoro rounds` : ''}.`}
       </p>
 
       <h3 className="td-settings-heading">Drawer sections</h3>

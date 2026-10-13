@@ -406,13 +406,27 @@ export const SIDEBAR_SECTION_LABELS: Record<SidebarSectionId, string> = {
 export interface SidebarSettings {
   /** Top-to-bottom order of the drawer, including the sections that are hidden. */
   sections: SidebarSectionState[]
-  /** Drawer width in px, dragged from its right edge. */
+  /** Drawer width in px, dragged from its inner edge. */
   width: number
+  /** Which side of the window the drawer is docked to. */
+  side: SidebarSide
 }
 
+export type SidebarSide = 'left' | 'right'
+
 export const DEFAULT_SIDEBAR_WIDTH = 268
+export const DEFAULT_SIDEBAR_SIDE: SidebarSide = 'left'
 
 // ---- break reminder ------------------------------------------------------
+
+/**
+ * How the wellness timer behaves.
+ *
+ * `reminder` nudges once the work has gone on long enough; `pomodoro` runs
+ * fixed rounds and tells you when to stop and when to start again. Both share
+ * the same idle gate and the same recorded statistics.
+ */
+export type BreakMode = 'reminder' | 'pomodoro'
 
 /**
  * A nudge to get up, after this much *focused* use.
@@ -423,16 +437,22 @@ export const DEFAULT_SIDEBAR_WIDTH = 268
  */
 export interface BreakSettings {
   enabled: boolean
+  mode: BreakMode
+  /** Reminder interval, or the length of one pomodoro work round. */
   minutes: number
+  /** Length of a pomodoro break. */
+  breakMinutes: number
   /** How long every session must be silent before the nudge appears. */
   idleSeconds: number
-  /** How long "later" means. */
+  /** How long "later" means (reminder mode). */
   snoozeMinutes: number
 }
 
 export const DEFAULT_BREAK_SETTINGS: BreakSettings = {
   enabled: false,
+  mode: 'reminder',
   minutes: 45,
+  breakMinutes: 5,
   idleSeconds: 5,
   snoozeMinutes: 10
 }
@@ -449,13 +469,16 @@ export interface BreakStats {
   longestMinutes: number
   /** How many breaks have been taken. */
   breaks: number
-  /** Epoch ms of the last one, 0 when there has never been one. */
+  /** Completed pomodoro work rounds. */
+  pomodoros: number
+  /** Epoch ms of the last break, 0 when there has never been one. */
   lastBreakAt: number
 }
 
 export const DEFAULT_BREAK_STATS: BreakStats = {
   longestMinutes: 0,
   breaks: 0,
+  pomodoros: 0,
   lastBreakAt: 0
 }
 
@@ -638,7 +661,11 @@ export const DEFAULT_SETTINGS: AppSettings = {
   keybindings: DEFAULT_KEYBINDINGS,
   hostKeys: { policy: 'ask' },
   snippets: [],
-  sidebar: { sections: DEFAULT_SIDEBAR_SECTIONS, width: DEFAULT_SIDEBAR_WIDTH },
+  sidebar: {
+    sections: DEFAULT_SIDEBAR_SECTIONS,
+    width: DEFAULT_SIDEBAR_WIDTH,
+    side: DEFAULT_SIDEBAR_SIDE
+  },
   break: DEFAULT_BREAK_SETTINGS,
   breakStats: DEFAULT_BREAK_STATS,
   theme: 'termius-dark',

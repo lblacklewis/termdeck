@@ -265,7 +265,108 @@ async function main() {
           'width=' + savedWidth.sidebar.width)
       }
 
-      // ---- 7. command history, one file per session ------------------------
+      // ---- 7. the footer stays put ----------------------------------------
+      step = 'pinned footer'
+      const scroller = document.querySelector('.td-sidebar-sections')
+      const footer = document.querySelector('.td-sidebar-footer')
+      push('the sections scroll in their own container, above the footer',
+        !!scroller && !!footer,
+        'scroller=' + !!scroller + ' footer=' + !!footer)
+      // Make the sections overflow on purpose: four of them at 400px cannot fit.
+      const bulge = await window.termdeck.loadSettings()
+      await window.termdeck.saveSettings({
+        ...bulge,
+        sidebar: {
+          ...bulge.sidebar,
+          sections: bulge.sidebar.sections.map((s) => ({ ...s, height: 400 }))
+        }
+      })
+      await wait(900)
+      const overflow = scroller ? scroller.scrollHeight - scroller.clientHeight : 0
+      const footerBox = footer?.getBoundingClientRect()
+      const drawerBox = drawerEl()?.getBoundingClientRect()
+      const bodyHeights = [...document.querySelectorAll('.td-section-body')]
+        .map((b) => Math.round(b.getBoundingClientRect().height)).join(',')
+      push('the sections really do overflow', overflow > 100,
+        'overflow=' + overflow + 'px scroller=' +
+          (scroller ? scroller.clientHeight + '/' + scroller.scrollHeight : 'none') +
+          ' bodies=[' + bodyHeights + ']')
+      push('the footer is still inside the drawer, at its bottom',
+        !!footerBox && !!drawerBox && footerBox.bottom <= drawerBox.bottom + 1 &&
+          footerBox.top >= drawerBox.top + drawerBox.height / 2,
+        footerBox && drawerBox
+          ? 'footer=' + Math.round(footerBox.top) + '-' + Math.round(footerBox.bottom) +
+            ' drawer=' + Math.round(drawerBox.top) + '-' + Math.round(drawerBox.bottom)
+          : 'missing')
+
+      // Put the heights back to auto so the rest of the suite sees a normal drawer.
+      await window.termdeck.saveSettings({
+        ...bulge,
+        sidebar: {
+          ...bulge.sidebar,
+          sections: bulge.sidebar.sections.map((s) => ({ ...s, height: undefined }))
+        }
+      })
+      await wait(700)
+
+      // ---- 8. docking the drawer on the other edge ------------------------
+      step = 'dock right'
+      const grip = document.querySelector('[data-testid="drawer-grip"]')
+      push('the drawer has a grip to move it', !!grip)
+      const contentBefore = document.querySelector('.td-content')?.getBoundingClientRect()
+      const drawerBefore = drawerEl()?.getBoundingClientRect()
+      push('it starts on the left of the workspace',
+        !!contentBefore && !!drawerBefore && drawerBefore.left < contentBefore.left,
+        drawerBefore && contentBefore
+          ? 'drawer.left=' + Math.round(drawerBefore.left) +
+            ' content.left=' + Math.round(contentBefore.left)
+          : 'missing')
+
+      if (grip) {
+        const dt = new DataTransfer()
+        const fire = (el, type, x) => {
+          const ev = new DragEvent(type, {
+            bubbles: true, cancelable: true, composed: true, dataTransfer: dt, clientX: x
+          })
+          el.dispatchEvent(ev)
+          return ev.defaultPrevented
+        }
+        // Drop it over the workspace, i.e. the right half of the window.
+        const targetX = Math.round(window.innerWidth * 0.75)
+        const target = drawerEl()
+        fire(grip, 'dragstart', 40)
+        await wait(200)
+        const accepted = fire(target, 'dragover', targetX)
+        await wait(200)
+        fire(target, 'drop', targetX)
+        await wait(1200)
+
+        const savedSide = (await window.termdeck.loadSettings()).sidebar.side
+        push('dropping it on the workspace docks it to the right', savedSide === 'right',
+          'side=' + savedSide + ' dragoverAccepted=' + accepted)
+        const drawerAfter = drawerEl()
+        const contentAfter = document.querySelector('.td-content')?.getBoundingClientRect()
+        const drawerBoxAfter = drawerAfter?.getBoundingClientRect()
+        push('the drawer really is on the right of the workspace',
+          drawerAfter?.classList.contains('is-right') && !!contentAfter && !!drawerBoxAfter &&
+            drawerBoxAfter.left >= contentAfter.right - 1,
+          drawerBoxAfter && contentAfter
+            ? 'drawer.left=' + Math.round(drawerBoxAfter.left) +
+              ' content.right=' + Math.round(contentAfter.right)
+            : 'missing')
+
+        // And back again, so the rest of the suite finds it where it expects.
+        const gripAgain = document.querySelector('[data-testid="drawer-grip"]')
+        if (gripAgain) {
+          gripAgain.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
+          await wait(1200)
+        }
+        const backSide = (await window.termdeck.loadSettings()).sidebar.side
+        push('double-clicking the grip brings it back to the left', backSide === 'left',
+          'side=' + backSide)
+      }
+
+      // ---- 9. command history, one file per session ------------------------
       step = 'history'
       const shellBtn = document.querySelector('[data-testid="local-shell"]')
       push('the drawer offers a local shell', !!shellBtn)
