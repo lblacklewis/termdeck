@@ -78,6 +78,30 @@ export function useTerminal(
     const root = container.querySelector<HTMLElement>('.xterm')
     if (root) root.dataset.terminalId = sessionId
 
+    /*
+     * Leave the session shortcuts alone.
+     *
+     * xterm claims keys before the window sees them and, for a key it handles,
+     * calls `stopPropagation` — so `Alt`+digit and `Alt`+`[` / `Alt`+`]` never
+     * reached the app's own listener, and the app's own listener is the only thing
+     * that knows what they mean here.
+     *
+     * Worse than doing nothing: xterm reads them as "Alt plus a character" and
+     * sends an escape sequence to the shell. `Alt`+`]` sends a bare `ESC ]`, which
+     * opens an OSC string in the shell's line editor and leaves it waiting — every
+     * keystroke after it disappears into the sequence until a terminator arrives.
+     *
+     * Returning false here means xterm neither sends anything nor stops the event.
+     */
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.altKey && !event.ctrlKey && !event.metaKey) {
+        const isSessionChord =
+          event.key === '[' || event.key === ']' || /^[1-9]$/.test(event.key)
+        if (isSessionChord) return false
+      }
+      return true
+    })
+
     let disposed = false
     let rafId = 0
     let lastCols = 0

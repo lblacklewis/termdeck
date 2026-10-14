@@ -311,10 +311,64 @@ async function main() {
 
       // ---- 8. docking the drawer on the other edge ------------------------
       step = 'dock right'
+      // The drawer element itself is already defined above; this is the rest of
+      // the geometry the docking checks need.
+      const contentEl = () => document.querySelector('.td-content')
+      const boxOf = (el) => (el ? el.getBoundingClientRect() : null)
+      const savedSide = async () => (await window.termdeck.loadSettings()).sidebar.side
+
+      /*
+       * A drag is a path through coordinates, so every event goes to whatever is
+       * under the pointer — never to the element the probe privately hopes will
+       * receive it.
+       *
+       * Dispatching the drop straight at the drawer is what made the first version
+       * of this check pass while the real gesture could never work: the pointer
+       * during a real drag is out over the workspace, which is not inside the
+       * 268px drawer, so the drawer's own drop listener never fired at all.
+       */
+      const dragTo = async (handle, x, y) => {
+        const dt = new DataTransfer()
+        const at = (type) => {
+          const el = document.elementFromPoint(x, y) || document.body
+          const ev = new DragEvent(type, {
+            bubbles: true, cancelable: true, composed: true, dataTransfer: dt,
+            clientX: x, clientY: y
+          })
+          el.dispatchEvent(ev)
+          return { el, accepted: ev.defaultPrevented }
+        }
+        const from = handle.getBoundingClientRect()
+        handle.dispatchEvent(new DragEvent('dragstart', {
+          bubbles: true, cancelable: true, composed: true, dataTransfer: dt,
+          clientX: Math.round(from.x + from.width / 2),
+          clientY: Math.round(from.y + from.height / 2)
+        }))
+        await wait(250)
+        const over = at('dragover')
+        await wait(150)
+        const dropped = at('drop')
+        handle.dispatchEvent(new DragEvent('dragend', {
+          bubbles: true, cancelable: true, composed: true, dataTransfer: dt
+        }))
+        await wait(1100)
+        return {
+          over,
+          accepted: over.accepted && dropped.accepted,
+          landedOn: over.el.className || over.el.tagName,
+          // The gesture only proves anything if the pointer was outside the
+          // drawer: that is the part the old check silently skipped.
+          outsideDrawer: !over.el.closest('.td-sidebar')
+        }
+      }
+      const halfX = (side) =>
+        Math.round(window.innerWidth * (side === 'right' ? 0.75 : 0.25))
+      const halfY = Math.round(window.innerHeight / 2)
+
       const grip = document.querySelector('[data-testid="drawer-grip"]')
       push('the drawer has a grip to move it', !!grip)
-      const contentBefore = document.querySelector('.td-content')?.getBoundingClientRect()
-      const drawerBefore = drawerEl()?.getBoundingClientRect()
+      const contentBefore = boxOf(contentEl())
+      const drawerBefore = boxOf(drawerEl())
       push('it starts on the left of the workspace',
         !!contentBefore && !!drawerBefore && drawerBefore.left < contentBefore.left,
         drawerBefore && contentBefore
@@ -323,48 +377,98 @@ async function main() {
           : 'missing')
 
       if (grip) {
-        const dt = new DataTransfer()
-        const fire = (el, type, x) => {
-          const ev = new DragEvent(type, {
-            bubbles: true, cancelable: true, composed: true, dataTransfer: dt, clientX: x
-          })
-          el.dispatchEvent(ev)
-          return ev.defaultPrevented
-        }
-        // Drop it over the workspace, i.e. the right half of the window.
-        const targetX = Math.round(window.innerWidth * 0.75)
-        const target = drawerEl()
-        fire(grip, 'dragstart', 40)
-        await wait(200)
-        const accepted = fire(target, 'dragover', targetX)
-        await wait(200)
-        fire(target, 'drop', targetX)
-        await wait(1200)
-
-        const savedSide = (await window.termdeck.loadSettings()).sidebar.side
-        push('dropping it on the workspace docks it to the right', savedSide === 'right',
-          'side=' + savedSide + ' dragoverAccepted=' + accepted)
-        const drawerAfter = drawerEl()
-        const contentAfter = document.querySelector('.td-content')?.getBoundingClientRect()
-        const drawerBoxAfter = drawerAfter?.getBoundingClientRect()
+        const dragRight = await dragTo(grip, halfX('right'), halfY)
+        push('the drop really lands outside the drawer, over the workspace',
+          dragRight.outsideDrawer, 'landed on ' + dragRight.landedOn)
+        push('dropping the grip on the workspace docks the drawer right',
+          (await savedSide()) === 'right',
+          'side=' + (await savedSide()) + ' accepted=' + dragRight.accepted +
+            ' landedOn=' + dragRight.landedOn)
+        const drawerBoxAfter = boxOf(drawerEl())
+        const contentAfter = boxOf(contentEl())
         push('the drawer really is on the right of the workspace',
-          drawerAfter?.classList.contains('is-right') && !!contentAfter && !!drawerBoxAfter &&
+          !!drawerEl()?.classList.contains('is-right') && !!contentAfter && !!drawerBoxAfter &&
             drawerBoxAfter.left >= contentAfter.right - 1,
           drawerBoxAfter && contentAfter
             ? 'drawer.left=' + Math.round(drawerBoxAfter.left) +
               ' content.right=' + Math.round(contentAfter.right)
             : 'missing')
-
-        // And back again, so the rest of the suite finds it where it expects.
-        const gripAgain = document.querySelector('[data-testid="drawer-grip"]')
-        if (gripAgain) {
-          gripAgain.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
-          await wait(1200)
-        }
-        const backSide = (await window.termdeck.loadSettings()).sidebar.side
-        push('double-clicking the grip brings it back to the left', backSide === 'left',
-          'side=' + backSide)
       }
+
+      // ---- 8b. a section heading docks it too -----------------------------
+      /*
+       * This is the gesture the report was about: dragging a section such as Open
+       * sessions to the far side of the window. It has to move the *drawer* —
+       * sections cannot live on their own over there — and it must not be
+       * mistaken for a reorder.
+       */
+      step = 'dock by section'
+      const heading = headOf('openSessions')
+      push('the section heading is still a drag handle', !!heading)
+      if (heading) {
+        const orderBefore = sections().join(',')
+        const dragLeft = await dragTo(heading, halfX('left'), halfY)
+        push('dragging a section to the other half lands outside the drawer',
+          dragLeft.outsideDrawer, 'landed on ' + dragLeft.landedOn)
+        push('dragging a section to the other half docks the drawer there',
+          (await savedSide()) === 'left',
+          'side=' + (await savedSide()) + ' accepted=' + dragLeft.accepted)
+        push('and it is not read as a reorder', sections().join(',') === orderBefore,
+          orderBefore + ' -> ' + sections().join(','))
+      }
+
+      // ---- 8c. the menu is the deterministic route -------------------------
+      /*
+       * The drag above is a real gesture with a real destination, but not everyone
+       * reaches for a drag. The menu says what it does in words, so it is the path
+       * that has to work when the pointer never leaves the drawer.
+       */
+      step = 'dock by menu'
+      const dockByMenu = async (target) => {
+        const head = headOf('sessions') || headOf('openSessions') || headOf('history')
+        if (!head) return null
+        const box = head.getBoundingClientRect()
+        head.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, button: 2,
+          clientX: Math.round(box.x + 20), clientY: Math.round(box.y + 8)
+        }))
+        await wait(400)
+        const menu = document.querySelector('[data-testid="section-menu"]')
+        const item = menu && menu.querySelector('[data-menu-id="dock"]')
+        const label = item ? item.innerText : null
+        if (item) item.click()
+        await wait(900)
+        return { label, side: await savedSide(), target }
+      }
+
+      const toRight = await dockByMenu('right')
+      push('the section menu offers to move the drawer',
+        !!toRight && /right side/.test(toRight.label || ''),
+        toRight ? JSON.stringify(toRight.label) : 'no menu item')
+      push('the menu entry docks the drawer on the right',
+        !!toRight && toRight.side === 'right', 'side=' + (toRight && toRight.side))
+      const dockedBox = boxOf(drawerEl())
+      const dockedContent = boxOf(contentEl())
+      push('the geometry agrees: drawer right of the workspace',
+        !!dockedBox && !!dockedContent && dockedBox.left >= dockedContent.right - 1,
+        dockedBox && dockedContent
+          ? 'drawer.left=' + Math.round(dockedBox.left) +
+            ' content.right=' + Math.round(dockedContent.right)
+          : 'missing')
+
+      // Back to the left, from the menu, so the rest of the suite finds the drawer
+      // where it expects and the return trip is covered by the same assertions.
+      const toLeft = await dockByMenu('left')
+      push('the menu docks it back on the left', !!toLeft && toLeft.side === 'left',
+        'side=' + (toLeft && toLeft.side))
+      const backBox = boxOf(drawerEl())
+      const backContent = boxOf(contentEl())
+      push('and the geometry agrees again: drawer left of the workspace',
+        !!backBox && !!backContent && backBox.left < backContent.left,
+        backBox && backContent
+          ? 'drawer.left=' + Math.round(backBox.left) +
+            ' content.left=' + Math.round(backContent.left)
+          : 'missing')
 
       // ---- 9. command history, one file per session ------------------------
       step = 'history'

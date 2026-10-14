@@ -629,14 +629,38 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { id: 'toggleFocus', label: 'Focus mode (full screen)', keys: 'F11', builtin: true },
   { id: 'lockApp', label: 'Lock TermDeck', keys: 'Ctrl+Alt+L', builtin: true },
   /*
-   * Page navigation. `Alt`+digit jumps straight to a rail section (1 = Terminal,
-   * and so on down the rail); these two walk the same list and wrap around, so
-   * there is no dead end at either edge. The digits are a family rather than one
-   * binding: which number means what is the rail's order, not a setting.
+   * Session navigation. `Alt`+digit jumps straight to a session (1 = the first
+   * pane in the arrangement); these two walk the same list and wrap around, so
+   * neither end is a dead stop. The digits are a family rather than one binding:
+   * which number means which session is the layout's order, not a setting.
    */
-  { id: 'prevPage', label: 'Previous section', keys: 'Alt+[', builtin: true },
-  { id: 'nextPage', label: 'Next section', keys: 'Alt+]', builtin: true }
+  { id: 'prevPage', label: 'Previous session', keys: 'Alt+[', builtin: true },
+  { id: 'nextPage', label: 'Next session', keys: 'Alt+]', builtin: true },
+  /*
+   * Interface zoom. The chords shown here are `Ctrl+=` and `Ctrl+-`; the aliases
+   * people actually press — `Ctrl+Shift+=` for a real `+`, and the numpad keys —
+   * are handled in the renderer, because a single chord string cannot express
+   * "either of these".
+   */
+  { id: 'zoomIn', label: 'Larger interface', keys: 'Ctrl+=', builtin: true },
+  { id: 'zoomOut', label: 'Smaller interface', keys: 'Ctrl+-', builtin: true }
 ]
+
+/**
+ * Interface scale steps.
+ *
+ * One ladder for the settings picker and for the zoom shortcuts: two lists would
+ * drift, and "the chips do not include the size the shortcut just picked" is
+ * exactly the kind of thing nobody notices until it is confusing.
+ */
+export const UI_SCALES = [0.7, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2]
+
+/** The next ladder step up or down, or the same value at either end. */
+export function stepScale(current: number, direction: 1 | -1): number {
+  const sorted = UI_SCALES
+  if (direction > 0) return sorted.find((s) => s > current + 0.001) ?? current
+  return [...sorted].reverse().find((s) => s < current - 0.001) ?? current
+}
 
 export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   fontFamily:

@@ -12,10 +12,9 @@ import type {
   SidebarSectionState,
   TerminalSettings
 } from '@shared/types'
-import { DEFAULT_KEYBINDINGS, SIDEBAR_SECTION_LABELS } from '@shared/types'
+import { DEFAULT_KEYBINDINGS, SIDEBAR_SECTION_LABELS, UI_SCALES } from '@shared/types'
 import { THEMES, findTheme } from '@shared/themes'
 import { formatEvent, isValidBinding, parseBinding } from './useShortcuts'
-import { PAGE_CYCLE, PAGE_LABELS, PAGE_ORDER } from './NavRail'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { applyTheme } from './useTheme'
 
@@ -326,14 +325,21 @@ export function SettingsDialog({
                   right-click a row for more. Drag rows to change their order.
                 </p>
                 {/*
-                  The digit family is not a row: which number means which section is
-                  the rail's order, so it is shown here instead of being editable.
+                  The digit family is not a row: which number means which session is
+                  the order the panes are laid out in, so it is shown here instead of
+                  being editable. The three families are named together because they
+                  are what people actually reach for, and two of them are not in the
+                  list below at all (the digits) or carry aliases the list cannot
+                  express (zoom).
                 */}
                 <p className="td-hint" data-testid="page-shortcuts">
-                  <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>{PAGE_ORDER.length}</kbd> jumps straight to a rail
-                  entry ({PAGE_ORDER.map((id, i) => `${i + 1} ${PAGE_LABELS[id]}`).join(' · ')}).
-                  <kbd>Alt</kbd>+<kbd>[</kbd> and <kbd>Alt</kbd>+<kbd>]</kbd> step through the
-                  sections ({PAGE_CYCLE.map((id) => PAGE_LABELS[id]).join(' → ')}) and wrap around.
+                  <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> jumps straight to a session —
+                  1 is the first pane in the arrangement, 2 the second, and so on.{' '}
+                  <kbd>Alt</kbd>+<kbd>[</kbd> and <kbd>Alt</kbd>+<kbd>]</kbd> step to the
+                  previous and next session and wrap around at both ends.{' '}
+                  <kbd>Ctrl</kbd>+<kbd>=</kbd> and <kbd>Ctrl</kbd>+<kbd>-</kbd> make the
+                  whole interface larger and smaller, a step at a time through the sizes
+                  on the Appearance tab.
                 </p>
                 {[...conflicts.entries()].map(([keys, labels]) => (
                   <div key={keys} className="td-form-error">
@@ -493,19 +499,6 @@ function ThemeTab({
 }): JSX.Element {
   const previewing = activeTheme !== savedTheme
 
-  /**
-   * Presets rather than a free slider: these are the sizes people actually want,
-   * and a slider makes it easy to land somewhere that is neither.
-   */
-  const SCALES: Array<{ value: number; label: string }> = [
-    { value: 0.8, label: '80%' },
-    { value: 0.9, label: '90%' },
-    { value: 1, label: '100%' },
-    { value: 1.1, label: '110% (default for large screens)' },
-    { value: 1.25, label: '125%' },
-    { value: 1.5, label: '150%' }
-  ]
-
   return (
     <div className="td-field-stack">
       <div className="td-theme-head">
@@ -548,20 +541,24 @@ function ThemeTab({
         Interface scale. A dense desktop UI is uncomfortable on a wide monitor and
         there was previously nothing the user could do about it; this scales every
         measurement together rather than only the terminal font.
+
+        The chips are `UI_SCALES` itself, the same ladder `Ctrl`+`=` / `Ctrl`+`-`
+        step through. They used to be their own, shorter list, which meant the
+        shortcut could land on a size no chip showed — a highlighted nothing.
       */}
       <div className="td-field">
         <span>Interface size</span>
         <div className="td-scale-picks" data-testid="scale-picks">
-          {SCALES.map((option) => (
+          {UI_SCALES.map((value) => (
             <button
-              key={option.value}
+              key={value}
               type="button"
-              className={`td-scale-chip${Math.abs(option.value - scale) < 0.001 ? ' is-active' : ''}`}
-              data-scale={option.value}
-              aria-pressed={Math.abs(option.value - scale) < 0.001}
-              onClick={() => onScale(option.value)}
+              className={`td-scale-chip${Math.abs(value - scale) < 0.001 ? ' is-active' : ''}`}
+              data-scale={value}
+              aria-pressed={Math.abs(value - scale) < 0.001}
+              onClick={() => onScale(value)}
             >
-              {option.label}
+              {Math.round(value * 100)}%
             </button>
           ))}
         </div>

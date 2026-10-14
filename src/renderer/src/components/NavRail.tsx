@@ -19,29 +19,13 @@ const PAGES: NavEntry[] = [
   { id: 'logs', label: 'Logs', icon: '≣' }
 ]
 
-/**
- * Every rail destination in the order they appear, including Settings.
- *
- * Exported for the `Alt`+digit shortcuts: the number a page answers to is its
- * position in this list, so it can never drift away from what the rail shows.
+/*
+ * `PAGE_ORDER` / `PAGE_CYCLE` / `PAGE_LABELS` used to live here, for `Alt`+digit
+ * and `Alt+[` / `Alt+]`. Those shortcuts now walk the open *sessions* rather than
+ * the rail — a rail has five fixed entries, and "switch session" is a question
+ * about the panes — so the lists had no readers left and were deleted rather than
+ * left to drift from the rail they claimed to describe.
  */
-export const PAGE_ORDER: PageId[] = [...PAGES.map((p) => p.id), 'settings']
-
-/**
- * The sections that are pages, in rail order.
- *
- * `Alt+[` / `Alt+]` walk this list, not `PAGE_ORDER`: stepping through sections
- * should land on a section, and Settings is a drawer over whatever is showing
- * rather than somewhere to be. It is still reachable by `Alt`+its digit and by its
- * own shortcut.
- */
-export const PAGE_CYCLE: PageId[] = PAGES.map((p) => p.id)
-
-/** Rail labels, for the shortcut help and for toasts. */
-export const PAGE_LABELS: Record<PageId, string> = Object.fromEntries([
-  ...PAGES.map((p) => [p.id, p.label]),
-  ['settings', 'Settings']
-]) as Record<PageId, string>
 
 interface NavRailProps {
   active: PageId

@@ -4,6 +4,7 @@ import { DockviewComponent, type DockviewApi, type GroupPanelPartInitParameters 
 import {
   DEFAULT_SETTINGS,
   SIDEBAR_SECTION_LABELS,
+  stepScale,
   type AppSettings,
   type CreateSessionResult,
   type CredentialStatus,
@@ -51,8 +52,8 @@ import { SnippetsPage } from './components/SnippetsPage'
 import { LogsPage, type LogEntry } from './components/LogsPage'
 import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
-import { NavRail, PAGE_CYCLE, PAGE_ORDER, type PageId } from './components/NavRail'
-import { readScrollback } from './components/terminalRegistry'
+import { NavRail, type PageId } from './components/NavRail'
+import { getTerminal, readScrollback } from './components/terminalRegistry'
 import {
   broadcastSummary,
   isBroadcasting,
@@ -62,7 +63,7 @@ import {
   toggleBroadcasting,
   writesBySink
 } from './components/broadcast'
-import { useShortcuts } from './components/useShortcuts'
+import { useShortcuts, matchesBinding } from './components/useShortcuts'
 import { refitAll } from './components/terminalRegistry'
 import { useTheme } from './components/useTheme'
 
@@ -1493,6 +1494,12 @@ export function App(): JSX.Element {
     [drawerWidth, saveSidebar]
   )
 
+  /** Which edge a drop at this x means. There are only two lanes. */
+  const laneAt = useCallback(
+    (clientX: number): SidebarSide => (clientX > window.innerWidth / 2 ? 'right' : 'left'),
+    []
+  )
+
   /**
    * Move the whole drawer to the other edge of the window.
    *
@@ -1503,25 +1510,77 @@ export function App(): JSX.Element {
    */
   const dockDrawer = useCallback(
     (clientX: number) => {
-      const side: SidebarSide = clientX > window.innerWidth / 2 ? 'right' : 'left'
-      if (settingsRef.current.sidebar.side === side) {
-        setToast(`The drawer is already docked on the ${side}.`)
-        return
-      }
+      const side = laneAt(clientX)
+      if (settingsRef.current.sidebar.side === side) return
       saveSidebar({ side })
       setToast(`Drawer moved to the ${side}.`)
     },
-    [saveSidebar]
+    [laneAt, saveSidebar]
   )
+
+  /** Flip the drawer to the other edge, for the menu and the grip's double-click. */
+  const flipDrawer = useCallback(() => {
+    const side: SidebarSide = settingsRef.current.sidebar.side === 'left' ? 'right' : 'left'
+    saveSidebar({ side })
+    setToast(`Drawer moved to the ${side}.`)
+  }, [saveSidebar])
 
   const [drawerDropHint, setDrawerDropHint] = useState<SidebarSide | null>(null)
   /** True while the drawer's grip is being dragged to the other edge. */
   const [draggingDrawer, setDraggingDrawer] = useState(false)
+  /** True while the pointer is over the half the drawer is *not* on. */
+  const overDropLane = useCallback(
+    (clientX: number): boolean => laneAt(clientX) !== settingsRef.current.sidebar.side,
+    [laneAt]
+  )
+
+  /**
+   * While a heading or the grip is being dragged, follow the pointer.
+   *
+   * The hint is blank over the half the drawer already occupies: there is nothing
+   * to announce, and a highlighted lane that would do nothing reads as broken.
+   */
+  const onDrawerDragOver = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!draggingDrawer && draggingSection === null) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'move'
+      setDrawerDropHint(overDropLane(event.clientX) ? laneAt(event.clientX) : null)
+    },
+    [draggingDrawer, draggingSection, laneAt, overDropLane]
+  )
+
+  /**
+   * The drawer's drop target is the whole window, not the drawer.
+   *
+   * A real drag ends wherever the pointer is, and the pointer is over the
+   * workspace — outside the 268px `<aside>` — so a listener on the drawer itself
+   * never saw the drop that the user had plainly aimed at the other edge.
+   *
+   * Section headings stop their own drops (see `SectionFrame`): a reorder is a
+   * reorder, and only a drop on the window around them moves the drawer.
+   */
+  const onDrawerDrop = useCallback(
+    (event: React.DragEvent<HTMLDivElement>) => {
+      if (!draggingDrawer && draggingSection === null) return
+      event.preventDefault()
+      dockDrawer(event.clientX)
+      draggingSectionRef.current = null
+      setDraggingSection(null)
+      setDraggingDrawer(false)
+      setDrawerDropHint(null)
+    },
+    [dockDrawer, draggingDrawer, draggingSection]
+  )
 
   const sectionMenuItems = useMemo((): MenuItem[] => {
     if (!sectionMenu) return []
+    const other = settings.sidebar.side === 'left' ? 'right' : 'left'
     const items: MenuItem[] = [
-      { id: 'hide', label: `Hide ${SIDEBAR_SECTION_LABELS[sectionMenu.id]}` }
+      { id: 'hide', label: `Hide ${SIDEBAR_SECTION_LABELS[sectionMenu.id]}` },
+      // The deterministic way to move the drawer: the drag gesture is a drag, and
+      // a drag is not something everyone reaches for.
+      { id: 'dock', label: `Move drawer to the ${other} side`, separatorBefore: true }
     ]
     const hidden = sectionState.filter((s) => !s.visible)
     if (hidden.length > 0) {
@@ -1531,17 +1590,21 @@ export function App(): JSX.Element {
       }
     }
     return items
-  }, [sectionMenu, sectionState])
+  }, [sectionMenu, sectionState, settings.sidebar.side])
 
   const runSectionAction = useCallback(
     (actionId: string) => {
       if (!sectionMenu) return
+      if (actionId === 'dock') {
+        flipDrawer()
+        return
+      }
       if (actionId === 'hide') setSectionVisible(sectionMenu.id, false)
       else if (actionId.startsWith('show:')) {
         setSectionVisible(actionId.slice('show:'.length) as SidebarSectionId, true)
       }
     },
-    [sectionMenu, setSectionVisible]
+    [flipDrawer, sectionMenu, setSectionVisible]
   )
 
   // ---- tree mutations -----------------------------------------------------
@@ -2119,17 +2182,106 @@ export function App(): JSX.Element {
 
   // ---- shortcuts ----------------------------------------------------------
 
-  const cycleTab = useCallback((delta: number) => {
-    const dockApi = dockApiRef.current
-    if (!dockApi) return
-    const group = dockApi.activeGroup
-    if (!group) return
-    const panels = group.panels
-    if (panels.length < 2) return
-    const index = panels.findIndex((p) => p.id === dockApi.activePanel?.id)
-    const next = panels[(index + delta + panels.length) % panels.length]
-    next?.api.setActive()
+  /**
+   * Step the interface scale up or down, on the same ladder the settings picker
+   * offers, and remember it: a zoom that vanishes on restart is a mystery.
+   */
+  const zoomBy = useCallback(
+    (direction: 1 | -1) => {
+      const current = settingsRef.current.uiScale
+      const next = stepScale(current, direction)
+      if (next === current) {
+        setToast(`Interface is already at ${Math.round(current * 100)}%.`)
+        return
+      }
+      void api
+        .saveSettings({ ...settingsRef.current, uiScale: next })
+        .then(setSettings)
+        .catch(() => {
+          /* keeping the old scale is the safe outcome */
+        })
+      applyUiScale(next)
+      setToast(`Interface ${Math.round(next * 100)}%`)
+    },
+    [applyUiScale]
+  )
+
+  /**
+   * Bring a pane to the front, keeping the keyboard where it was working.
+   *
+   * dockview hides the pane that was active, and a hidden element cannot hold
+   * focus — the browser drops it on `body`. Switching by keyboard is a keyboard
+   * gesture, so the next keystroke would land nowhere at all: the session would
+   * change and then nothing you typed would reach it.
+   *
+   * Only when the keyboard was already in a terminal, though. `Alt`+`[` while a
+   * settings field has focus must not yank the caret into a pane behind it.
+   */
+  const activatePanel = useCallback((id: string) => {
+    const panel = dockApiRef.current?.getPanel(id)
+    if (!panel) return
+    const fromTerminal = document.activeElement instanceof HTMLElement &&
+      document.activeElement.classList.contains('xterm-helper-textarea')
+    panel.api.setActive()
+    if (fromTerminal) getTerminal(id)?.focus()
   }, [])
+
+  const cycleTab = useCallback(
+    (delta: number) => {
+      const dockApi = dockApiRef.current
+      if (!dockApi) return
+      const group = dockApi.activeGroup
+      if (!group) return
+      const panels = group.panels
+      if (panels.length < 2) return
+      const index = panels.findIndex((p) => p.id === dockApi.activePanel?.id)
+      const next = panels[(index + delta + panels.length) % panels.length]
+      if (next) activatePanel(next.id)
+    },
+    [activatePanel]
+  )
+
+  /**
+   * Every open session pane, in layout order.
+   *
+   * `Ctrl+Tab` walks the tabs of one group; this walks *all* of them, which is
+   * what "switch session" has to mean once the arrangement is split into groups —
+   * otherwise half the sessions are unreachable by keyboard.
+   */
+  const openPanels = useCallback((): string[] => {
+    const dockApi = dockApiRef.current
+    if (!dockApi) return []
+    return dockApi.panels.filter((p) => p.id !== 'welcome').map((p) => p.id)
+  }, [])
+
+  /**
+   * `Alt+[` / `Alt+]`: previous/next session, wrapping at both ends.
+   *
+   * With no session in front (the welcome pane) it goes to the first one forwards
+   * and the last one backwards, so the first press always lands somewhere real.
+   */
+  const stepSession = useCallback(
+    (delta: number) => {
+      const dockApi = dockApiRef.current
+      if (!dockApi) return
+      const panels = openPanels()
+      if (panels.length === 0) return
+      const index = panels.indexOf(dockApi.activePanel?.id ?? '')
+      const from = index < 0 ? (delta > 0 ? -1 : 0) : index
+      const next = panels[(from + delta + panels.length) % panels.length]
+      if (next) activatePanel(next)
+    },
+    [activatePanel, openPanels]
+  )
+
+  /** `Alt`+digit: the Nth open session, in the order they are laid out. */
+  const jumpToSession = useCallback(
+    (index: number) => {
+      const target = openPanels()[index]
+      if (target) activatePanel(target)
+    },
+    [activatePanel, openPanels]
+  )
 
   /**
    * Show a rail section.
@@ -2163,47 +2315,57 @@ export function App(): JSX.Element {
     [page, railCollapsed]
   )
 
-  /** `Alt`+digit: the rail's own order decides which number is which section. */
-  const jumpToPage = useCallback(
-    (index: number) => {
-      const target = PAGE_ORDER[index]
-      if (target) selectPage(target)
-    },
-    [selectPage]
-  )
-
-  /** `Alt+[` / `Alt+]`, wrapping at both ends so neither is a dead end. */
-  const stepPage = useCallback(
-    (delta: number) => {
-      // Walk the pages, not the rail entries: Settings is a drawer over whatever
-      // is showing, so stopping there would look like the key did nothing.
-      const here = PAGE_CYCLE.indexOf(page)
-      const from = here < 0 ? 0 : here
-      const next = PAGE_CYCLE[(from + delta + PAGE_CYCLE.length) % PAGE_CYCLE.length]
-      if (next) selectPage(next)
-    },
-    [page, selectPage]
-  )
-
   /**
-   * `Alt`+digit jumps straight to a rail section.
+   * `Alt`+digit jumps straight to a session.
    *
-   * Deliberately not nine settings rows: which number means which section is the
-   * rail's order, not a preference — it is something to match, not to configure.
-   * The two configurable bindings below walk the same list.
+   * Deliberately not nine settings rows: the number is the pane's position in the
+   * arrangement, which is something to match rather than to configure. The two
+   * configurable bindings below walk the same list.
    */
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (!event.altKey || event.ctrlKey || event.metaKey) return
       const digit = Number(event.key)
-      if (!Number.isInteger(digit) || digit < 1 || digit > PAGE_ORDER.length) return
+      if (!Number.isInteger(digit) || digit < 1 || digit > 9) return
       event.preventDefault()
       event.stopPropagation()
-      jumpToPage(digit - 1)
+      jumpToSession(digit - 1)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [jumpToPage])
+  }, [jumpToSession])
+
+  /**
+   * Interface zoom: `Ctrl`+`=` / `Ctrl`+`-`, plus the aliases every keyboard has.
+   *
+   * The configured bindings are consulted first and skipped here, so a press that
+   * the shortcut table already handled cannot be counted twice. What is left is
+   * what a chord cannot express: `Ctrl+Shift+=` (how you actually type a `+` on a
+   * US layout) and the numpad keys, which is what people reach for anyway.
+   */
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.altKey || !(event.ctrlKey || event.metaKey)) return
+
+      const bindings = settingsRef.current.keybindings
+      const bound = (id: string): string => bindings.find((b) => b.id === id)?.keys ?? ''
+      const zoomIn = bound('zoomIn')
+      const zoomOut = bound('zoomOut')
+      if (zoomIn && matchesBinding(event, zoomIn)) return
+      if (zoomOut && matchesBinding(event, zoomOut)) return
+
+      const key = event.key
+      if (key === '+' || key === '=' || key === 'Add') {
+        event.preventDefault()
+        zoomBy(1)
+      } else if (key === '-' || key === '_' || key === 'Subtract') {
+        event.preventDefault()
+        zoomBy(-1)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [zoomBy])
 
   useShortcuts(settings.keybindings, {
     newConnection: () => setDialogOpen(true),
@@ -2232,8 +2394,10 @@ export function App(): JSX.Element {
     },
     nextTab: () => cycleTab(1),
     prevTab: () => cycleTab(-1),
-    prevPage: () => stepPage(-1),
-    nextPage: () => stepPage(1),
+    prevPage: () => stepSession(-1),
+    nextPage: () => stepSession(1),
+    zoomIn: () => zoomBy(1),
+    zoomOut: () => zoomBy(-1),
     toggleFocus,
     lockApp: lockNow,
     quitApp: requestQuit
@@ -2245,7 +2409,17 @@ export function App(): JSX.Element {
   )
 
   return (
-    <div className={'td-root' + (focusMode ? ' is-focus' : '')}>
+    <div
+      className={'td-root' + (focusMode ? ' is-focus' : '')}
+      /*
+       * Docking is answered at the window, not at the drawer: the pointer during a
+       * real drag is out over the workspace, which is not inside the `<aside>`.
+       * Both the grip and a section heading can start the gesture, so both states
+       * count as "a dock is in flight" here.
+       */
+      onDragOver={onDrawerDragOver}
+      onDrop={onDrawerDrop}
+    >
       {/*
         Focus mode hides the rail and the drawer outright rather than dimming
         them: the panes get the whole window, which is the entire point of it.
@@ -2329,21 +2503,6 @@ export function App(): JSX.Element {
           data-testid="sidebar"
           data-side={settings.sidebar.side}
           style={{ width: drawerWidth, flexBasis: drawerWidth }}
-          // The footer's grip can be dropped anywhere over the window: which half
-          // decides the edge it docks to.
-          onDragOver={(e) => {
-            if (!draggingDrawer) return
-            e.preventDefault()
-            e.dataTransfer.dropEffect = 'move'
-            setDrawerDropHint(e.clientX > window.innerWidth / 2 ? 'right' : 'left')
-          }}
-          onDrop={(e) => {
-            if (!draggingDrawer) return
-            e.preventDefault()
-            dockDrawer(e.clientX)
-            setDraggingDrawer(false)
-            setDrawerDropHint(null)
-          }}
         >
           {/*
             The sections scroll; the footer below them does not. That is the point
@@ -2386,6 +2545,8 @@ export function App(): JSX.Element {
               onDragEnd={() => {
                 draggingSectionRef.current = null
                 setDraggingSection(null)
+                // The dock hint follows any drag that could dock the drawer.
+                setDrawerDropHint(null)
               }}
               onContextMenu={(id, x, y) => setSectionMenu({ id, x, y })}
               actions={
@@ -2587,7 +2748,7 @@ export function App(): JSX.Element {
               className="td-drawer-grip"
               data-testid="drawer-grip"
               draggable
-              title="Drag to the other edge to move the whole drawer"
+              title="Drag to the other edge to move the whole drawer · double-click to swap sides"
               onDragStart={(e) => {
                 e.dataTransfer.effectAllowed = 'move'
                 e.dataTransfer.setData('text/plain', 'drawer')
@@ -2597,9 +2758,7 @@ export function App(): JSX.Element {
                 setDraggingDrawer(false)
                 setDrawerDropHint(null)
               }}
-              onDoubleClick={() =>
-                dockDrawer(settings.sidebar.side === 'left' ? window.innerWidth : 0)
-              }
+              onDoubleClick={flipDrawer}
             >
               ⠿
             </span>
@@ -2615,11 +2774,12 @@ export function App(): JSX.Element {
           />
 
           {/*
-            Which edge the drawer would land on, while the grip is being dragged.
+            Which edge the drawer would land on, while it is being dragged there.
             Two lanes rather than a free-floating drop: there are only two places
-            the drawer can be.
+            the drawer can be. A section heading can start the same gesture, so
+            either drag shows it.
           */}
-          {draggingDrawer && (
+          {(draggingDrawer || draggingSection !== null) && (
             <div
               className={`td-drawer-hint is-${drawerDropHint ?? settings.sidebar.side}`}
               aria-hidden="true"

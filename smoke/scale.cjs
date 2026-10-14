@@ -3,12 +3,14 @@
  *
  *   npm run build && electron smoke/scale.cjs --user-data-dir=...
  *
- * Checks the four things a scale setting has to get right:
+ * Checks the five things a scale setting has to get right:
  *   1. there is a control, and it starts at a sensible value for this display
  *   2. picking a value really resizes the interface (not just a number in a file)
  *   3. the choice survives a reload, including Electron's zoom reset
  *   4. closing the drawer without saving puts the old value back, by *every*
  *      route — the Close button, the header X and the backdrop
+ *   5. `Ctrl`+`=` / `Ctrl`+`-` step the same ladder the picker offers, and the
+ *      step is written to settings rather than living only in this window
  */
 const path = require('node:path')
 const fs = require('node:fs')
@@ -42,6 +44,28 @@ const OPEN_SETTINGS = `(async () => {
   await wait(900)
   return !!document.querySelector('[data-testid="settings-drawer"]')
 })()`
+
+/**
+ * Press a chord in the renderer.
+ *
+ * Built from ordinary strings rather than a template literal: the injected code
+ * is short, and this keeps the escaping in front of the reader instead of one
+ * template deep. `document.activeElement` is the target, not the window, so the
+ * event travels the path a real press takes — the window listeners still see it
+ * on the way up, but anything that swallows it on the way is caught.
+ */
+const pressKey = (win, key, extra) =>
+  win.webContents.executeJavaScript(
+    '(async () => {' +
+      ' const wait = (ms) => new Promise((r) => setTimeout(r, ms));' +
+      ' const t = document.activeElement || document.body;' +
+      ' t.dispatchEvent(new KeyboardEvent("keydown", Object.assign({' +
+      ' key: ' + JSON.stringify(key) + ', bubbles: true, cancelable: true, composed: true' +
+      ' }, ' + JSON.stringify(extra || {}) + ')));' +
+      ' await wait(900);' +
+      ' return true;' +
+      ' })()'
+  )
 
 async function main() {
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
@@ -441,6 +465,117 @@ async function main() {
       name: 'the scale is clamped into a usable range',
       ok: mod.clampScale(0.1) === 0.7 && mod.clampScale(10) === 2 && mod.clampScale(1.25) === 1.25,
       detail: '0.1 -> ' + mod.clampScale(0.1) + ', 10 -> ' + mod.clampScale(10)
+    }
+  ])
+
+  // ---- 6. the zoom shortcuts walk the same ladder as the chips -------------
+  /*
+   * `Ctrl`+`=` / `Ctrl`+`-` are the keyboard's version of the chips, so they have
+   * to land on the same sizes: a ladder of its own would let the shortcut pick a
+   * size no chip shows. `Ctrl`+`Shift`+`=` is checked too — that is how anyone
+   * actually types a `+`, and a single chord string cannot express both spellings.
+   */
+  const storedScale = () => mod.storeAccess().settings.load().uiScale
+  const near = (a, b) => Math.abs(a - b) < 0.02
+  const at = (scale) => near(storedScale(), scale) && near(zoom(win), scale)
+
+  /*
+   * Open a pane and put the keyboard in it, before any of the presses below.
+   *
+   * A terminal is the one thing in the window that claims keystrokes before the
+   * app does, so a zoom check made from `body` would be checking the easy case
+   * only. `Ctrl`+`=` is safe there — xterm has no meaning for it and passes it on
+   * — but that is a property to verify, not to assume.
+   *
+   * A fresh shell, not the one from earlier: the reloads above restored a pane
+   * whose session is gone, so there is no live terminal to hold the focus.
+   */
+  const focusTerminal = await win.webContents.executeJavaScript(
+    '(async () => {' +
+      ' const wait = (ms) => new Promise((r) => setTimeout(r, ms));' +
+      ' const before = Object.keys(window.__tdTerminals || {});' +
+      ' const btn = document.querySelector("[data-testid=local-shell]");' +
+      ' if (btn) btn.click();' +
+      ' let entry = null;' +
+      ' for (let i = 0; i < 60; i++) {' +
+      '   await wait(250);' +
+      '   const reg = window.__tdTerminals || {};' +
+      '   const ids = Object.keys(reg).filter((id) => before.indexOf(id) === -1);' +
+      '   entry = ids.length ? reg[ids[ids.length - 1]] : null;' +
+      '   if (entry && entry.term && entry.term.rows > 24) break;' +
+      ' }' +
+      ' if (entry && entry.term && entry.term.focus) entry.term.focus();' +
+      ' await wait(400);' +
+      ' const el = document.activeElement;' +
+      ' return !!(el && (el.className || "").indexOf("xterm-helper-textarea") !== -1);' +
+      ' })()'
+  )
+
+  report([
+    {
+      name: 'the zoom keys are pressed with the keyboard in a terminal',
+      ok: focusTerminal === true,
+      detail: 'inTerminal=' + focusTerminal
+    },
+    {
+      name: 'the zoom checks start from the scale the settings saved',
+      ok: at(1.25),
+      detail: 'stored=' + storedScale() + ' zoom=' + zoom(win)
+    }
+  ])
+
+  await pressKey(win, '-', { ctrlKey: true })
+  report([
+    {
+      name: 'Ctrl+- steps one size down the ladder, and writes it to settings',
+      ok: at(1.1),
+      detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.1)'
+    }
+  ])
+
+  await pressKey(win, '=', { ctrlKey: true })
+  report([
+    {
+      name: 'Ctrl+= steps back up to the size it came from',
+      ok: at(1.25),
+      detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.25)'
+    }
+  ])
+
+  await pressKey(win, '+', { ctrlKey: true, shiftKey: true })
+  report([
+    {
+      name: 'Ctrl+Shift+= works too, since that is how a + is typed',
+      ok: at(1.5),
+      detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.5)'
+    }
+  ])
+
+  // A wrong modifier must not zoom: Alt belongs to the session shortcuts.
+  await pressKey(win, '=', { ctrlKey: true, altKey: true })
+  report([
+    {
+      name: 'Ctrl+Alt+= is left alone rather than treated as zoom',
+      ok: at(1.5),
+      detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.5)'
+    }
+  ])
+
+  // The ladder ends. Three more steps up from 150% reach the top and stay there.
+  for (let i = 0; i < 4; i++) await pressKey(win, '=', { ctrlKey: true })
+  report([
+    {
+      name: 'stepping past the top of the ladder stops at the last size',
+      ok: at(2),
+      detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 2)'
+    },
+    {
+      name: 'and none of it took the keyboard out of the terminal',
+      ok: (await win.webContents.executeJavaScript(
+        '(() => { const el = document.activeElement;' +
+          ' return !!(el && (el.className || "").indexOf("xterm-helper-textarea") !== -1) })()'
+      )) === true,
+      detail: 'inTerminal after zooming'
     }
   ])
 

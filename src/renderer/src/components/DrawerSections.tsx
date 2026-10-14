@@ -120,6 +120,10 @@ export function SectionFrame({
         onDragEnd={onDragEnd}
         onDrop={(e) => {
           e.preventDefault()
+          // A drop on a heading is a reorder and nothing else. The window also
+          // listens for drops, to dock the whole drawer on the half it lands in,
+          // and without this the same gesture would reorder *and* move the drawer.
+          e.stopPropagation()
           onDropOn(id)
         }}
         onContextMenu={(e) => {
