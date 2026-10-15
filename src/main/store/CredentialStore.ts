@@ -217,6 +217,28 @@ export class CredentialStore {
     this.persist()
   }
 
+  /**
+   * Seal several secrets as one change.
+   *
+   * `set` writes the file every time, so restoring a shared session list used to
+   * mean one write per host. Same merge semantics as `set`, one persist at the end.
+   */
+  setMany(entries: Array<{ id: string; password?: string; passphrase?: string }>): void {
+    let touched = false
+    for (const entry of entries) {
+      const existing = this.entries[entry.id]
+      const record: CredentialRecord = { updatedAt: Date.now() }
+      const password = entry.password ? this.seal(entry.password) : existing?.password
+      const passphrase = entry.passphrase ? this.seal(entry.passphrase) : existing?.passphrase
+      if (password) record.password = password
+      if (passphrase) record.passphrase = passphrase
+      if (!record.password && !record.passphrase) delete this.entries[entry.id]
+      else this.entries[entry.id] = record
+      touched = true
+    }
+    if (touched) this.persist()
+  }
+
   /** Reveal a stored password on explicit request from the session editor. */
   revealPassword(sessionId: string): string | undefined {
     return this.get(sessionId).password

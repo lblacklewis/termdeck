@@ -53,6 +53,7 @@ import { LogsPage, type LogEntry } from './components/LogsPage'
 import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
 import { NamePrompt } from './components/NamePrompt'
+import { ShareDialog } from './components/ShareDialog'
 import { NavRail, type PageId } from './components/NavRail'
 import { getTerminal, readScrollback, setFitsPaused } from './components/terminalRegistry'
 import {
@@ -266,6 +267,8 @@ export function App(): JSX.Element {
   const [editorParentId, setEditorParentId] = useState<string | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
   const [hostKeyRequest, setHostKeyRequest] = useState<HostKeyRequest | null>(null)
+  /** Which side of the share dialog is open, if either. */
+  const [shareMode, setShareMode] = useState<'export' | 'import' | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   /** Error from a toast-style connection attempt (no dialog on screen). */
   const [alert, setAlert] = useState<{ message: string; code?: string; sessionId?: string } | null>(
@@ -2686,6 +2689,8 @@ export function App(): JSX.Element {
           onDeleteGroup={(id) => void api.deleteFolder(id)}
           onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
           onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
+          onExportShare={() => setShareMode('export')}
+          onImportShare={() => setShareMode('import')}
         />
       )}
 
@@ -3327,6 +3332,18 @@ export function App(): JSX.Element {
           confirmLabel={namePrompt.kind === 'new-folder' ? 'Create' : 'Rename'}
           onCancel={() => setNamePrompt(null)}
           onSubmit={submitFolderName}
+        />
+      )}
+
+      {/*
+        Import and export share one dialog: they are the two ends of the same
+        conversation, and the shell already owns the toast the result is reported in.
+      */}
+      {shareMode && (
+        <ShareDialog
+          mode={shareMode}
+          onClose={() => setShareMode(null)}
+          onMessage={(message) => setToast(message)}
         />
       )}
 

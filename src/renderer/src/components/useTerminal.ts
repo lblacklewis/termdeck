@@ -40,6 +40,27 @@ interface UseTerminalOptions {
   onExit?: (info: { code: number | null; signal: string | null }) => void
 }
 
+/**
+ * Make sure the primary terminal face is loaded before xterm measures the cell.
+ *
+ * Resolves true only when there was actually a face to load — a bundled woff2 that
+ * was not in the cache yet. A family the browser resolves from the system, or one
+ * that is not installed at all, has nothing to load and resolves to no faces, so
+ * callers can use the answer to skip a redundant refit.
+ */
+export async function loadTerminalFont(stack: string): Promise<boolean> {
+  const primary = stack.split(',')[0]?.trim().replace(/^["']|["']$/g, '')
+  if (!primary) return false
+  try {
+    const faces = await document.fonts.load(`16px "${primary}"`)
+    return faces.length > 0
+  } catch {
+    // A malformed family is not worth failing a font change over; the browser
+    // falls back on its own.
+    return false
+  }
+}
+
 export function useTerminal(
   containerRef: React.RefObject<HTMLDivElement | null>,
   sessionId: string,
@@ -66,6 +87,19 @@ export function useTerminal(
     term.loadAddon(fit)
     term.loadAddon(new WebLinksAddon())
     term.open(container)
+
+    /*
+     * Re-measure once the chosen face is really available.
+     *
+     * xterm measures the character cell the moment it opens, and a bundled font
+     * (Roboto Mono, JetBrains Mono) may still be in flight — measuring the
+     * fallback leaves every pane at the wrong columns until something else
+     * happens to refit it. A font the browser cannot resolve resolves anyway, so
+     * this costs one promise and no waiting when the font is already loaded.
+     */
+    void loadTerminalFont(optionsRef.current.terminal.fontFamily).then((loaded) => {
+      if (loaded) scheduleFit()
+    })
 
     /*
      * Stamp the session id onto the terminal's root element.
@@ -269,6 +303,11 @@ export function useTerminal(
         applyCursorBlink(container, settings.cursorBlink, settings.cursorBlinkMs)
         term.options.scrollback = settings.scrollback
         scheduleFit()
+        // Switching to a bundled face has the same race as opening with one: the
+        // first measurement can land on the fallback.
+        void loadTerminalFont(settings.fontFamily).then((loaded) => {
+          if (loaded) scheduleFit()
+        })
       },
       applyTheme: (theme: Theme) => {
         // xterm repaints on the next frame with the new palette.

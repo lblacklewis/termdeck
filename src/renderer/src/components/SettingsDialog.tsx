@@ -611,12 +611,17 @@ function TerminalTab({
   settings: TerminalSettings
   onChange: (patch: Partial<TerminalSettings>) => void
 }): JSX.Element {
-  const [fonts, setFonts] = useState<FontChoices>({ monospace: [], others: [] })
+  const [fonts, setFonts] = useState<FontChoices>({
+    bundled: [],
+    monospace: [],
+    others: [],
+    suggested: []
+  })
 
   useEffect(() => {
     let active = true
-    // Enumerated by the main process; a failure just leaves the shortlist empty
-    // and the field stays free-text.
+    // Enumerated by the main process; a failure just leaves the installed list
+    // empty and the field stays free-text.
     void window.termdeck.listFonts().then((list) => {
       if (active) setFonts(list)
     })
@@ -635,12 +640,17 @@ function TerminalTab({
   const setFamily = (family: string): void => {
     const quoted = /\s/.test(family) ? `"${family}"` : family
     onChange({
-      fontFamily: `${quoted}, "Cascadia Mono", "JetBrains Mono", Consolas, "DejaVu Sans Mono", monospace`
+      // The bundled faces lead the fallback stack, because they are the only ones
+      // guaranteed to exist on this machine.
+      fontFamily: `${quoted}, "Roboto Mono", "JetBrains Mono", "Cascadia Mono", Consolas, "DejaVu Sans Mono", monospace`
     })
   }
 
   /** A live sample, so the choice can be judged rather than guessed. */
   const previewFamily = primaryFamily || 'monospace'
+
+  /** What the chips offer: everything that will really render. */
+  const choices = [...fonts.bundled, ...fonts.monospace].slice(0, 16)
 
   return (
     <div className="td-field-stack">
@@ -654,29 +664,45 @@ function TerminalTab({
           onChange={(e) => setFamily(e.target.value)}
         />
         <datalist id="td-font-choices">
+          {fonts.bundled.map((name) => (
+            <option key={`bundled-${name}`} value={name} label="ships with TermDeck" />
+          ))}
           {fonts.monospace.map((name) => (
             <option key={`mono-${name}`} value={name} />
           ))}
           {fonts.others.map((name) => (
             <option key={`other-${name}`} value={name} />
           ))}
+          {/*
+           * Offered for autocomplete only, and labelled: these are the names a
+           * desktop usually has, and picking one that is not installed renders as
+           * the fallback — which is exactly what used to happen silently.
+           */}
+          {fonts.suggested.map((name) => (
+            <option key={`suggested-${name}`} value={name} label="not installed" />
+          ))}
         </datalist>
         <span className="td-hint" data-testid="font-hint">
-          {fonts.monospace.length > 0
-            ? `${fonts.monospace.length} monospaced fonts found on this system, ` +
+          {fonts.bundled.length > 0
+            ? `${fonts.bundled.length} ship with TermDeck, ` +
+              (fonts.monospace.length > 0
+                ? `${fonts.monospace.length} monospaced fonts found on this system, `
+                : 'no monospaced fonts could be read from this system, ') +
               `plus ${fonts.others.length} others. Type to filter.`
             : 'Could not read the installed fonts; type a family name instead.'}
         </span>
       </label>
 
-      {fonts.monospace.length > 0 && (
+      {choices.length > 0 && (
         <div className="td-font-picks" data-testid="font-picks">
-          {fonts.monospace.slice(0, 12).map((name) => (
+          {choices.map((name) => (
             <button
               key={name}
               type="button"
               className={`td-font-chip${primaryFamily === name ? ' is-active' : ''}`}
               data-font={name}
+              data-bundled={fonts.bundled.includes(name) ? 'true' : undefined}
+              title={fonts.bundled.includes(name) ? 'Ships with TermDeck' : 'Installed on this system'}
               style={{ fontFamily: `"${name}", monospace` }}
               onClick={() => setFamily(name)}
             >

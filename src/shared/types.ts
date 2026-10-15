@@ -171,6 +171,73 @@ export interface SessionTree {
   sessions: SavedSession[]
 }
 
+// ---- sharing saved hosts ------------------------------------------------
+
+/**
+ * Export a tree for someone else: folders, sessions, and optionally the stored
+ * passwords, gzipped and encrypted under a passphrase both people know.
+ */
+export interface ShareExportRequest {
+  passphrase: string
+  includeCredentials: boolean
+  /** Only used by tests: without it the main process asks where to save. */
+  filePath?: string
+}
+
+export type ShareExportResult =
+  | {
+      ok: true
+      path: string
+      sessions: number
+      folders: number
+      withPasswords: number
+      bytes: number
+    }
+  | { ok: false; cancelled?: boolean; message?: string }
+
+/** What a share file would do if it were imported, shown before doing it. */
+export interface SharePreview {
+  app: string
+  exportedAt: string
+  sessions: number
+  folders: number
+  /** How many of them are already here (same host, username and port). */
+  duplicates: number
+  /** How many arrive with a stored password. */
+  withPasswords: number
+  /** Whether the file carries secrets at all. */
+  hasCredentials: boolean
+}
+
+export type SharePickResult =
+  | { ok: true; filePath: string }
+  | { ok: false; cancelled?: true; message?: string }
+
+export type SharePeekResult =
+  | { ok: true; filePath: string; preview: SharePreview }
+  | { ok: false; cancelled?: boolean; message?: string }
+
+export interface ShareImportRequest {
+  filePath: string
+  passphrase: string
+  /** Hang everything that was at the root of the file inside this group. */
+  folderId?: string | null
+  /** Ignore the secrets even though the file carries them. */
+  skipCredentials?: boolean
+}
+
+export interface ShareImportSummary {
+  added: number
+  skipped: number
+  folders: number
+  reusedFolders: string[]
+  withPasswords: number
+}
+
+export type ShareImportResult =
+  | { ok: true; tree: SessionTree; summary: ShareImportSummary }
+  | { ok: false; cancelled?: boolean; message?: string }
+
 /** One entry in `known_hosts`, as shown by the Known Hosts page. */
 export interface KnownHostEntry {
   /**
@@ -239,10 +306,19 @@ export type SaveTextFileResult =
   | { ok: false; cancelled: true }
   | { ok: false; cancelled?: false; message: string }
 
-/** Installed fonts, split so the picker can list monospaced ones first. */
+/**
+ * Fonts the picker can offer.
+ *
+ * `bundled` ships inside the app, so it always renders; `monospace` and `others`
+ * are what the machine actually has installed. `suggested` is names that are
+ * neither — kept only so the field can autocomplete them, because offering one as
+ * a chip that silently falls back to another font is worse than saying nothing.
+ */
 export interface FontChoices {
+  bundled: string[]
   monospace: string[]
   others: string[]
+  suggested: string[]
 }
 
 // ---- credential storage ------------------------------------------------
@@ -727,6 +803,13 @@ export interface TermDeckApi {
   copyToClipboard(text: string): Promise<void>
   readClipboard(): Promise<string>
   appInfo(): Promise<AppInfo>
+
+  // sharing saved hosts. The file dialogs live in the main process; the renderer
+  // only ever handles a passphrase and, for a peek, the plan it produces.
+  exportShare(request: ShareExportRequest): Promise<ShareExportResult>
+  pickShareFile(): Promise<SharePickResult>
+  peekShare(filePath: string, passphrase: string): Promise<SharePeekResult>
+  importShare(request: ShareImportRequest): Promise<ShareImportResult>
 
   // focus mode / full screen
   /** Enter or leave full screen; resolves with the state that was applied. */

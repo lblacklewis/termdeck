@@ -1,9 +1,17 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron'
-import { access, constants, writeFile } from 'node:fs/promises'
+import { access, constants, readFile, writeFile } from 'node:fs/promises'
 import { timingSafeEqual } from 'node:crypto'
 
 import { sessionManager } from './sessions/SessionManager'
 import { LocalShellBackend, isLocalShellAvailable } from './sessions/LocalShellBackend'
+import {
+  buildShareDocument,
+  packShare,
+  planImport,
+  ShareError,
+  summariseImport,
+  unpackShare
+} from './share'
 import {
   SshShellBackend,
   HostKeyRequiredError,
@@ -28,6 +36,12 @@ import type {
   SaveTextFileResult,
   SessionFolder,
   SessionTree,
+  ShareExportRequest,
+  ShareExportResult,
+  ShareImportRequest,
+  ShareImportResult,
+  SharePeekResult,
+  SharePickResult,
   SftpListResult,
   SftpTransferResult,
   Snippet,
@@ -690,6 +704,129 @@ export function registerIpc(): void {
     fontChoices ??= await listFontChoices()
     return fontChoices
   })
+
+  // ---- sharing saved hosts -----------------------------------------------
+
+  /**
+   * Export the saved hosts for someone else.
+   *
+   * The dialog lives here, so the renderer hands over a passphrase and nothing
+   * else. `filePath` exists for tests: with it the dialog is skipped, which is the
+   * only way a probe can drive an export without a human clicking Save.
+   */
+  ipcMain.handle(
+    'share:export',
+    async (event, request: ShareExportRequest): Promise<ShareExportResult> => {
+      let target = request.filePath
+      if (!target) {
+        const win = BrowserWindow.fromWebContents(event.sender)
+        const stamp = new Date().toISOString().slice(0, 10)
+        const result = await dialog.showSaveDialog(win ?? undefined!, {
+          title: 'Export saved hosts',
+          defaultPath: `termdeck-hosts-${stamp}.tdshare`,
+          filters: [
+            { name: 'TermDeck share', extensions: ['tdshare'] },
+            { name: 'All files', extensions: ['*'] }
+          ]
+        })
+        if (result.canceled || !result.filePath) return { ok: false, cancelled: true }
+        target = result.filePath
+      }
+
+      const doc = buildShareDocument(getSessionStore().load(), (id) => getCredentials().get(id), {
+        includeCredentials: request.includeCredentials,
+        app: `TermDeck ${app.getVersion()}`
+      })
+
+      try {
+        const bytes = packShare(doc, request.passphrase)
+        await writeFile(target, bytes)
+        return {
+          ok: true,
+          path: target,
+          sessions: doc.sessions.length,
+          folders: doc.folders.length,
+          withPasswords: Object.values(doc.credentials).filter((c) => !!c.password).length,
+          bytes: bytes.length
+        }
+      } catch (err) {
+        if (err instanceof ShareError) return { ok: false, message: err.message }
+        return { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
+
+  /** Pick a share file to import. */
+  ipcMain.handle('share:pick', async (event): Promise<SharePickResult> => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(win ?? undefined!, {
+      title: 'Import saved hosts',
+      properties: ['openFile'],
+      filters: [
+        { name: 'TermDeck share', extensions: ['tdshare'] },
+        { name: 'All files', extensions: ['*'] }
+      ]
+    })
+    if (result.canceled || result.filePaths.length === 0) return { ok: false, cancelled: true }
+    return { ok: true, filePath: result.filePaths[0] }
+  })
+
+  /**
+   * Decrypt a share file and report what importing it would do, without writing
+   * anything: the numbers in the dialog and the numbers the import produces come
+   * from the same plan.
+   */
+  ipcMain.handle(
+    'share:peek',
+    async (_e, request: { filePath: string; passphrase: string }): Promise<SharePeekResult> => {
+      try {
+        const doc = unpackShare(await readFile(request.filePath), request.passphrase)
+        const plan = planImport(doc, getSessionStore().load())
+        return {
+          ok: true,
+          filePath: request.filePath,
+          preview: {
+            app: doc.app,
+            exportedAt: doc.exportedAt,
+            sessions: doc.sessions.length,
+            folders: doc.folders.length,
+            duplicates: plan.duplicates.length,
+            withPasswords: plan.credentials.filter((entry) => !!entry.password).length,
+            hasCredentials: Object.keys(doc.credentials).length > 0
+          }
+        }
+      } catch (err) {
+        if (err instanceof ShareError) return { ok: false, message: err.message }
+        // A missing file is the common case here and deserves its own sentence.
+        if ((err as NodeJS.ErrnoException)?.code === 'ENOENT') {
+          return { ok: false, message: 'That file is no longer there.' }
+        }
+        return { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
+
+  /** Import: create the groups and sessions the plan describes, in one write. */
+  ipcMain.handle(
+    'share:import',
+    async (_e, request: ShareImportRequest): Promise<ShareImportResult> => {
+      try {
+        const doc = unpackShare(await readFile(request.filePath), request.passphrase)
+        const plan = planImport(doc, getSessionStore().load(), {
+          folderId: request.folderId ?? null,
+          skipCredentials: request.skipCredentials
+        })
+        const tree = getSessionStore().importShare(plan)
+        // Secrets are re-sealed under the ids minted here, so the file's ids never
+        // reach the local credential store.
+        getCredentials().setMany(plan.credentials)
+        return { ok: true, tree: commitTree(tree), summary: summariseImport(plan) }
+      } catch (err) {
+        if (err instanceof ShareError) return { ok: false, message: err.message }
+        return { ok: false, message: err instanceof Error ? err.message : String(err) }
+      }
+    }
+  )
 
   // ---- files -------------------------------------------------------------
 

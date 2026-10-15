@@ -44,6 +44,86 @@
   src: url('./fonts/inter-latin-700-normal.woff2') format('woff2');
 }
 
+/*
+ * Terminal faces that are shipped with the app.
+ *
+ * The font picker lists what the machine actually has, but the fonts people
+ * expect to be able to choose for a terminal are often not installed — picking
+ * one of those used to do nothing at all, because the browser silently fell back.
+ * These two are bundled so the choice is real everywhere: Roboto Mono (the face
+ * in the Termius/MobaXterm screenshots) and JetBrains Mono.
+ *
+ * Only the latin subset, and only upright/italic at 400 plus 500/700 upright:
+ * four files per family, ~50-90 KB in total. Licences (SIL OFL 1.1) sit beside
+ * the files. The family names are the real ones on purpose — if the user has the
+ * same font installed, the bundled copy simply wins and rendering stays
+ * predictable.
+ */
+@font-face {
+  font-family: 'Roboto Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/roboto-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Roboto Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/roboto-mono-latin-400-italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Roboto Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/roboto-mono-latin-500-normal.woff2') format('woff2');
+}
+
+/* ANSI bright colours are usually rendered bold, so a real bold face matters. */
+@font-face {
+  font-family: 'Roboto Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/roboto-mono-latin-700-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin-400-italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin-500-normal.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono-latin-700-normal.woff2') format('woff2');
+}
+
 /* Theme tokens. `useTheme` overwrites these as inline properties on <html>, so
    the values here are only a fallback for the pre-theme first paint. */
 :root {
@@ -922,7 +1002,16 @@ kbd {
   flex: 0 0 78px;
 }
 
-.td-form input {
+/*
+ * Text fields fill their column; checkboxes and radios must not.
+ *
+ * This selector used to hit every input, so a checkbox inside a form was given
+ * `width: 100%`, a sunken background and a border: it stretched across the row
+ * (Chromium draws the box centred in whatever space it is given) and squeezed its
+ * own label down to one character per line. The connect prompt's "remember"
+ * checkbox had been like that all along.
+ */
+.td-form input:not([type='checkbox']):not([type='radio']) {
   width: 100%;
   padding: 7px 9px;
   background: var(--td-bg-sunken);
@@ -1087,6 +1176,39 @@ kbd {
   font-size: 11px;
 }
 
+/* A hint inside a field is not the field's own label: `.td-field > span` styles
+   every direct span as an overline label, and that selector outranks a bare
+   `.td-hint`, so the explanation of a field came out uppercase and letterspaced
+   however the hint itself was written. */
+.td-field > span.td-hint {
+  font-size: var(--td-text-sm);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--td-text-dim);
+}
+
+/* A hint that is reporting a failure rather than explaining a field. */
+.td-hint-error {
+  color: var(--td-danger-text, var(--td-danger));
+}
+
+/* What an imported share file contains, shown before the import runs. */
+.td-share-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  background: var(--td-surface);
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius-md, 10px);
+}
+
+.td-share-preview strong {
+  font-size: var(--td-text-sm);
+  font-weight: 600;
+}
+
 .td-check {
   display: flex;
   gap: 9px;
@@ -1096,6 +1218,7 @@ kbd {
 }
 
 .td-check input {
+  width: auto;
   margin-top: 2px;
   flex: 0 0 auto;
 }

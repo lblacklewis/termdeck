@@ -11,10 +11,21 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import type { FontChoices } from '../shared/types'
 
 const run = promisify(execFile)
 
-/** Fonts every desktop is likely to have, used when enumeration fails. */
+/**
+ * Terminal faces that ship inside the app.
+ *
+ * These are the ones people expect to be able to choose for a terminal and which
+ * a machine very often does not have. The @font-face rules in `global.css` carry
+ * the same two names, so picking one of these always renders — whereas the rest of
+ * the fallback list below only ever produced a silent fallback.
+ */
+export const BUNDLED_MONOSPACE_FONTS = ['Roboto Mono', 'JetBrains Mono']
+
+/** Fonts every desktop is likely to have, used as autocomplete suggestions. */
 export const FALLBACK_MONOSPACE_FONTS = [
   'Cascadia Mono',
   'Cascadia Code',
@@ -91,21 +102,33 @@ export async function listInstalledFonts(): Promise<string[]> {
 }
 
 /**
- * The list the picker shows: installed fonts that look monospaced, followed by
- * the bundled shortlist so a good default is always selectable.
+ * What the picker shows.
+ *
+ * The bundled faces come first and are always selectable. After them come the
+ * installed families, split by the monospace heuristic. The shortlist of fonts a
+ * desktop "probably" has is *not* mixed in any more: it used to be appended to the
+ * monospaced list, so the picker offered names that were not installed at all and
+ * picking one changed nothing. Those names survive only as `suggested`, for
+ * autocomplete, and the UI says so.
  */
-export async function listFontChoices(): Promise<{ monospace: string[]; others: string[] }> {
+export async function listFontChoices(): Promise<FontChoices> {
   const installed = await listInstalledFonts()
-  const monospace = installed.filter((name) => MONO_HINT.test(name)).sort((a, b) => a.localeCompare(b))
+  const bundled = [...BUNDLED_MONOSPACE_FONTS]
 
-  // Everything else is still offered: some people want a proportional font, and
-  // excluding them would be a silent, unexplainable omission.
-  const monoSet = new Set(monospace)
-  const others = installed.filter((name) => !monoSet.has(name)).sort((a, b) => a.localeCompare(b))
+  const monospace = installed
+    .filter((name) => MONO_HINT.test(name) && !bundled.includes(name))
+    .sort((a, b) => a.localeCompare(b))
 
-  for (const name of FALLBACK_MONOSPACE_FONTS) {
-    if (!monoSet.has(name)) monospace.push(name)
-  }
+  const offered = new Set([...bundled, ...monospace].map((name) => name.toLowerCase()))
+  const installedLower = new Set(installed.map((name) => name.toLowerCase()))
 
-  return { monospace, others }
+  // Everything else installed is still offered: some people want a proportional
+  // font, and excluding them would be a silent, unexplainable omission.
+  const others = installed.filter((name) => !offered.has(name.toLowerCase())).sort((a, b) => a.localeCompare(b))
+
+  const suggested = FALLBACK_MONOSPACE_FONTS.filter(
+    (name) => !offered.has(name.toLowerCase()) && !installedLower.has(name.toLowerCase())
+  )
+
+  return { bundled, monospace, others, suggested }
 }

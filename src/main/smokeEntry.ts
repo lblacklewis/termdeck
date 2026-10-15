@@ -25,6 +25,17 @@ import {
 import { LayoutStore } from './store/LayoutStore'
 import { KnownHosts, fingerprint } from './ssh/KnownHosts'
 import { parseBatchHosts, BATCH_HOST_LIMIT } from '../shared/batchHosts'
+import {
+  buildShareDocument,
+  packShare,
+  planImport,
+  ShareError,
+  summariseImport,
+  unpackShare,
+  MIN_PASSPHRASE,
+  SHARE_MAGIC,
+  SHARE_VERSION
+} from './share'
 
 export {
   registerIpc,
@@ -56,5 +67,14 @@ export {
   KnownHosts,
   fingerprint,
   parseBatchHosts,
-  BATCH_HOST_LIMIT
+  BATCH_HOST_LIMIT,
+  buildShareDocument,
+  packShare,
+  unpackShare,
+  planImport,
+  summariseImport,
+  ShareError,
+  MIN_PASSPHRASE,
+  SHARE_MAGIC,
+  SHARE_VERSION
 }

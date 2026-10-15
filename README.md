@@ -161,10 +161,20 @@ than a fixed 1440×900, which was cramped on a large monitor and oversized on a
 laptop panel.
 
 **Fonts.** Settings → Terminal → *Font family* lists the monospaced fonts
-actually installed on this machine, read from the platform. Clicking a chip
-applies it, the field stays free-text, and a live preview shows the choice
-before it is saved. Choosing a family rebuilds the fallback stack rather than
-replacing it, so a font missing a glyph still falls back correctly.
+actually installed on this machine, read from the platform, plus the faces that
+ship inside the app: **Roboto Mono** and **JetBrains Mono**. Clicking a chip
+applies it, the field stays free-text, and a live preview shows the choice before
+it is saved. Choosing a family rebuilds the fallback stack rather than replacing
+it, so a font missing a glyph still falls back correctly.
+
+The bundled pair matters more than it sounds. The list used to append a shortlist
+of fonts a desktop "probably" has, so it offered names that were not installed —
+picking one changed nothing at all, because the browser silently fell back. Those
+names are now offered for autocomplete only and labelled *not installed*, and the
+two faces people actually ask for are shipped instead (four weights each, latin
+subset, ~50-90 KB total, SIL OFL 1.1 with the licences beside them). A bundled
+face is loaded before xterm measures a character cell — measuring the fallback
+would leave every pane at the wrong width until something else refitted it.
 
 **Cursor.** The blink rate is selectable (or off). This is ours rather than
 xterm's because xterm toggles its blink class on an internal tick and ships no
@@ -310,6 +320,39 @@ its effective background. `scripts/tunecontrast.cjs` derives compliant muted-tex
 colours from each theme's own foreground.
 
 
+## Sharing saved hosts
+
+Hosts page → **Export** writes the whole tree — groups, hosts, tags, and the saved
+passwords if you leave that box ticked — into one file (`.tdshare`). **Import**
+reads someone else's back. The point is handing a colleague the fleet in one go
+instead of pasting twenty lines into a chat window.
+
+The file is **gzipped and then encrypted** with a passphrase you choose: compressed
+first, so no plaintext is ever written, and encrypted so it can travel by mail or
+chat. AES-256-GCM with a scrypt-derived key (2^15 · r8 · p1, ~100 ms per attempt).
+Nothing about the hosts is readable from the file — not the addresses, not the
+names, not the passwords — and a single flipped byte is caught by the
+authentication tag rather than decrypted into nonsense. The container is
+self-describing (`TDSHARE1` magic, then salt, iv, tag, body), so a truncated file,
+a file that is not ours, and a file from a newer build each get their own sentence.
+
+Import merges rather than replaces:
+
+- **A host already here is skipped**, and "already here" means the same username
+  *and* host *and* port — two logins to one machine are two legitimate sessions.
+- **A group with the same name is reused**, and its children are recreated inside
+  it, so importing the same file twice is a no-op rather than a doubled tree.
+- Imported secrets are **re-sealed under the ids minted on this machine**; the
+  file's ids never reach the local credential store.
+- The dialog reads the file as soon as a passphrase is present and says what it
+  would do — how many hosts, how many are already here, how many come with a
+  password — using the same plan the import then executes.
+
+`npm run smoke:share` covers the container (round trip, wrong passphrase, damaged
+byte, truncated file, foreign file, newer version), the merge rules, and the whole
+thing through the real IPC — including that the file on disk contains no readable
+host or password.
+
 ## Security notes
 
 - **Host keys are verified.** A changed key is never accepted automatically,
@@ -318,6 +361,10 @@ colours from each theme's own foreground.
   so the file does not leak which hosts you connect to.
 - **Saved credentials are encrypted at rest** (see above) and never cross into
   the renderer. Credentials typed for a one-off connection are not persisted.
+- **A share file is only as private as its passphrase.** It carries passwords if
+  the exporter ticked the box, protected by the passphrase alone — the app cannot
+  help beyond refusing anything shorter than eight characters. Send the passphrase
+  by a different route from the file.
 
 
 ## Requirements
@@ -455,6 +502,7 @@ npm run smoke:features3 # font picker, cursor blink, broadcast input
 npm run smoke:scale     # interface scale: applies, previsualises, persists, reverts
 npm run smoke:batch     # adding hosts in bulk: ranges, shared credentials, what is skipped
 npm run smoke:gesture   # pane fits are held during a drag and taken once when it ends
+npm run smoke:share     # encrypted host sharing: container, merge rules, real IPC
 npm run smoke:snippet   # snippets send verbatim; a line break is what runs them
 npm run smoke:layout    # layout persists across a real restart, panes reconnect after it
 npm run smoke:repeat    # 6 alternating pane-geometry passes, incl. a scale change
@@ -473,6 +521,18 @@ testing and resolved CSS variables rather than painted pixel values.
 These each cost real debugging time; they are recorded so they are not
 rediscovered.
 
+- **`.td-form input { width: 100% }` also matches checkboxes.** It looks like it is
+  about text fields, but an `input[type=checkbox]` inside a form got the sunken
+  background, the border and the full width — and Chromium draws the box centred
+  in whatever space it is given, so the result was a stretched control with its
+  label squeezed to one character per line. The connect prompt's "remember"
+  checkbox had been like that since it was written. Exclude checkbox/radio in the
+  selector *and* pin `width: auto` on `.td-check input`.
+- **A bare class loses to a child combinator that styles the same element.**
+  `.td-hint` sets `text-transform: none`, but `.td-field > span` (one class *and*
+  an element) sets `uppercase`, so every hint inside a field rendered as an
+  overline label however the hint was written. Reset it as
+  `.td-field > span.td-hint`, with the same weight as the rule being overridden.
 - **Anything that must outlive page navigation has to stay mounted.** The
   docking workspace is hidden with CSS rather than unmounted, because
   unmounting disposes the docking component and a session connected from another

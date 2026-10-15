@@ -73,6 +73,33 @@ async function main() {
       push('known monospaced families are found',
         fonts.monospace.some((f) => /consol|cascadia|mono/i.test(f)),
         JSON.stringify(fonts.monospace.slice(0, 6)))
+      push('the bundled terminal faces are offered',
+        fonts.bundled.includes('Roboto Mono') && fonts.bundled.includes('JetBrains Mono'),
+        fonts.bundled.join(', '))
+
+      /*
+       * A font that is neither installed nor bundled measures exactly like a name
+       * that does not exist at all — that is the whole reason the picker used to
+       * offer Roboto Mono and then render something else. Measuring the advance
+       * width is the only way to tell "this face is really here" from "the browser
+       * quietly used the fallback", because document.fonts.check answers true for
+       * names it knows nothing about.
+       */
+      const advance = (family) => {
+        const ctx = document.createElement('canvas').getContext('2d')
+        ctx.font = '16px ' + family
+        return Math.round(ctx.measureText('iiiiWWWW0123456789').width * 100) / 100
+      }
+      // Canvas does not trigger a webfont load, so the face has to be asked for
+      // first — which is the same thing the terminal does before it measures a cell.
+      await document.fonts.load('16px "Roboto Mono"')
+      const missing = advance('"No Such Font 98765"')
+      push('the bundled font is really rendered, not fallen back',
+        Math.abs(advance('"Roboto Mono"') - missing) > 0.5,
+        'Roboto Mono ' + advance('"Roboto Mono"') + 'px vs missing ' + missing + 'px')
+      push('and its metrics differ from the generic fallback',
+        Math.abs(advance('"Roboto Mono"') - advance('monospace')) > 0.5,
+        'monospace ' + advance('monospace') + 'px')
 
       document.querySelector('[data-testid="open-settings"]').click()
       await waitFor(() => document.querySelector('[data-testid="settings-drawer"]'))

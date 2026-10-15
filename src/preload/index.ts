@@ -20,6 +20,12 @@ import type {
   SessionFolder,
   SessionInfo,
   SessionTree,
+  ShareExportRequest,
+  ShareExportResult,
+  ShareImportRequest,
+  ShareImportResult,
+  SharePeekResult,
+  SharePickResult,
   SftpListResult,
   SftpTransferResult,
   Snippet,
@@ -103,6 +109,16 @@ const api = {
 
   // ---- interface scale --------------------------------------------------
   setUiScale: (scale: number): Promise<number> => ipcRenderer.invoke('ui:setScale', scale),
+
+  // ---- sharing saved hosts ----------------------------------------------
+  /** Without `filePath` the main process opens its own save dialog. */
+  exportShare: (request: ShareExportRequest): Promise<ShareExportResult> =>
+    ipcRenderer.invoke('share:export', request),
+  pickShareFile: (): Promise<SharePickResult> => ipcRenderer.invoke('share:pick'),
+  peekShare: (filePath: string, passphrase: string): Promise<SharePeekResult> =>
+    ipcRenderer.invoke('share:peek', { filePath, passphrase }),
+  importShare: (request: ShareImportRequest): Promise<ShareImportResult> =>
+    ipcRenderer.invoke('share:import', request),
 
   // ---- fonts ------------------------------------------------------------
   listFonts: (): Promise<FontChoices> => ipcRenderer.invoke('fonts:list'),

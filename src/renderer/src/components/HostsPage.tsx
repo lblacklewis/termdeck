@@ -19,6 +19,9 @@ interface HostsPageProps {
   onMove: (sessionId: string, parentId: string | null) => void
   /** Re-file a whole group, which is how nesting is rearranged. */
   onMoveGroup: (folderId: string, parentId: string | null) => void
+  /** Share the whole list with someone else, or read theirs in. */
+  onExportShare: () => void
+  onImportShare: () => void
 }
 
 const UNFILED = 'Unfiled'
@@ -64,7 +67,9 @@ export function HostsPage({
   onRenameGroup,
   onDeleteGroup,
   onMove,
-  onMoveGroup
+  onMoveGroup,
+  onExportShare,
+  onImportShare
 }: HostsPageProps): JSX.Element {
   const [filter, setFilter] = useState('')
   const [tagFilter, setTagFilter] = useState<string | null>(null)
@@ -433,6 +438,17 @@ export function HostsPage({
               onClick={() => onCreateGroup(null)}
             >
               New group
+            </button>
+            {/*
+              Sharing sits with the other list-level actions: it is about the whole
+              list, and burying it in a menu would hide the one thing a new
+              colleague needs to be told about.
+            */}
+            <button className="td-btn" data-testid="hosts-import" onClick={onImportShare}>
+              Import
+            </button>
+            <button className="td-btn" data-testid="hosts-export" onClick={onExportShare}>
+              Export
             </button>
             {/*
               Tag filters sit with the actions rather than in a row of their own:

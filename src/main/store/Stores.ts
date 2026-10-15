@@ -535,6 +535,33 @@ export class SessionStore {
     return this.commit(this.tree)
   }
 
+  /**
+   * Apply imported folders and sessions as one change.
+   *
+   * A share import can bring dozens of hosts and their groups, and each of
+   * `upsertFolder` / `addSessions` writes the file and broadcasts on its own; this
+   * collects the lot into a single commit. Ids come from the caller, because the
+   * plan is what maps the imported ids onto freshly minted ones.
+   */
+  importShare(plan: {
+    folders: Array<{ id: string; name: string; parentId: string | null; color?: string }>
+    sessions: Array<Partial<SavedSession> & { id: string; host: string }>
+  }): SessionTree {
+    for (const folder of plan.folders) {
+      if (this.tree.folders.some((f) => f.id === folder.id)) continue
+      this.tree.folders.push({
+        id: folder.id,
+        name: folder.name,
+        parentId: folder.parentId,
+        color: folder.color,
+        expanded: true,
+        createdAt: Date.now()
+      })
+    }
+    for (const session of plan.sessions) this.applyUpsert(session)
+    return this.commit(this.tree)
+  }
+
   /** Recursively delete a folder with its subfolders and their sessions. */
   deleteFolder(id: string): SessionTree {
     const doomed = new Set<string>()
