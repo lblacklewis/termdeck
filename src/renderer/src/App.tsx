@@ -411,16 +411,22 @@ export function App(): JSX.Element {
    * through a ref there so that effect keeps its empty dependency list.
    */
   /** Set by the connect helpers; called by a restored pane's Reconnect button. */
-  const reconnectRef = useRef<(savedSessionId: string, title: string) => void>(() => {})
+  const reconnectRef = useRef<(panelId: string, savedSessionId: string, title: string) => void>(
+    () => {}
+  )
   /** Latest connectSaved, so the reconnect effect need not re-run every render. */
   const connectSavedRef = useRef<(session: SavedSession, password?: string) => Promise<void>>(
     async () => {}
   )
   /**
-   * Maps a live session id to the saved session it came from, so a connected
-   * session can adopt the placeholder pane that the restored layout left behind.
+   * Saved session id → the pane whose Reconnect button was pressed for it.
+   *
+   * A pane remembers the saved session it came from in its own params, but that
+   * field can be stale for a layout written by an older build (see
+   * `reconnectRef`), so the pane that actually asked is recorded here and adopted
+   * once its connection is up.
    */
-  const savedIdForSessionRef = useRef<Map<string, string>>(new Map())
+  const pendingPaneRef = useRef<Map<string, string>>(new Map())
   /**
    * Maps a panel id to the live session it currently displays.
    *
@@ -574,7 +580,7 @@ export function App(): JSX.Element {
                 title={panelParams.title}
                 savedSessionId={panelParams.savedSessionId}
                 disconnected={panelParams.disconnected}
-                onReconnect={(id, name) => reconnectRef.current(id, name)}
+                onReconnect={(id, name) => reconnectRef.current(options.id, id, name)}
                 onSessionEnded={(id) => endedRef.current(id)}
               />
             )
@@ -708,9 +714,17 @@ export function App(): JSX.Element {
     void api.loadLayout().then((layout) => {
       if (cancelled) return
       let restored = false
+      /*
+       * The parsed state is kept because it is the only place a saved-session link
+       * can be read back from: `panel.api.getParameters()` is empty on a panel that
+       * came out of `fromJSON` until something calls `updateParameters` on it.
+       */
+      let persisted: { panels?: Record<string, { params?: TerminalPanelMeta }> } | null = null
       if (layout.dockview) {
         try {
-          dock.fromJSON(JSON.parse(layout.dockview))
+          const state = JSON.parse(layout.dockview)
+          persisted = state
+          dock.fromJSON(state)
           restored = dock.api.panels.length > 0
         } catch {
           // A layout saved by an incompatible version must not block startup.
@@ -722,10 +736,18 @@ export function App(): JSX.Element {
       if (restored) {
         for (const panel of dock.api.panels) {
           if (panel.api.component !== 'terminal') continue
+          const recorded = persisted?.panels?.[panel.id]?.params?.savedSessionId
           panel.api.updateParameters({
             session: undefined,
             disconnected: true,
-            savedSessionId: panel.id,
+            /*
+             * Keep the saved session the layout recorded, and only fall back to the
+             * panel's own id: that id is the *live* session the pane happened to be
+             * showing when the layout was written, and a layout that has it here is
+             * one from before the link was recorded. `reconnectRef` copes with
+             * those by title.
+             */
+            savedSessionId: recorded ?? panel.id,
             title: panel.title || 'Session'
           })
           // dockview does not notify the content renderer of a params change, so
@@ -940,51 +962,97 @@ export function App(): JSX.Element {
     settle()
   }, [])
 
-  const addSession = useCallback((session: SessionInfo) => {
+  /**
+   * A restored placeholder still standing for this saved session, if any.
+   *
+   * Found through its params rather than its id: a pane restored from the layout
+   * keeps the id it had when it was saved (which was the live session's), so the
+   * saved session's id is not something a panel can be looked up by.
+   */
+  const restoredPaneFor = useCallback((savedSessionId: string): string | undefined => {
     const dockApi = dockApiRef.current
-    if (!dockApi) return
+    if (!dockApi) return undefined
+    const direct = dockApi.getPanel(savedSessionId)
+    if (direct) return direct.id
+    return dockApi.panels.find((panel) => {
+      const params = panel.api.getParameters<TerminalPanelMeta>() ?? {}
+      return params.disconnected === true && params.savedSessionId === savedSessionId
+    })?.id
+  }, [])
 
-    setSessions((prev) => [...prev, session])
+  const addSession = useCallback(
+    (session: SessionInfo, fromSaved?: string) => {
+      const dockApi = dockApiRef.current
+      if (!dockApi) return
 
-    // A restored pane for this saved session is still sitting there as a
-    // placeholder; give it the live session instead of adding a second tab.
-    const fromSaved = savedIdForSessionRef.current.get(session.id)
-    const existing = fromSaved ? dockApi.getPanel(fromSaved) : undefined
-    if (existing) {
-      savedIdForSessionRef.current.delete(session.id)
-      liveSessionRef.current.set(existing.id, session.id)
-      existing.api.updateParameters({
-        session,
-        disconnected: false,
-        savedSessionId: undefined,
-        title: session.title
-      })
-      refreshPanelParams(existing.id)
-      existing.api.setTitle(session.title)
-      existing.api.setActive()
-      return
-    }
+      setSessions((prev) => [...prev, session])
 
-    const placeholder = dockApi.getPanel('welcome')
-    if (placeholder) dockApi.removePanel(placeholder)
-
-    liveSessionRef.current.set(session.id, session.id)
-    dockApi.addPanel({
-      id: session.id,
-      component: 'terminal',
-      title: session.title,
-      params: {
-        session,
-        onEnded: (id: string) => endedRef.current(id)
+      // A restored pane for this saved session is still sitting there as a
+      // placeholder; give it the live session instead of adding a second tab.
+      const adoptId = fromSaved
+        ? (pendingPaneRef.current.get(fromSaved) ?? restoredPaneFor(fromSaved))
+        : undefined
+      if (fromSaved) pendingPaneRef.current.delete(fromSaved)
+      const existing = adoptId ? dockApi.getPanel(adoptId) : undefined
+      if (existing) {
+        liveSessionRef.current.set(existing.id, session.id)
+        existing.api.updateParameters({
+          session,
+          disconnected: false,
+          /*
+           * The link to the saved session is kept rather than cleared. This pane is
+           * live, but the layout is serialised from these params, and that link is
+           * what lets the pane restored from that layout reconnect again.
+           */
+          savedSessionId: fromSaved,
+          title: session.title
+        })
+        refreshPanelParams(existing.id)
+        existing.api.setTitle(session.title)
+        existing.api.setActive()
+        return
       }
-    })
 
-    /*
-     * Then drive the layout until the pane agrees with its container; see
-     * `settlePanel` for why one layout pass is not enough.
-     */
-    settlePanel(session.id)
-  }, [settlePanel])
+      const placeholder = dockApi.getPanel('welcome')
+      if (placeholder) dockApi.removePanel(placeholder)
+
+      liveSessionRef.current.set(session.id, session.id)
+      const panel = dockApi.addPanel({
+        id: session.id,
+        component: 'terminal',
+        title: session.title,
+        params: {
+          session,
+          onEnded: (id: string) => endedRef.current(id)
+        }
+      })
+
+      /*
+       * Record which saved session this pane belongs to.
+       *
+       * `addPanel`'s params reach the renderer but are not kept by dockview's own
+       * panel state, and the layout is serialised from that state — so without this
+       * second call a pane restored from the layout has nothing but its own (by
+       * then dead) live session id to go on, and its Reconnect button can never
+       * find the session it came from.
+       */
+      if (fromSaved) {
+        panel.api.updateParameters({
+          session,
+          savedSessionId: fromSaved,
+          title: session.title,
+          onEnded: (id: string) => endedRef.current(id)
+        })
+      }
+
+      /*
+       * Then drive the layout until the pane agrees with its container; see
+       * `settlePanel` for why one layout pass is not enough.
+       */
+      settlePanel(session.id)
+    },
+    [restoredPaneFor, settlePanel]
+  )
 
   /**
    * Save a session that was created by a quick connect.
@@ -1046,7 +1114,7 @@ export function App(): JSX.Element {
       setConnectingId(null)
 
       if (result.ok) {
-        addSession(result.session)
+        addSession(result.session, payload.savedSessionId)
         void autoSaveQuickConnect(result.session, payload)
         setDialogOpen(false)
         setConnectError(null)
@@ -1136,9 +1204,6 @@ export function App(): JSX.Element {
       setConnectingId(session.id)
       try {
         const result = await api.createSshSession(payload)
-        // Remember where this session came from so addSession can reuse the
-        // placeholder pane the restored layout created for it.
-        if (result.ok) savedIdForSessionRef.current.set(result.session.id, session.id)
         handleResult(result, payload)
       } catch (err) {
         // A transport-level rejection would otherwise leave the row spinning.
@@ -1150,24 +1215,32 @@ export function App(): JSX.Element {
   )
 
   /**
-   * Lets a restored pane reconnect. The pane is keyed by the id of the saved
-   * session it was created for; once connected, addSession adopts that pane
-   * instead of opening a second tab.
+   * Lets a restored pane reconnect, in the pane it was pressed in.
+   *
+   * The pane remembers the saved session it came from in its own params — but a
+   * layout written before that was recorded keeps the *live* session id there,
+   * which is gone by the next launch, so the lookup falls back to the pane's own
+   * title. That title is the saved session's name, and a single exact match is
+   * the session it came from; two matches would be a guess, and quietly
+   * connecting the wrong host is worse than saying it cannot be done.
    *
    * Registered through a ref because the dockview factory is created once and
    * cannot see later renders.
    */
   useEffect(() => {
     connectSavedRef.current = connectSaved
-    reconnectRef.current = (savedSessionId, title) => {
-      const saved = treeRef.current.sessions.find((s) => s.id === savedSessionId)
-      if (!saved) {
+    reconnectRef.current = (panelId, savedSessionId, title) => {
+      const sessions = treeRef.current.sessions
+      const byId = sessions.find((s) => s.id === savedSessionId)
+      const matches = byId ? [byId] : sessions.filter((s) => s.name === title)
+      if (matches.length !== 1) {
         setAlert({
           message: `“${title}” is no longer saved, so this pane cannot be restored. Close it, or save the session again.`
         })
         return
       }
-      void connectSavedRef.current(saved)
+      pendingPaneRef.current.set(matches[0].id, panelId)
+      void connectSavedRef.current(matches[0])
     }
   }, [connectSaved])
 

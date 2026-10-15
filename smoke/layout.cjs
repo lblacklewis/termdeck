@@ -3,18 +3,37 @@
  *
  *   npm run build && electron smoke/layout.cjs --user-data-dir=...
  *
- * Runs the app twice against the same user-data-dir: the first run arranges the
+ * Runs the app three times against the same user-data-dir: the first arranges the
  * workspace through real clicks and quits; the second starts fresh and must come
- * back to the same arrangement. Restored panes must be placeholders, and nothing
+ * back to the same arrangement; the third proves a pane reconnected in the second
+ * run can be reconnected again. Restored panes must be placeholders, and nothing
  * may be reconnected automatically.
+ *
+ * The saved-session half of this matters as much as the geometry: a pane opened
+ * from the saved list has to remember *which* session it came from across a
+ * restart, because a live session id is not something the next launch knows.
  */
+const os = require('node:os')
 const path = require('node:path')
 const fs = require('node:fs')
 const { app, BrowserWindow } = require('electron')
 
 const ROOT = path.join(__dirname, '..')
+const SSH_HOST = process.env.TD_SSH_HOST || '82.156.226.192'
+const SSH_USER = process.env.TD_SSH_USER || 'root'
+const SSH_KEY = process.env.TD_SSH_KEY || path.join(os.homedir(), '.ssh', 'id_rsa')
+/** The same path with forward slashes, for a value that crosses into the page. */
+const SSH_KEY_FWD = SSH_KEY.split(path.sep).join('/')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const all = []
+
+/*
+ * Host keys for this suite's logins go to a scratch file, so trusting a host here
+ * cannot touch the developer's real known_hosts. Set before the IPC module loads.
+ */
+const knownHostsPath = path.join(os.tmpdir(), 'termdeck-layout-known-hosts')
+fs.rmSync(knownHostsPath, { force: true })
+process.env['TERMDECK_KNOWN_HOSTS'] = knownHostsPath
 
 function report(checks) {
   for (const c of checks) {
@@ -25,12 +44,21 @@ function report(checks) {
 
 const DOCK = `(() => {
   const api = window.__tdDockApi
+  const panels = api ? api.panels : []
+  const paramsOf = (p) => p.api.getParameters() || {}
   return {
-    panels: api ? api.panels.map((p) => p.id) : [],
+    panels: panels.map((p) => p.id),
     groups: document.querySelectorAll('.dv-groupview').length,
     tabs: [...document.querySelectorAll('.dv-tab')].map((t) => (t.textContent || '').trim()),
     restoredPanes: document.querySelectorAll('[data-testid="restored-pane"]').length,
     reconnectButtons: document.querySelectorAll('[data-testid="reconnect-pane"]').length,
+    /*
+     * Counted from the panels rather than the DOM: a pane stacked behind another
+     * tab is not rendered at all, so a placeholder that is merely inactive has no
+     * element to count.
+     */
+    disconnected: panels.filter((p) => paramsOf(p).disconnected === true).length,
+    withoutSession: panels.filter((p) => !paramsOf(p).session).length,
     rail: document.querySelector('.td-rail-btn.is-active')?.getAttribute('data-page') || null,
     sidebar: !!document.querySelector('.td-sidebar')
   }
@@ -66,12 +94,21 @@ async function boot() {
 }
 
 async function main() {
+  // Start from a profile with nothing in it: this suite saves a session per run,
+  // and a leftover copy from an earlier run would make the "which session is this"
+  // lookups ambiguous.
+  require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
   const layoutFile = path.join(mod.storeAccess().configDir, 'layout.json')
 
   // Start from a clean arrangement so the second run proves a real restore.
   mod.storeAccess().layout.clear()
+
+  // Trust the test host rather than stopping at a host-key dialog in a suite that
+  // is about the layout.
+  const settings = mod.storeAccess().settings.load()
+  mod.storeAccess().settings.save({ ...settings, hostKeys: { policy: 'trust' } })
 
   // ---- run 1: arrange through the UI, then quit ---------------------------
   const first = await boot()
@@ -83,6 +120,14 @@ async function main() {
       while (Date.now() < end) {
         if (fn()) return true
         await wait(150)
+      }
+      return false
+    }
+    const waitForAsync = async (fn, timeout) => {
+      const end = Date.now() + (timeout || 20000)
+      while (Date.now() < end) {
+        if (await fn()) return true
+        await wait(250)
       }
       return false
     }
@@ -98,11 +143,45 @@ async function main() {
     await wait(1500)
 
     const api = window.__tdDockApi
+    const shellIds = api.panels.map((p) => p.id)
+
+    /*
+     * A third pane, this one opened from the saved list: the saved session it came
+     * from is what its Reconnect button has to find after a restart.
+     */
+    const tree = await window.termdeck.saveSession({
+      name: 'layout-ssh-target',
+      host: '${SSH_HOST}',
+      port: 22,
+      username: '${SSH_USER}',
+      authMethod: 'key',
+      privateKeyPath: '${SSH_KEY_FWD}',
+      tags: []
+    })
+    const target = tree.sessions.filter((s) => s.name === 'layout-ssh-target')[0]
+    // The tree the page draws comes from a broadcast, so give the new row a moment
+    // to appear before deciding it is not there.
+    const nodeAppeared = await waitFor(
+      () => !!document.querySelector('.td-node[data-node-id="' + target.id + '"]'), 6000
+    )
+    const node = document.querySelector('.td-node[data-node-id="' + target.id + '"]')
+    if (node && node.querySelector('.td-node-main')) {
+      node.querySelector('.td-node-main').dispatchEvent(
+        new MouseEvent('dblclick', { bubbles: true, cancelable: true })
+      )
+    }
+    const sshUp = await waitForAsync(
+      () => window.__tdDockApi.panels.length >= 3, 30000
+    )
+    await wait(1500)
     const ids = api.panels.map((p) => p.id)
+    const connectAlert = [].slice.call(document.querySelectorAll('.td-alert'))
+      .map((e) => (e.textContent || '').trim()).join(' | ')
     if (api.panels.length >= 2) {
-      // Split: move the second panel beside the first, which is the state a user
+      // Split: move the second shell beside the first, which is the state a user
       // creates by dragging a tab to a pane edge.
-      api.panels[1].api.moveTo({ group: api.panels[0].group, position: 'right' })
+      const shell = api.getPanel(shellIds[1]) || api.panels[1]
+      shell.api.moveTo({ group: api.getPanel(shellIds[0]).group, position: 'right' })
       await wait(1000)
     }
 
@@ -112,6 +191,10 @@ async function main() {
 
     return {
       ids,
+      targetId: target.id,
+      sshUp,
+      nodeAppeared,
+      connectAlert,
       groups: document.querySelectorAll('.dv-groupview').length,
       tabs: [...document.querySelectorAll('.dv-tab')].map((t) => t.textContent.trim())
     }
@@ -124,15 +207,27 @@ async function main() {
 
   report([
     {
-      name: 'the first run arranged two panes',
-      ok: beforeQuit.tabs.length >= 2,
-      detail: 'tabs=' + JSON.stringify(beforeQuit.tabs) + ' groups=' + beforeQuit.groups
+      name: 'the first run arranged its panes',
+      ok: beforeQuit.tabs.length >= 3 && opened.sshUp === true,
+      detail:
+        'tabs=' + JSON.stringify(beforeQuit.tabs) + ' groups=' + beforeQuit.groups +
+        ' sshUp=' + opened.sshUp
     },
     { name: 'a layout file was written', ok: fs.existsSync(layoutFile), detail: layoutFile }
   ])
 
   if (fs.existsSync(layoutFile)) {
     const text = fs.readFileSync(layoutFile, 'utf8')
+    /*
+     * The dockview state is stored as a string inside the layout file, so its quotes
+     * are escaped: the panel list has to be read out of the outer JSON first.
+     */
+    let dockText = ''
+    try {
+      dockText = JSON.parse(text).dockview || ''
+    } catch {
+      dockText = ''
+    }
     report([
       {
         name: 'the saved layout records the panels',
@@ -143,6 +238,22 @@ async function main() {
         name: 'the active page was saved',
         ok: /"page":\s*"logs"/.test(text),
         detail: (text.match(/"page":[^,}]*/) || [''])[0]
+      },
+      {
+        /*
+         * The link that makes Reconnect possible at all. A pane's own id is the
+         * live session it is showing, which means nothing after a restart; the
+         * saved session it came from has to be recorded next to it.
+         */
+        name: 'a pane opened from the saved list records which session it came from',
+        ok: dockText.indexOf('"savedSessionId":"' + opened.targetId + '"') >= 0,
+        detail: 'saved=' + opened.targetId + ' in layout=' +
+          (dockText.indexOf('"savedSessionId"' ) >= 0)
+      },
+      {
+        name: 'and that is not just its own panel id',
+        ok: opened.ids.indexOf(opened.targetId) < 0,
+        detail: 'panels=' + JSON.stringify(opened.ids)
       }
     ])
   }
@@ -166,25 +277,136 @@ async function main() {
       detail: 'groups before=' + beforeQuit.groups + ' after=' + afterRestart.groups
     },
     {
-      name: 'both panes came back',
+      name: 'every pane came back',
       ok: afterRestart.tabs.length === beforeQuit.tabs.length,
       detail: 'before=' + JSON.stringify(beforeQuit.tabs) + ' after=' + JSON.stringify(afterRestart.tabs)
     },
     {
       name: 'restored panes are placeholders',
-      ok: afterRestart.restoredPanes === afterRestart.tabs.length &&
-        afterRestart.reconnectButtons === afterRestart.tabs.length,
-      detail: 'panes=' + afterRestart.restoredPanes + ' reconnect=' + afterRestart.reconnectButtons
+      ok: afterRestart.disconnected === afterRestart.tabs.length &&
+        afterRestart.withoutSession === afterRestart.tabs.length,
+      detail:
+        'panes=' + afterRestart.panels.length + ' disconnected=' + afterRestart.disconnected +
+        ' withoutSession=' + afterRestart.withoutSession +
+        ' rendered=' + afterRestart.restoredPanes
     },
     {
       name: 'nothing was reconnected automatically',
-      ok: afterRestart.restoredPanes > 0,
+      ok: afterRestart.restoredPanes > 0 && afterRestart.withoutSession === afterRestart.tabs.length,
       detail: 'no shell or SSH connection was spawned on launch'
     },
     {
       name: 'the previous rail section came back',
       ok: afterRestart.rail === 'logs',
       detail: 'rail=' + afterRestart.rail
+    }
+  ])
+
+  // ---- a restored pane whose saved session still exists reconnects ---------
+  /*
+   * The case users actually hit: connect a saved host, quit, launch again, press
+   * Reconnect. This used to answer "no longer saved" every time, because the pane
+   * had recorded the *live* session id and that id is gone by the next launch.
+   * Only the stale-pane case below was ever asserted, which is how it survived.
+   */
+  const reconnected = await second.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const waitFor = async (fn, timeout) => {
+      const end = Date.now() + (timeout || 30000)
+      while (Date.now() < end) {
+        if (await fn()) return true
+        await wait(200)
+      }
+      return false
+    }
+    const title = 'layout-ssh-target'
+    const tabFor = (t) =>
+      [].slice.call(document.querySelectorAll('.dv-tab'))
+        .filter((tab) => ((tab.textContent || '').trim()) === t)[0]
+    const paneFor = (t) =>
+      [].slice.call(document.querySelectorAll('[data-testid="restored-pane"]'))
+        .filter((p) => {
+          const name = p.querySelector('.td-watermark-title')
+          return ((name && name.textContent) || '') === t
+        })[0]
+    const snap = () => ({
+      panels: window.__tdDockApi.panels.length,
+      placeholders: document.querySelectorAll('[data-testid="restored-pane"]').length,
+      live: document.querySelectorAll('.td-terminal:not(.td-terminal-restored)').length,
+      disconnected: window.__tdDockApi.panels
+        .filter((p) => (p.api.getParameters() || {}).disconnected === true).length
+    })
+
+    /*
+     * A pane stacked behind another tab is not rendered, so bring it to the front
+     * first: this is what a user does before pressing a button that is not on
+     * screen.
+     */
+    const tab = tabFor(title)
+    if (tab) {
+      tab.click()
+      await wait(700)
+    }
+    const before = snap()
+    const paneParams = window.__tdDockApi.panels.map((p) => {
+      const q = p.api.getParameters() || {}
+      return {
+        id: p.id,
+        saved: String(q.savedSessionId || ''),
+        title: String(q.title || ''),
+        disconnected: q.disconnected === true
+      }
+    })
+    const tree = await window.termdeck.loadSessionTree()
+    const sessionNames = tree.sessions.map((s) => s.name)
+    const pane = paneFor(title)
+    if (!pane) {
+      return {
+        error: 'no restored pane titled ' + title,
+        tabFound: !!tab,
+        before,
+        paneParams,
+        sessionNames,
+        tabs: [].slice.call(document.querySelectorAll('.dv-tab'))
+          .map((t) => (t.textContent || '').trim())
+      }
+    }
+    const button = pane.querySelector('[data-testid="reconnect-pane"]')
+    if (!button) {
+      return { error: 'no reconnect button on that pane', before, paneParams, sessionNames }
+    }
+    button.click()
+    const gone = await waitFor(async () => !paneFor(title))
+    await wait(600)
+    const alert = [].slice.call(document.querySelectorAll('.td-alert'))
+      .map((e) => (e.textContent || '').trim()).join(' | ')
+    return { before, gone, after: snap(), alert, paneParams, sessionNames }
+  })()`)
+  console.log('reconnect result:', JSON.stringify(reconnected))
+
+  report([
+    {
+      name: 'a restored pane whose saved session exists reconnects',
+      ok: !reconnected.error && reconnected.gone === true,
+      detail:
+        reconnected.error ||
+        'placeholder gone=' + reconnected.gone + ' before=' + JSON.stringify(reconnected.before)
+    },
+    {
+      name: 'it reconnects into its own pane rather than beside it',
+      ok:
+        !reconnected.error &&
+        reconnected.after.panels === reconnected.before.panels &&
+        reconnected.after.placeholders === reconnected.before.placeholders - 1 &&
+        reconnected.after.live === reconnected.before.live + 1,
+      detail:
+        'panels ' + (reconnected.before || {}).panels + ' -> ' + (reconnected.after || {}).panels +
+        ', live ' + (reconnected.before || {}).live + ' -> ' + (reconnected.after || {}).live
+    },
+    {
+      name: 'and it does not claim the session is gone',
+      ok: !/no longer saved/i.test(reconnected.alert || ''),
+      detail: (reconnected.alert || 'no alert').slice(0, 120)
     }
   ])
 
@@ -199,14 +421,12 @@ async function main() {
     const api = window.termdeck
     const before = window.__tdDockApi.panels.length
 
-    // Save a session and re-point one placeholder at it, then reconnect.
+    // A session saved *after* the layout was written: no pane came from it, which
+    // is the stale case — the pane in front of us is one of the local shells.
     const saved = await api.saveSession({
       name: 'layout-target', host: '127.0.0.1', port: 22,
       username: 'nobody', authMethod: 'password', tags: []
     })
-    // The placeholder is keyed by its saved session id, so stand one up that
-    // matches the session we just saved; otherwise Reconnect reports the session
-    // is gone, which is its own correct behaviour.
     const store = await api.loadLayout()
     return { before, savedId: saved.id, hasLayout: !!store.dockview }
   })()`)
@@ -239,6 +459,92 @@ async function main() {
         (missing.alert || '') + (missing.body || '')
       ),
       detail: (missing.alert || missing.body || '').slice(0, 140)
+    }
+  ])
+
+  /*
+   * ---- run 3: the pane reconnected in run 2 must reconnect again -----------
+   *
+   * The user's loop is "every time I start the app", not "once after upgrading".
+   * A pane that reconnected has to leave the link behind for the *next* launch as
+   * well — which it only does if adopting a placeholder keeps the link rather than
+   * clearing it.
+   */
+  second.destroy()
+  await sleep(1800)
+
+  const third = await boot()
+  const thirdDock = await third.webContents.executeJavaScript(DOCK)
+  console.log('run 3 dock:', JSON.stringify(thirdDock))
+
+  const again = await third.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const waitFor = async (fn, timeout) => {
+      const end = Date.now() + (timeout || 30000)
+      while (Date.now() < end) {
+        if (await fn()) return true
+        await wait(200)
+      }
+      return false
+    }
+    const title = 'layout-ssh-target'
+    const paneFor = (t) =>
+      [].slice.call(document.querySelectorAll('[data-testid="restored-pane"]'))
+        .filter((p) => {
+          const name = p.querySelector('.td-watermark-title')
+          return ((name && name.textContent) || '') === t
+        })[0]
+    const tab = [].slice.call(document.querySelectorAll('.dv-tab'))
+      .filter((t) => ((t.textContent || '').trim()) === title)[0]
+    if (tab) {
+      tab.click()
+      await wait(700)
+    }
+    const before = {
+      panels: window.__tdDockApi.panels.length,
+      live: document.querySelectorAll('.td-terminal:not(.td-terminal-restored)').length
+    }
+    const pane = paneFor(title)
+    if (!pane) return { error: 'no restored pane titled ' + title, before }
+    pane.querySelector('[data-testid="reconnect-pane"]').click()
+    const gone = await waitFor(async () => !paneFor(title))
+    await wait(600)
+    const alert = [].slice.call(document.querySelectorAll('.td-alert'))
+      .map((e) => (e.textContent || '').trim()).join(' | ')
+    return {
+      before,
+      gone,
+      after: {
+        panels: window.__tdDockApi.panels.length,
+        live: document.querySelectorAll('.td-terminal:not(.td-terminal-restored)').length
+      },
+      alert
+    }
+  })()`)
+  console.log('second reconnect result:', JSON.stringify(again))
+
+  report([
+    {
+      name: 'the pane was a placeholder again on the third launch',
+      ok:
+        thirdDock.disconnected === thirdDock.tabs.length &&
+        thirdDock.withoutSession === thirdDock.tabs.length &&
+        thirdDock.tabs.indexOf('layout-ssh-target') >= 0,
+      detail:
+        'panes=' + thirdDock.panels.length + ' disconnected=' + thirdDock.disconnected +
+        ' tabs=' + JSON.stringify(thirdDock.tabs)
+    },
+    {
+      name: 'and it reconnects again, in its own pane',
+      ok:
+        !again.error &&
+        again.gone === true &&
+        again.after.panels === again.before.panels &&
+        again.after.live === again.before.live + 1,
+      detail:
+        again.error ||
+        'panels ' + again.before.panels + ' -> ' + again.after.panels +
+        ', live ' + again.before.live + ' -> ' + again.after.live
     }
   ])
 

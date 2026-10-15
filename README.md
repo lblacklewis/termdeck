@@ -116,6 +116,14 @@ or opening SSH connections on launch would be a surprise — and the local-shell
 case would leak processes. If the saved session has since been deleted, the pane
 says so instead of failing quietly.
 
+**A pane remembers which saved session it came from.** Its own id is the *live*
+session it was showing, which means nothing after a restart, so the saved id is
+recorded in the pane's params — the same state the layout is serialised from —
+and Reconnect looks that up. A layout written before this was recorded keeps the
+dead live id; for those the pane's title is tried, since it is the saved
+session's name. Reconnect then connects *into that pane* instead of opening a
+second one beside it.
+
 ## Appearance
 
 **Interface scale.** Settings → Appearance → *Interface scale* offers 80% to
@@ -445,7 +453,7 @@ npm run smoke:scale     # interface scale: applies, previsualises, persists, rev
 npm run smoke:batch     # adding hosts in bulk: ranges, shared credentials, what is skipped
 npm run smoke:gesture   # pane fits are held during a drag and taken once when it ends
 npm run smoke:snippet   # snippets send verbatim; a line break is what runs them
-npm run smoke:layout    # layout persists across a real restart
+npm run smoke:layout    # layout persists across a real restart, panes reconnect after it
 npm run smoke:repeat    # 6 alternating pane-geometry passes, incl. a scale change
 npm run smoke:contrast  # WCAG contrast audit across every theme and page
 npm run smoke:screen    # what display geometry and scaling the app is running undernpm run verify          # all of the above
@@ -473,6 +481,15 @@ rediscovered.
   dockview offers no `onDidParametersChange` on the init params, and
   `IContentRenderer` has no `update` method, so `ReactRenderer.tsx` keeps its own
   registry and the app calls `refreshPanelParams(panelId)`.
+- **`panel.api.getParameters()` is empty on a panel that came out of `fromJSON`.**
+  The params in the file *are* delivered to the content renderer, but dockview's
+  own panel state stays empty until something calls `updateParameters` on it — and
+  the layout is serialised from that state. So a restore that reads
+  `getParameters()` sees nothing (it must read the parsed file instead), and
+  anything *written* must go through `updateParameters` or it is lost on the next
+  save. This is what made a restored pane's Reconnect button answer "no longer
+  saved" every time: the pane had only recorded its own, by then dead, live
+  session id.
 - **A transformed ancestor becomes the containing block for `position: fixed`.**
   That is what pushed the first context-menu right-click inside a drawer hundreds
   of pixels off-screen; menus are portalled to `<body>`.
