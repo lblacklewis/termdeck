@@ -274,7 +274,18 @@ export interface LayoutState {
   /** Icon-only rail rather than the wider rail plus its list drawer. */
   railCollapsed: boolean
   snippetBarVisible: boolean
+  /**
+   * How the Hosts page lists its hosts.
+   *
+   * Part of the layout rather than the page's own state: the page is unmounted
+   * when another rail section is showing, so a local `useState` put the choice
+   * back to "list" every time the user came back to it.
+   */
+  hostsView: HostsView
 }
+
+/** Rows for scanning a long list, cards for picking one host out of a handful. */
+export type HostsView = 'list' | 'cards'
 
 /**
  * What dockview stores per terminal panel.

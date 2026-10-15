@@ -1,5 +1,5 @@
 import { useMemo, useState, type JSX } from 'react'
-import type { SavedSession, SessionFolder, SessionInfo, SessionTree } from '@shared/types'
+import type { HostsView, SavedSession, SessionFolder, SessionInfo, SessionTree } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 
 interface HostsPageProps {
@@ -7,6 +7,12 @@ interface HostsPageProps {
   /** Open connections, so the list can mark what is already running. */
   sessions: SessionInfo[]
   knownTags: string[]
+  /**
+   * Rows or cards, owned by the shell so it survives leaving the page — this
+   * component is unmounted whenever another rail section is showing.
+   */
+  view: HostsView
+  onViewChange: (view: HostsView) => void
   onConnect: (session: SavedSession) => void
   onEdit: (session: SavedSession) => void
   onDelete: (id: string) => void
@@ -25,8 +31,6 @@ interface HostsPageProps {
 }
 
 const UNFILED = 'Unfiled'
-
-type ViewMode = 'list' | 'cards'
 
 /** One group heading: a real folder, or the catch-all for hosts in no folder. */
 interface GroupNode {
@@ -68,12 +72,13 @@ export function HostsPage({
   onDeleteGroup,
   onMove,
   onMoveGroup,
+  view,
+  onViewChange,
   onExportShare,
   onImportShare
 }: HostsPageProps): JSX.Element {
   const [filter, setFilter] = useState('')
   const [tagFilter, setTagFilter] = useState<string | null>(null)
-  const [view, setView] = useState<ViewMode>('list')
   const [menu, setMenu] = useState<{
     x: number
     y: number
@@ -251,8 +256,8 @@ export function HostsPage({
       run: (id) => {
         if (id === 'newHost') onNewHost(null)
         else if (id === 'newGroup') onCreateGroup(null)
-        else if (id === 'cards') setView('cards')
-        else if (id === 'rows') setView('list')
+        else if (id === 'cards') onViewChange('cards')
+        else if (id === 'rows') onViewChange('list')
       }
     })
   }
@@ -482,7 +487,7 @@ export function HostsPage({
                 aria-pressed={view === 'list'}
                 aria-label="Rows"
                 title="Rows"
-                onClick={() => setView('list')}
+                onClick={() => onViewChange('list')}
               >
                 ☰
               </button>
@@ -492,7 +497,7 @@ export function HostsPage({
                 aria-pressed={view === 'cards'}
                 aria-label="Cards"
                 title="Cards"
-                onClick={() => setView('cards')}
+                onClick={() => onViewChange('cards')}
               >
                 ▦
               </button>

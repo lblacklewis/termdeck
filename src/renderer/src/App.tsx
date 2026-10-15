@@ -11,6 +11,7 @@ import {
   type HistoryEntry,
   type HistorySessionSummary,
   type HostKeyPrompt,
+  type HostsView,
   type LayoutState,
   type LockStatus,
   type QuitRequest,
@@ -278,6 +279,14 @@ export function App(): JSX.Element {
   const [connectingId, setConnectingId] = useState<string | null>(null)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
   const [snippetBarVisible, setSnippetBarVisible] = useState(true)
+  /**
+   * How the Hosts page lists hosts.
+   *
+   * Lives here rather than in the page because the page is unmounted whenever
+   * another rail section is showing — a local state meant the card view lasted
+   * exactly until the user looked at something else.
+   */
+  const [hostsView, setHostsView] = useState<HostsView>('list')
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** Right-click on a pane tab, which has its own item set. */
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
@@ -477,6 +486,7 @@ export function App(): JSX.Element {
       setPage(layout.page)
       setRailCollapsed(layout.railCollapsed)
       setSnippetBarVisible(layout.snippetBarVisible)
+      setHostsView(layout.hostsView)
       hydratedRef.current = true
       setLayoutReady(true)
     })
@@ -931,8 +941,8 @@ export function App(): JSX.Element {
     // ref: the ref is set synchronously inside the load callback while the state
     // lands later, and a write in between would store the pre-restore values.
     if (!hydratedRef.current || !layoutReady) return
-    void api.saveLayout({ page, railCollapsed, snippetBarVisible })
-  }, [page, railCollapsed, snippetBarVisible, layoutReady])
+    void api.saveLayout({ page, railCollapsed, snippetBarVisible, hostsView })
+  }, [page, railCollapsed, snippetBarVisible, hostsView, layoutReady])
 
   // ---- session creation ---------------------------------------------------
 
@@ -2671,6 +2681,8 @@ export function App(): JSX.Element {
           tree={tree}
           sessions={sessions}
           knownTags={knownTags}
+          view={hostsView}
+          onViewChange={setHostsView}
           /*
            * Connecting from Hosts switches to Terminal first. The connection's
            * pane lives in the workspace, so staying on Hosts would open a session

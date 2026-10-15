@@ -151,9 +151,31 @@ async function main() {
       push('switching to cards re-lays the same hosts',
         !!document.querySelector('.td-host-list.is-cards') && rows().length === 3,
         'cards=' + !!document.querySelector('.td-host-list.is-cards') + ' rows=' + rows().length)
+
+      /*
+       * The page is unmounted whenever another rail section is showing, so a view
+       * kept in the page's own state lasted exactly until the user looked at
+       * something else — leave, come back, and it was rows again. The choice is
+       * the shell's now, and it is written to the layout.
+       */
+      document.querySelector('[data-testid="rail-logs"]').click()
+      await wait(600)
+      document.querySelector('[data-testid="rail-hosts"]').click()
+      await wait(700)
+      push('the card view survives leaving the page and coming back',
+        !!document.querySelector('.td-host-list.is-cards') && rows().length === 3,
+        'cards=' + !!document.querySelector('.td-host-list.is-cards') + ' rows=' + rows().length)
+
+      const storedView = await window.termdeck.loadLayout()
+      push('and the view is written to the saved layout',
+        storedView.hostsView === 'cards', 'hostsView=' + storedView.hostsView)
+
       document.querySelector('[data-testid="hosts-view-list"]').click()
       await wait(300)
       push('switching back restores rows', !!document.querySelector('.td-host-list.is-list'))
+      push('and that is saved too',
+        (await window.termdeck.loadLayout()).hostsView === 'list',
+        'hostsView=' + (await window.termdeck.loadLayout()).hostsView)
 
       // ---- groups ----------------------------------------------------------
       const groupNames = () => [...document.querySelectorAll('[data-host-group]')]
@@ -457,6 +479,36 @@ async function main() {
     return out
   })()`)
   report(dup)
+
+  /*
+   * ---- the view outlives a reload -----------------------------------------
+   *
+   * "Saved" has to mean the next launch too, and a reload rebuilds the page from
+   * nothing, so only the layout file can bring the card view back. Done from here
+   * rather than in the page script because a reload destroys the script's context.
+   */
+  await win.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    document.querySelector('[data-testid="rail-hosts"]').click()
+    await wait(600)
+    document.querySelector('[data-testid="hosts-view-cards"]').click()
+    await wait(600)
+    return true
+  })()`)
+  win.webContents.reload()
+  await sleep(2800)
+
+  const afterReload = await win.webContents.executeJavaScript(`(() => ({
+    cards: !!document.querySelector('.td-host-list.is-cards'),
+    onHosts: !!document.querySelector('[data-testid="hosts-new-host"]')
+  }))()`)
+  report([
+    {
+      name: 'the card view comes back after a reload',
+      ok: afterReload.onHosts && afterReload.cards === true,
+      detail: JSON.stringify(afterReload)
+    }
+  ])
 
   const failed = all.filter((c) => !c.ok)
   console.log(`\n${all.length - failed.length}/${all.length} checks passed`)

@@ -102,9 +102,15 @@ hostname genuinely cannot be recovered from them.
 ## Layout persistence
 
 The window reopens the way you left it: pane splits and tab groups, which rail
-section was showing, whether the rail was shrunk, and whether the snippet bar was
-visible. The arrangement is written to `layout.json` in the app's user-data
-directory.
+section was showing, whether the rail was shrunk, whether the snippet bar was
+visible, and whether the Hosts page is listing rows or cards. The arrangement is
+written to `layout.json` in the app's user-data directory.
+
+Anything the user picks *for a page* belongs in that file rather than in the
+page's own state: pages are unmounted when another rail section is showing, so a
+choice kept in `useState` lasts exactly until the user looks at something else.
+The rows/cards switch was like that — leave Hosts, come back, and it was rows
+again.
 
 An older file that predates the rail/drawer merge is still understood: the
 retired `sidebarVisible` / `sidebarCollapsed` pair is read as "whether the rail

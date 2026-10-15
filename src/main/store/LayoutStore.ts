@@ -19,7 +19,8 @@ const DEFAULT_LAYOUT: LayoutState = {
   dockview: null,
   page: 'terminal',
   railCollapsed: false,
-  snippetBarVisible: true
+  snippetBarVisible: true,
+  hostsView: 'list'
 }
 
 const PAGES: PageId[] = ['terminal', 'hosts', 'known-hosts', 'snippets', 'logs', 'settings']
@@ -51,7 +52,10 @@ function sanitise(input: unknown): LayoutState {
     dockview: typeof raw.dockview === 'string' && raw.dockview.length > 0 ? raw.dockview : null,
     page,
     railCollapsed: collapsed,
-    snippetBarVisible: raw.snippetBarVisible !== false
+    snippetBarVisible: raw.snippetBarVisible !== false,
+    // A file written before this field existed has no view to restore, and the
+    // list is the shape that works for the long list that prompted the page.
+    hostsView: raw.hostsView === 'cards' ? 'cards' : 'list'
   }
 }
 
