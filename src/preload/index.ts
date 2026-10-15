@@ -80,6 +80,11 @@ const api = {
       credential?: { password?: string; passphrase?: string }
     }
   ): Promise<SessionTree> => ipcRenderer.invoke('tree:saveSession', session),
+  /** Add several sessions in one write; the shared password lands on each of them. */
+  saveSessions: (batch: {
+    sessions: Array<Partial<SavedSession> & { host: string }>
+    credential?: { password?: string }
+  }): Promise<SessionTree> => ipcRenderer.invoke('tree:saveSessions', batch),
   deleteSession: (id: string): Promise<SessionTree> => ipcRenderer.invoke('tree:deleteSession', id),
   moveSession: (id: string, parentId: string | null): Promise<SessionTree> =>
     ipcRenderer.invoke('tree:moveSession', id, parentId),

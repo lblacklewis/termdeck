@@ -179,23 +179,35 @@ async function main() {
         el.dispatchEvent(new Event('input', { bubbles: true }))
       }
 
-      // Submitting must reach the handshake: a wrong password proves the value
-      // travelled, because the failure becomes an authentication error.
+      /*
+       * Submitting must reach the handshake: a wrong password proves the value
+       * travelled, because the failure comes back as a rejection.
+       *
+       * A rejection reopens the prompt for this session on its own — no alert and
+       * no "Enter password" button to press first, which is the whole point of
+       * tagging the failure.
+       */
       setValue(pw, 'definitely-not-the-password')
       await new Promise((r) => setTimeout(r, 250))
       prompt.querySelector('[data-testid="prompt-connect"]').click()
 
-      let alert = null
+      let rejected = null
       for (let i = 0; i < 70; i++) {
         await new Promise((r) => setTimeout(r, 300))
-        alert = document.querySelector('[data-testid="connect-alert"]')
-        if (alert) break
+        rejected = document.querySelector('[data-testid="password-prompt"]')
+        if (rejected) break
       }
-      push('submitted password is used by the handshake', !!alert,
-        alert ? alert.querySelector('p').textContent.slice(0, 70) : 'no alert')
+      push('submitted password is used by the handshake', !!rejected,
+        rejected ? (rejected.textContent || '').slice(0, 70) : 'no prompt')
       push('failure is an authentication rejection, not a missing credential',
-        !!alert && /Authentication failed/i.test(alert.textContent || ''),
-        alert ? alert.querySelector('p').textContent.slice(0, 70) : 'n/a')
+        !!rejected && /Authentication failed/i.test(rejected.textContent || ''),
+        rejected ? (rejected.textContent || '').slice(0, 70) : 'n/a')
+      push('the rejection is labelled as such',
+        !!rejected && /rejected/i.test((rejected.querySelector('h2') || {}).textContent || ''),
+        rejected ? (rejected.querySelector('h2') || {}).textContent : 'n/a')
+      push('and no dead-end alert was shown instead',
+        !document.querySelector('[data-testid="connect-alert"]'))
+      if (!rejected) return out
 
       // The password was remembered (checkbox was on), so the next attempt uses
       // the stored value rather than prompting again.
@@ -204,23 +216,11 @@ async function main() {
       push('remembering the password stored it', updated.hasPassword === true,
         'hasPassword=' + updated.hasPassword)
 
-      // --- retry affordance on the alert ---------------------------------
-      const retry = alert.querySelector('[data-testid="alert-enter-password"]')
-      push('failure alert offers a password retry', !!retry)
-      if (retry) {
-        retry.click()
-        await new Promise((r) => setTimeout(r, 500))
-        const again = document.querySelector('[data-testid="password-prompt"]')
-        push('retry reopens the prompt', !!again)
-        push('retry prompt is labelled as a rejection',
-          !!again && /rejected/i.test(again.querySelector('h2').textContent || ''),
-          again ? again.querySelector('h2').textContent : 'n/a')
-        const cancel2 = [...again.querySelectorAll('button')]
-          .find((b) => /^Cancel$/.test((b.textContent || '').trim()))
-        cancel2.click()
-        await new Promise((r) => setTimeout(r, 300))
-        push('prompt is dismissible', !document.querySelector('[data-testid="password-prompt"]'))
-      }
+      const cancel2 = [...rejected.querySelectorAll('button')]
+        .find((b) => /^Cancel$/.test((b.textContent || '').trim()))
+      cancel2.click()
+      await new Promise((r) => setTimeout(r, 300))
+      push('prompt is dismissible', !document.querySelector('[data-testid="password-prompt"]'))
 
       return out
     })()`)

@@ -250,7 +250,19 @@ async function main() {
         ritems.includes('newFolderRoot') && ritems.includes('newSessionRoot'), ritems.join(','))
       const newFolder = rmenu.querySelector('[data-menu-id="newFolderRoot"]')
       newFolder.click()
-      await new Promise((r) => setTimeout(r, 700))
+      await new Promise((r) => setTimeout(r, 500))
+      // Creating a folder asks for its name now, in a centred dialog.
+      const nameForm = document.querySelector('[data-testid="name-prompt"]')
+      push('creating a folder from the menu asks for a name', !!nameForm)
+      if (nameForm) {
+        const nameInput = nameForm.querySelector('[aria-label="group-name"]')
+        const nameSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        nameSetter.call(nameInput, 'New folder')
+        nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+        await new Promise((r) => setTimeout(r, 150))
+        nameForm.querySelector('[data-testid="name-prompt-save"]').click()
+        await new Promise((r) => setTimeout(r, 700))
+      }
       const afterFolder = await api.loadSessionTree()
       push('root menu created a folder',
         afterFolder.folders.filter((f) => f.name === 'New folder').length > 0,

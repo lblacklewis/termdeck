@@ -183,19 +183,43 @@ async function main() {
         new MouseEvent('dblclick', { bubbles: true, cancelable: true })
       )
 
-      // A wrong password must fail with an auth error, not "credential missing":
-      // that difference proves the stored value reached the handshake.
-      let alert = null
+      /*
+       * A wrong password must fail as a *rejected* password, not as "credential
+       * missing": that difference proves the stored value reached the handshake.
+       *
+       * A rejection now opens the prompt for that one session rather than an alert
+       * with a button on it, so the prompt is what to wait for.
+       */
+      let prompt = null
       for (let i = 0; i < 60; i++) {
         await new Promise((r) => setTimeout(r, 300))
-        alert = document.querySelector('[data-testid="connect-alert"]')
-        if (alert) break
+        prompt = document.querySelector('[data-testid="password-prompt"]')
+        if (prompt) break
       }
-      push('wrong stored password produces an auth failure', !!alert,
-        alert ? (alert.querySelector('p') || {}).textContent.slice(0, 80) : 'no alert')
+      push('wrong stored password produces an auth failure', !!prompt,
+        prompt ? (prompt.textContent || '').slice(0, 80) : 'no prompt')
       push('the failure is authentication, not a missing credential',
-        !!alert && /Authentication failed/i.test(alert.textContent || ''),
-        alert ? (alert.querySelector('p') || {}).textContent.slice(0, 80) : 'n/a')
+        !!prompt && /Authentication failed/i.test(prompt.textContent || ''),
+        prompt ? (prompt.textContent || '').slice(0, 80) : 'n/a')
+      push('and the prompt is labelled as a rejection',
+        !!prompt && /rejected/i.test((prompt.querySelector('h2') || {}).textContent || ''),
+        prompt ? (prompt.querySelector('h2') || {}).textContent : 'n/a')
+      /*
+       * The prompt has to be about *that* host. Once several hosts share one
+       * password, a bare "password rejected" leaves the user guessing which
+       * connection failed.
+       */
+      push('the prompt names the one host whose password was rejected',
+        !!prompt &&
+          (prompt.textContent || '').includes(session.username + '@' + session.host) &&
+          (prompt.textContent || '').includes(session.name),
+        prompt ? (prompt.textContent || '').slice(0, 90) : 'n/a')
+      if (prompt) {
+        const cancel = [...prompt.querySelectorAll('button')]
+          .find((b) => /^Cancel$/.test((b.textContent || '').trim()))
+        if (cancel) cancel.click()
+        await new Promise((r) => setTimeout(r, 300))
+      }
 
       return out
     })()`)

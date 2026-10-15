@@ -52,8 +52,9 @@ import { SnippetsPage } from './components/SnippetsPage'
 import { LogsPage, type LogEntry } from './components/LogsPage'
 import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
+import { NamePrompt } from './components/NamePrompt'
 import { NavRail, type PageId } from './components/NavRail'
-import { getTerminal, readScrollback } from './components/terminalRegistry'
+import { getTerminal, readScrollback, setFitsPaused } from './components/terminalRegistry'
 import {
   broadcastSummary,
   isBroadcasting,
@@ -162,6 +163,79 @@ export function App(): JSX.Element {
     }
     applyUiScale(settings.uiScale)
   }, [settings.uiScale, applyUiScale])
+
+  /**
+   * True while something is being dragged or animated that resizes the workspace.
+   *
+   * Panes re-measure on a size change, and re-measuring means reflowing xterm and
+   * telling the main process to resize the pty. That is right for a window resize
+   * and wrong for the thirty frames of a sash drag — so the fits wait for the
+   * gesture to end, and then every pane measures once. See `setFitsPaused`.
+   */
+  const [layoutGesture, setLayoutGesture] = useState(false)
+
+  /*
+   * Watch for the gestures that resize the workspace and hold the pane fits
+   * while they run.
+   *
+   * Three different things move a pane's box without a window resize, and all
+   * three used to end up in the fit loop on every frame:
+   *   - dragging a sash between panes or between groups,
+   *   - dragging a panel tab to re-dock it,
+   *   - and the rail's own collapse, which animates its width and so squeezes
+   *     every pane beside it (caught by the transition hooks rather than by
+   *     wrapping each of the three places that toggle the rail).
+   *
+   * The listeners are capture-phase so nothing inside the layout can stop them.
+   */
+  useEffect(() => {
+    const isSplitter = (target: EventTarget | null): boolean => {
+      const el = target as HTMLElement | null
+      return !!el?.closest?.('[class*="dv-sash"], .dv-resize-handle, .dv-resize-container')
+    }
+    const onPointerDown = (event: PointerEvent): void => {
+      if (isSplitter(event.target)) setLayoutGesture(true)
+    }
+    const onDragStart = (event: DragEvent): void => {
+      // dockview's tabs are HTML5-draggable; that drag re-docks the whole panel.
+      const el = event.target as HTMLElement | null
+      if (el?.closest?.('.dv-tab')) setLayoutGesture(true)
+    }
+    const onRailTransition = (event: TransitionEvent): void => {
+      const el = event.target as HTMLElement | null
+      if (event.propertyName !== 'width' || !el?.classList?.contains('td-rail')) return
+      setLayoutGesture(event.type !== 'transitionend' && event.type !== 'transitioncancel')
+    }
+    const endPointer = (): void => setLayoutGesture(false)
+
+    window.addEventListener('pointerdown', onPointerDown, true)
+    window.addEventListener('dragstart', onDragStart, true)
+    window.addEventListener('pointerup', endPointer, true)
+    // A drag the browser cancels (the pointer left the window, a touch was
+    // interrupted) never delivers pointerup, and a gesture that never ends would
+    // leave every pane frozen at the size it had mid-drag.
+    window.addEventListener('pointercancel', endPointer, true)
+    window.addEventListener('dragend', endPointer, true)
+    window.addEventListener('transitionrun', onRailTransition, true)
+    window.addEventListener('transitionend', onRailTransition, true)
+    window.addEventListener('transitioncancel', onRailTransition, true)
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true)
+      window.removeEventListener('dragstart', onDragStart, true)
+      window.removeEventListener('pointerup', endPointer, true)
+      window.removeEventListener('pointercancel', endPointer, true)
+      window.removeEventListener('dragend', endPointer, true)
+      window.removeEventListener('transitionrun', onRailTransition, true)
+      window.removeEventListener('transitionend', onRailTransition, true)
+      window.removeEventListener('transitioncancel', onRailTransition, true)
+      // Never leave the panes frozen because the shell went away mid-gesture.
+      setFitsPaused(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    setFitsPaused(layoutGesture)
+  }, [layoutGesture])
   const [credentialStatus, setCredentialStatus] = useState<CredentialStatus>({
     backend: 'local',
     detail: '',
@@ -216,6 +290,19 @@ export function App(): JSX.Element {
     retry?: boolean
   } | null>(null)
   const [promptBusy, setPromptBusy] = useState(false)
+  /**
+   * A folder waiting to be named.
+   *
+   * Creating a folder used to make one called "New folder" straight away and
+   * renaming used an inline field in the Hosts page header — or, from the drawer,
+   * the browser's `prompt()`, which Electron's renderer refuses, so that path did
+   * nothing at all. Both now go through one centred dialog owned here, because the
+   * three places a folder is made or renamed (the Hosts page, the drawer tree, and
+   * the tree's own buttons) do not share anywhere to put a field.
+   */
+  const [namePrompt, setNamePrompt] = useState<
+    { kind: 'new-folder'; parentId: string | null } | { kind: 'rename-folder'; id: string; name: string } | null
+  >(null)
   /**
    * A quit the main process is holding open for confirmation.
    *
@@ -993,6 +1080,21 @@ export function App(): JSX.Element {
         return
       }
 
+      /*
+       * A rejected password goes straight to the prompt for that one host.
+       *
+       * The alert below already offered "Enter password", which is one click more
+       * than the situation needs, and in a batch of hosts added with a shared
+       * password the wrong one is expected rather than exceptional. Only for
+       * password auth: re-typing a password cannot fix a bad key or a dead agent.
+       */
+      if (error.code === 'AUTH_FAILED' && savedSession?.authMethod === 'password') {
+        setAlert(null)
+        setPasswordPrompt({ session: savedSession, retry: true, reason: error.message })
+        setDialogOpen(false)
+        return
+      }
+
       // A failure that did not come from the dialog must be visible: previously
       // it was only stored in `connectError`, which only the dialog renders, so
       // connecting from the sidebar failed silently.
@@ -1484,12 +1586,18 @@ export function App(): JSX.Element {
       const up = (): void => {
         window.removeEventListener('pointermove', move)
         window.removeEventListener('pointerup', up)
+        window.removeEventListener('pointercancel', up)
         setLiveDrawerWidth(null)
         saveSidebar({ width: last })
+        // The panes were held still for the whole drag; now they measure once.
+        setFitsPaused(false)
       }
 
+      // Widening the drawer narrows every pane beside it, frame by frame.
+      setFitsPaused(true)
       window.addEventListener('pointermove', move)
       window.addEventListener('pointerup', up)
+      window.addEventListener('pointercancel', up)
     },
     [drawerWidth, saveSidebar]
   )
@@ -1643,13 +1751,41 @@ export function App(): JSX.Element {
     }
   }, [])
 
-  const createFolder = useCallback(async (parentId: string | null, name = 'New folder') => {
+  const createFolder = useCallback(async (parentId: string | null, name: string) => {
     try {
       await api.saveFolder({ name, parentId })
     } catch (err) {
       setToast(err instanceof Error ? err.message : String(err))
     }
   }, [])
+
+  /** Ask for a folder's name, either to create one or to rename one. */
+  const askFolderName = useCallback(
+    (target: { kind: 'new-folder'; parentId: string | null } | { kind: 'rename-folder'; id: string }) => {
+      if (target.kind === 'new-folder') {
+        setNamePrompt({ kind: 'new-folder', parentId: target.parentId })
+        return
+      }
+      const folder = treeRef.current.folders.find((f) => f.id === target.id)
+      if (!folder) return
+      setNamePrompt({ kind: 'rename-folder', id: folder.id, name: folder.name })
+    },
+    []
+  )
+
+  const submitFolderName = useCallback(
+    (name: string) => {
+      const target = namePrompt
+      setNamePrompt(null)
+      if (!target) return
+      if (target.kind === 'new-folder') void createFolder(target.parentId, name)
+      else
+        void api.saveFolder({ id: target.id, name }).catch((err: unknown) => {
+          setToast(err instanceof Error ? err.message : String(err))
+        })
+    },
+    [createFolder, namePrompt]
+  )
 
   /** Connect with a password typed in the prompt, optionally remembering it. */
   const submitPassword = useCallback(
@@ -1812,18 +1948,16 @@ export function App(): JSX.Element {
       if (target.kind === 'folder') {
         const { folder } = target
         if (actionId === 'newSessionHere') openEditor(null, folder.id)
-        else if (actionId === 'newFolderHere') void createFolder(folder.id)
-        else if (actionId === 'renameFolder') {
-          const name = window.prompt('Folder name', folder.name)
-          if (name && name.trim()) void api.saveFolder({ id: folder.id, name: name.trim() })
-        } else if (actionId === 'deleteFolder') void api.deleteFolder(folder.id)
+        else if (actionId === 'newFolderHere') askFolderName({ kind: 'new-folder', parentId: folder.id })
+        else if (actionId === 'renameFolder') askFolderName({ kind: 'rename-folder', id: folder.id })
+        else if (actionId === 'deleteFolder') void api.deleteFolder(folder.id)
         return
       }
 
-      if (actionId === 'newFolderRoot') void createFolder(null)
+      if (actionId === 'newFolderRoot') askFolderName({ kind: 'new-folder', parentId: null })
       else if (actionId === 'newSessionRoot') openEditor(null, null)
     },
-    [connectSaved, createFolder, duplicateSession, openEditor]
+    [askFolderName, connectSaved, duplicateSession, openEditor]
   )
 
   // ---- pane output --------------------------------------------------------
@@ -2410,7 +2544,9 @@ export function App(): JSX.Element {
 
   return (
     <div
-      className={'td-root' + (focusMode ? ' is-focus' : '')}
+      className={
+        'td-root' + (focusMode ? ' is-focus' : '') + (layoutGesture ? ' is-layout-gesture' : '')
+      }
       /*
        * Docking is answered at the window, not at the drawer: the pointer during a
        * real drag is out over the workspace, which is not inside the `<aside>`.
@@ -2472,8 +2608,8 @@ export function App(): JSX.Element {
           onDelete={(id) => void api.deleteSession(id)}
           onDuplicate={(s) => void duplicateSession(s)}
           onNewHost={(parentId) => openEditor(null, parentId)}
-          onCreateGroup={(name, parentId) => void createFolder(parentId, name)}
-          onRenameGroup={(id, name) => void api.saveFolder({ id, name })}
+          onCreateGroup={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
+          onRenameGroup={(id) => askFolderName({ kind: 'rename-folder', id })}
           onDeleteGroup={(id) => void api.deleteFolder(id)}
           onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
           onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
@@ -2564,7 +2700,7 @@ export function App(): JSX.Element {
                       className="td-mini"
                       title="New folder"
                       data-testid="tree-new-folder"
-                      onClick={() => void createFolder(null)}
+                      onClick={() => askFolderName({ kind: 'new-folder', parentId: null })}
                     >
                       ⊞
                     </button>
@@ -2597,8 +2733,8 @@ export function App(): JSX.Element {
                   onDuplicateSession={(s) => void duplicateSession(s)}
                   onNewSession={() => openEditor(null, null)}
                   onContextMenu={setContextMenu}
-                  onCreateFolder={(parentId) => void createFolder(parentId)}
-                  onRenameFolder={(id, name) => void api.saveFolder({ id, name })}
+                  onCreateFolder={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
+                  onRenameFolder={(id) => askFolderName({ kind: 'rename-folder', id })}
                   onDeleteFolder={(id) => void api.deleteFolder(id)}
                   onToggleFolder={(id, expanded) =>
                     void api.saveFolder({ id, name: folderName(tree, id), expanded })
@@ -2944,6 +3080,7 @@ export function App(): JSX.Element {
             defaultParentId={editorParentId}
             folders={tree.folders}
             knownTags={knownTags}
+            existing={tree.sessions}
             prefill={prefillCredential}
             onCancel={() => {
               setEditorOpen(false)
@@ -3106,6 +3243,18 @@ export function App(): JSX.Element {
             </button>
           </div>
         </div>
+      )}
+
+      {namePrompt && (
+        <NamePrompt
+          title={namePrompt.kind === 'new-folder' ? 'New group' : 'Rename group'}
+          label="Group name"
+          initialValue={namePrompt.kind === 'rename-folder' ? namePrompt.name : ''}
+          placeholder={namePrompt.kind === 'new-folder' ? 'e.g. client' : undefined}
+          confirmLabel={namePrompt.kind === 'new-folder' ? 'Create' : 'Rename'}
+          onCancel={() => setNamePrompt(null)}
+          onSubmit={submitFolderName}
+        />
       )}
 
       {passwordPrompt && (

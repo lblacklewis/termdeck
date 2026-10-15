@@ -45,6 +45,29 @@ export class HostKeyRequiredError extends Error {
   }
 }
 
+/** Raised when a login was rejected: the credential is wrong, not missing. */
+export class AuthFailedError extends Error {
+  readonly code = 'AUTH_FAILED'
+  constructor(message: string) {
+    super(message)
+    this.name = 'AuthFailedError'
+  }
+}
+
+/**
+ * True for an SSH authentication rejection.
+ *
+ * ssh2 says it twice over: `level: 'client-authentication'` on the error object
+ * and a message `describeError` already translates. Both are checked, because the
+ * level is a plain property that does not survive being wrapped or re-thrown.
+ */
+export function isAuthFailure(err: unknown): boolean {
+  if ((err as { level?: unknown } | null)?.level === 'client-authentication') return true
+  return /authentication methods failed|All configured authentication/i.test(
+    err instanceof Error ? err.message : String(err)
+  )
+}
+
 /** `ssh2` surfaces failures as plain Errors; make them user-readable. */
 export function describeError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
@@ -213,6 +236,10 @@ export class SshShellBackend extends EventEmitter implements SessionBackend {
       if (this.deliberate) {
         this.emit('error', this.deliberate)
         this.deliberate = null
+      } else if (isAuthFailure(err)) {
+        // Tagged so the renderer can tell "this password is wrong" from every
+        // other failure, and ask for it again for this host alone.
+        this.emit('error', new AuthFailedError(describeError(err)))
       } else {
         this.emit('error', new Error(describeError(err)))
       }

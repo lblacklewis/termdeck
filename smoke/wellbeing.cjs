@@ -58,6 +58,35 @@ async function main() {
   win.focus()
   await sleep(500)
 
+  /*
+   * And it has to *stay* focused for the next few minutes.
+   *
+   * `focus()` is a request, not a command: Windows refuses the foreground to a
+   * process the user is not interacting with, so this suite passes or fails
+   * depending on what else is on the desktop at the time — verified by running it
+   * twice against one build and getting 46/46 then 37/46. Rather than let nine
+   * timing checks fail for that one reason, wait for the foreground and say so
+   * once if it never comes.
+   */
+  let inFront = false
+  for (let i = 0; i < 20 && !inFront; i++) {
+    inFront = await win.webContents.executeJavaScript('document.hasFocus()')
+    if (!inFront) {
+      win.focus()
+      await sleep(300)
+    }
+  }
+  if (!inFront) {
+    console.log(
+      'FAIL  the window never came to the front' +
+        ` ${DASH} this suite times a break timer that only counts focused seconds;` +
+        ' bring the app to the front (and leave the desktop alone) and re-run'
+    )
+    console.log('\n0/1 checks passed')
+    app.exit(1)
+    return
+  }
+
   const probe = `
     (async () => {
       const out = []

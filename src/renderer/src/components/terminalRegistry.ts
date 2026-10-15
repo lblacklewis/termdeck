@@ -33,6 +33,34 @@ export function refitAll(): void {
   for (const refit of refitters.values()) refit()
 }
 
+/**
+ * True while the layout is being dragged.
+ *
+ * A sash drag, a tab drag and the rail's collapse all resize the workspace over
+ * hundreds of milliseconds. Each of those frames used to reach `doFit`, which
+ * measures the pane, reflows xterm and sends a `resizeSession` over IPC to resize
+ * the pty. Thirty of those for one gesture is most of what a drag feels like.
+ *
+ * So the fits wait: measuring is skipped while this is set, and every terminal is
+ * measured once when it clears — the size that matters is the one the drag ends on.
+ */
+let fitsPaused = false
+
+export function fitsArePaused(): boolean {
+  return fitsPaused
+}
+
+export function setFitsPaused(next: boolean): void {
+  if (fitsPaused === next) return
+  fitsPaused = next
+  // Exposed for the smoke harness: "paused" is invisible from the outside
+  // otherwise, and a probe has to be able to see that the pause really happened.
+  if (window.localStorage.getItem('tdDebug') === '1') {
+    ;(window as unknown as Record<string, unknown>)['__tdFitsPaused'] = next
+  }
+  if (!next) refitAll()
+}
+
 export function registerTerminal(sessionId: string, term: Terminal): void {
   terminals.set(sessionId, term)
 }

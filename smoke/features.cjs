@@ -655,6 +655,27 @@ async function main() {
       const push = (n, ok, d) => out.push({ name: n, ok, detail: d || '' })
       const api = window.termdeck
 
+      /*
+       * Answer the centred naming prompt.
+       *
+       * Creating a folder now asks for its name instead of quietly making a second
+       * "New folder": every folder used to arrive with the same name and had to be
+       * renamed by hand afterwards.
+       */
+      const answerNamePrompt = async (value) => {
+        await new Promise((r) => setTimeout(r, 450))
+        const form = document.querySelector('[data-testid="name-prompt"]')
+        if (!form) return false
+        const input = form.querySelector('[aria-label="group-name"]')
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        setter.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await new Promise((r) => setTimeout(r, 150))
+        form.querySelector('[data-testid="name-prompt-save"]').click()
+        await new Promise((r) => setTimeout(r, 600))
+        return true
+      }
+
       // The toolbar holds "new session" and "new folder"; target the latter by
       // its title rather than by position.
       // The tree's own buttons live in the Sessions section header now, so they
@@ -662,7 +683,8 @@ async function main() {
       const folderBtn = document.querySelector('[data-testid="tree-new-folder"]')
       push('new folder button present', !!folderBtn)
       folderBtn.click()
-      await new Promise((r) => setTimeout(r, 500))
+      const askedForName = await answerNamePrompt('New folder')
+      push('creating a folder asks for its name', askedForName)
 
       let tree = await api.loadSessionTree()
       const root = tree.folders.find((f) => f.name === 'New folder')
@@ -678,7 +700,7 @@ async function main() {
 
       push('subfolder button present', !!subfolderBtn(root.id))
       subfolderBtn(root.id).click()
-      await new Promise((r) => setTimeout(r, 500))
+      await answerNamePrompt('sub')
 
       tree = await api.loadSessionTree()
       const child = tree.folders.find((f) => f.parentId === root.id)
@@ -687,7 +709,7 @@ async function main() {
       // Three levels deep.
       push('grandchild button present', !!child && !!subfolderBtn(child.id))
       subfolderBtn(child.id).click()
-      await new Promise((r) => setTimeout(r, 500))
+      await answerNamePrompt('deep')
 
       tree = await api.loadSessionTree()
       const grandchild = tree.folders.find((f) => f.parentId === child.id)

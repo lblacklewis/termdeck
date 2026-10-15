@@ -212,7 +212,17 @@ function serialiseError(err: unknown): {
   if (err instanceof HostKeyRequiredError) {
     return { message: err.message, code: err.code, prompt: err.prompt }
   }
-  return { message: err instanceof Error ? err.message : String(err) }
+  /*
+   * Any error that carries a string `code` keeps it — `AUTH_FAILED` is what lets
+   * the renderer tell a rejected password from a dead network and offer to take
+   * the password again. Electron serialises IPC failures down to a message, so a
+   * discriminant the UI needs has to be copied across explicitly.
+   */
+  const code = (err as { code?: unknown } | null)?.code
+  return {
+    message: err instanceof Error ? err.message : String(err),
+    ...(typeof code === 'string' ? { code } : {})
+  }
 }
 
 /**
@@ -610,12 +620,37 @@ export function registerIpc(): void {
     }
   )
 
+  /**
+   * Save several sessions at once, for the batch "add hosts" form.
+   *
+   * One write and one tree broadcast instead of one of each per host. The same
+   * password is sealed under every new session's own id — that is what a shared
+   * password means here — so a host that turns out to want a different one is
+   * fixed on its own later, without touching the rest.
+   */
+  ipcMain.handle(
+    'tree:saveSessions',
+    (
+      _e,
+      batch: {
+        sessions: Array<Partial<SavedSession> & { host: string }>
+        credential?: { password?: string }
+      }
+    ) => {
+      const { tree, sessions } = getSessionStore().addSessions(batch.sessions ?? [])
+      const password = batch.credential?.password
+      if (password) {
+        for (const session of sessions) getCredentials().set(session.id, { password })
+      }
+      return commitTree(tree)
+    }
+  )
+
   ipcMain.handle('tree:deleteSession', (_e, id: string) => {
     // Leave no orphaned secret behind.
     getCredentials().remove(id)
     return commitTree(getSessionStore().deleteSession(id))
   })
-
   ipcMain.handle('tree:moveSession', (_e, id: string, parentId: string | null) =>
     commitTree(getSessionStore().moveSession(id, parentId))
   )

@@ -216,6 +216,31 @@ saved does not create a duplicate.
 On first contact the host-key prompt still appears, showing the fingerprint and
 offering to remember it. That decision is per host, not per session.
 
+## Adding hosts in bulk
+
+New session → **Several hosts** takes a list instead of a single address: one per
+line, with the username, port, group, authentication and password shared by all of
+them.
+
+| Line | What it creates |
+| --- | --- |
+| `web1.example.com` | one host |
+| `10.17.20.210-215` | six hosts, `.210` through `.215` |
+| `node01-04` | `node01` … `node04`, keeping the zero padding |
+| `root@10.0.0.5:2222` | that user and port for this line only |
+| `# prod`, blank lines | ignored |
+
+A range is only ever the **trailing number** moving, which is why
+`web-1.example.com` stays a hostname; a range written backwards is reported
+rather than accepted as a host called `10.17.20.215-210`. Up to 256 hosts at a
+time, duplicates inside one paste collapse, and anything unreadable is named
+rather than dropped — the line under the box counts what will be added, what is
+already saved (matched on host **and** user and port, since two logins to one
+machine are two sessions) and what could not be read.
+
+The password is sealed once per host, so a host that rejects it is simply asked
+again, on its own, at connect time.
+
 ## Snippets
 
 A snippet is sent to the terminal **exactly as written**. Nothing is appended —
@@ -417,6 +442,8 @@ npm run smoke:tabmenu   # pane-tab menu actions
 npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick connect
 npm run smoke:features3 # font picker, cursor blink, broadcast input
 npm run smoke:scale     # interface scale: applies, previsualises, persists, reverts
+npm run smoke:batch     # adding hosts in bulk: ranges, shared credentials, what is skipped
+npm run smoke:gesture   # pane fits are held during a drag and taken once when it ends
 npm run smoke:snippet   # snippets send verbatim; a line break is what runs them
 npm run smoke:layout    # layout persists across a real restart
 npm run smoke:repeat    # 6 alternating pane-geometry passes, incl. a scale change
@@ -525,6 +552,23 @@ rediscovered.
   written directly inside an injected script becomes `/[d{2}/` once the template
   is processed, which throws at runtime and surfaces only as "Script failed to
   execute". Use `new RegExp('\\\\[\\\\d{2}')` or a character class.
+
+- **A suite that measures a focus-dependent timer needs the window in front.**
+  `smoke:wellbeing` times a break reminder that only counts seconds while
+  `document.hasFocus()` is true, and `win.focus()` is a request rather than a
+  command — Windows does not hand the foreground to a process the user is not
+  interacting with. The same build scored 46/46 and then 37/46 on consecutive
+  runs, the second time as nine cascading timing failures. It now waits for the
+  foreground and reports one clear failure if it never arrives, so do not work in
+  another window while it runs.
+
+- **A preference the machine has already set can hide the thing under test.**
+  Windows' "animation effects" being off makes Chromium report
+  `prefers-reduced-motion: reduce`, and this stylesheet honours that by collapsing
+  every transition and animation to 1ms. `smoke:gesture` watches a sidebar
+  collapse, which is recognised by its width transition, so it emulates
+  `no-preference` for that half via `Emulation.setEmulatedMedia` — otherwise there
+  is no animation to observe on this machine at all.
 
 The UI suites run against a throwaway `--user-data-dir`, so they never touch
 your real settings, session tree or vault. `smoke:ssh`, `smoke:ui` and

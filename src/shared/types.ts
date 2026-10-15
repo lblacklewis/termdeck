@@ -779,6 +779,17 @@ export interface TermDeckApi {
       copyCredentialFrom?: string
     }
   ): Promise<SessionTree>
+  /**
+   * Add several sessions in one write, and apply one password to all of them.
+   *
+   * The batch form's whole point: typing a password once covers every host it
+   * creates. Each session still gets its own sealed copy, so a host that rejects
+   * the password is corrected on its own afterwards.
+   */
+  saveSessions(batch: {
+    sessions: Array<Partial<SavedSession> & { host: string }>
+    credential?: { password?: string }
+  }): Promise<SessionTree>
   deleteSession(id: string): Promise<SessionTree>
   saveFolder(folder: Partial<SessionFolder> & { name: string }): Promise<SessionTree>
   deleteFolder(id: string): Promise<SessionTree>

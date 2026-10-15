@@ -425,6 +425,28 @@ export class SessionStore {
   // ---- sessions ---------------------------------------------------------
 
   upsertSession(input: Partial<SavedSession> & { host: string }): SessionTree {
+    this.applyUpsert(input)
+    return this.commit(this.tree)
+  }
+
+  /**
+   * Add several sessions as one change, and report which ones they were.
+   *
+   * `upsertSession` writes the file and commits on every call, so adding twenty
+   * hosts one at a time meant twenty file writes and twenty broadcasts of the
+   * whole tree. The upsert itself is the same in both paths — only the commit is
+   * hoisted out here.
+   */
+  addSessions(inputs: Array<Partial<SavedSession> & { host: string }>): {
+    tree: SessionTree
+    sessions: SavedSession[]
+  } {
+    const sessions = inputs.map((input) => this.applyUpsert(input))
+    return { tree: this.commit(this.tree), sessions }
+  }
+
+  /** The upsert on its own: mutates the tree, returns the session, no commit. */
+  private applyUpsert(input: Partial<SavedSession> & { host: string }): SavedSession {
     const now = Date.now()
     const existing = input.id ? this.tree.sessions.find((s) => s.id === input.id) : undefined
 
@@ -451,25 +473,26 @@ export class SessionStore {
       }
       existing.name = existing.name?.trim() || `${existing.username}@${existing.host}`
       existing.updatedAt = now
-    } else {
-      this.tree.sessions.push({
-        id: input.id ?? randomUUID(),
-        name: input.name?.trim() || `${input.username ?? 'root'}@${input.host}`,
-        host: input.host,
-        port: input.port ?? 22,
-        username: input.username ?? 'root',
-        authMethod: input.authMethod ?? 'password',
-        privateKeyPath: input.privateKeyPath,
-        tags: input.tags ?? [],
-        color: input.color,
-        notes: input.notes,
-        parentId: input.parentId ?? null,
-        createdAt: now,
-        updatedAt: now
-      })
+      return existing
     }
 
-    return this.commit(this.tree)
+    const created: SavedSession = {
+      id: input.id ?? randomUUID(),
+      name: input.name?.trim() || `${input.username ?? 'root'}@${input.host}`,
+      host: input.host,
+      port: input.port ?? 22,
+      username: input.username ?? 'root',
+      authMethod: input.authMethod ?? 'password',
+      privateKeyPath: input.privateKeyPath,
+      tags: input.tags ?? [],
+      color: input.color,
+      notes: input.notes,
+      parentId: input.parentId ?? null,
+      createdAt: now,
+      updatedAt: now
+    }
+    this.tree.sessions.push(created)
+    return created
   }
 
   deleteSession(id: string): SessionTree {

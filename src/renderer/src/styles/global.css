@@ -130,6 +130,24 @@
   --td-leading: 1.55;
   /* Upper-case labels are the one place tighter tracking reads as deliberate. */
   --td-tracking-label: 0.55px;
+
+  /*
+   * Motion, in one place.
+   *
+   * The timings used to be written per rule — 110ms here, 190ms there, `ease` and
+   * a cubic-bezier on neighbouring lines — which is what makes a UI feel assembled
+   * rather than designed: a hover and a panel opening should be recognisably the
+   * same product moving. Two speeds and one curve cover every interactive state.
+   *
+   * Deliberately no *new* entrances: the animations the app already had are
+   * switched off on a machine whose Windows animation effects are off (the
+   * `prefers-reduced-motion` rules near the end of this file), and the feel of the
+   * thing is carried by how much work each frame does rather than by transitions —
+   * see `setFitsPaused` for that half.
+   */
+  --td-dur-fast: 110ms;
+  --td-dur-base: 170ms;
+  --td-ease-out: cubic-bezier(0.22, 0.72, 0.28, 1);
 }
 
 /* Light themes need softer shadows, not darker ones. */
@@ -542,18 +560,6 @@ kbd {
   border: none !important;
 }
 
-.td-inline-input {
-  flex: 1 1 auto;
-  margin: 2px 4px;
-  padding: 3px 6px;
-  background: var(--td-bg-sunken);
-  border: 1px solid var(--td-accent);
-  border-radius: 4px;
-  color: var(--td-text);
-  font: inherit;
-  outline: none;
-}
-
 /* ---- buttons ----------------------------------------------------------- */
 
 .td-btn {
@@ -565,7 +571,7 @@ kbd {
   font: inherit;
   font-weight: 500;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), border-color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-btn:hover:not(:disabled) {
@@ -878,10 +884,10 @@ kbd {
 }
 
 .td-field > span {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.6px;
   color: var(--td-text-dim);
 }
 
@@ -894,6 +900,22 @@ kbd {
 .td-field-grow {
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/*
+ * The batch host list. Monospace because it is data — addresses line up and a
+ * mistyped digit is visible — and resizable because the useful height depends on
+ * how many hosts are being pasted.
+ */
+.td-hosts-input {
+  font-family: var(--td-font-mono);
+  font-size: var(--td-text-sm);
+  line-height: 1.55;
+  min-height: 118px;
+  resize: vertical;
+  white-space: pre;
+  overflow-wrap: normal;
+  overflow-x: auto;
 }
 
 .td-field-port {
@@ -1038,10 +1060,24 @@ kbd {
   gap: 14px;
 }
 
+/*
+ * Secondary copy under a field.
+ *
+ * The reset is the point: `.td-field > span` styles *every* direct span of a
+ * field as an overline label — uppercase, 600 weight, tracked — and a hint is
+ * one of those spans. So the explanatory line under Password rendered as a shout
+ * ("SAVED ENCRYPTED ON THIS MACHINE, WITH THE KEY HELD BY…") instead of as a
+ * quiet note. Hints are sentence case, normal weight, and untracked, wherever
+ * they appear.
+ */
 .td-hint {
   margin: 0;
   color: var(--td-text-dim);
   line-height: 1.55;
+  font-size: var(--td-text-sm);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .td-hint code {
@@ -1385,7 +1421,7 @@ kbd {
   font-size: 12px;
   cursor: pointer;
   box-shadow: var(--td-shadow-sm);
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), border-color var(--td-dur-fast) var(--td-ease-out), color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-broadcast:hover {
@@ -1663,7 +1699,7 @@ kbd {
   font-size: 12px;
   white-space: nowrap;
   cursor: pointer;
-  transition: background 110ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-snippet:hover:not(:disabled) {
@@ -2011,7 +2047,7 @@ kbd {
   background: var(--td-bg-sunken);
   border: 1px solid var(--td-border-strong);
   border-radius: var(--td-radius);
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color var(--td-dur-fast) var(--td-ease-out), box-shadow var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-form input:focus,
@@ -2097,7 +2133,7 @@ kbd {
   cursor: pointer;
   transition:
     border-color 130ms ease,
-    transform 110ms ease,
+    transform var(--td-dur-fast) var(--td-ease-out),
     box-shadow 130ms ease;
 }
 
@@ -2174,11 +2210,6 @@ kbd {
 
 .td-node-children {
   border-left: 1px solid var(--td-folder-line);
-}
-
-.td-inline-input {
-  border-radius: 7px;
-  border-color: var(--td-accent);
 }
 
 .td-tag {
@@ -2522,7 +2553,7 @@ body {
 
 .td-node {
   border-radius: 9px;
-  transition: background 110ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-node-main {
@@ -2629,7 +2660,7 @@ body {
   padding: 5px 8px;
   border: 1px solid transparent;
   border-radius: 9px;
-  transition: background 110ms ease, border-color 110ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), border-color var(--td-dur-fast) var(--td-ease-out);
   cursor: grab;
 }
 
@@ -2678,21 +2709,12 @@ body {
   font-size: 12.5px;
 }
 
-.td-hint {
-  font-size: var(--td-text-sm);
-}
-
 /* ---- modals ------------------------------------------------------------ */
 
 .td-modal-head h2 {
   font-size: var(--td-text-md);
   font-weight: 600;
   letter-spacing: 0.1px;
-}
-
-.td-field > span {
-  font-size: 10.5px;
-  letter-spacing: 0.6px;
 }
 
 /* ---- snippet bar ------------------------------------------------------- */
@@ -2786,7 +2808,7 @@ body {
   border-right: none;
   /* The width animates so shrinking reads as the column narrowing rather than
      as one column disappearing and another appearing. */
-  transition: width 160ms ease;
+  transition: width var(--td-dur-base) var(--td-ease-out);
 }
 
 .td-rail.is-collapsed {
@@ -2872,7 +2894,7 @@ body {
   color: var(--td-text-dim);
   font: inherit;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-rail-btn:hover {
@@ -2909,7 +2931,7 @@ body {
   color: var(--td-text-dim);
   font: inherit;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-rail-toggle:hover {
@@ -2924,7 +2946,7 @@ body {
   border-radius: 999px;
   background: var(--td-surface);
   border: 1px solid var(--td-border);
-  transition: background 160ms ease, border-color 160ms ease;
+  transition: background var(--td-dur-base) var(--td-ease-out), border-color var(--td-dur-base) var(--td-ease-out);
 }
 
 .td-rail-toggle-knob {
@@ -2935,7 +2957,7 @@ body {
   height: 10px;
   border-radius: 50%;
   background: var(--td-text-dim);
-  transition: transform 160ms ease, background 160ms ease;
+  transition: transform var(--td-dur-base) var(--td-ease-out), background var(--td-dur-base) var(--td-ease-out);
 }
 
 .td-rail-toggle[data-collapsed='true'] .td-rail-toggle-track {
@@ -2983,7 +3005,7 @@ body {
   inset: 0;
   background: rgba(9, 13, 20, 0.34);
   backdrop-filter: var(--td-blur);
-  animation: td-fade-in 140ms ease-out;
+  animation: td-fade-in var(--td-dur-base) var(--td-ease-out);
 }
 
 html[data-theme-scheme='light'] .td-drawer-backdrop {
@@ -3012,7 +3034,7 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
    * The individual `translate`/`scale` properties do not create that containing
    * block.
    */
-  animation: td-drawer-in 190ms cubic-bezier(0.2, 0.7, 0.3, 1);
+  animation: td-drawer-in var(--td-dur-base) var(--td-ease-out);
 }
 
 @keyframes td-drawer-in {
@@ -3287,7 +3309,7 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   text-transform: uppercase;
   letter-spacing: 0.8px;
   border-radius: var(--td-radius);
-  transition: background 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-host-group-head h2 {
@@ -3343,7 +3365,7 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   background: var(--td-bg-raised);
   border: 1px solid var(--td-border);
   border-radius: var(--td-radius);
-  transition: border-color 120ms ease, transform 110ms ease;
+  transition: border-color var(--td-dur-fast) var(--td-ease-out), transform var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-host-row:hover {
@@ -3461,7 +3483,7 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-seg-btn:hover {
@@ -3534,7 +3556,7 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   background: var(--td-bg-raised);
   border: 1px solid var(--td-border);
   border-radius: var(--td-radius);
-  transition: border-color 120ms ease;
+  transition: border-color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-snippet-row:hover {
@@ -3719,7 +3741,7 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   color: var(--td-text-dim);
   font-size: 12px;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), border-color var(--td-dur-fast) var(--td-ease-out), color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-font-chip:hover {
@@ -3817,7 +3839,7 @@ html[data-theme-scheme='light'] .td-field textarea {
 /* Tabs read as chips rather than as slices of a bar. */
 .dv-tab {
   border-radius: var(--td-radius-sm);
-  transition: background 140ms ease, color 140ms ease;
+  transition: background var(--td-dur-base) var(--td-ease-out), color var(--td-dur-base) var(--td-ease-out);
 }
 
 .dv-tab.dv-active-tab {
@@ -3989,7 +4011,7 @@ html[data-theme-scheme='light'] .td-select {
   font: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background var(--td-dur-fast) var(--td-ease-out), border-color var(--td-dur-fast) var(--td-ease-out), color var(--td-dur-fast) var(--td-ease-out);
 }
 
 .td-scale-chip:hover {

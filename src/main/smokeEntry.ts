@@ -24,6 +24,7 @@ import {
 } from './store/Stores'
 import { LayoutStore } from './store/LayoutStore'
 import { KnownHosts, fingerprint } from './ssh/KnownHosts'
+import { parseBatchHosts, BATCH_HOST_LIMIT } from '../shared/batchHosts'
 
 export {
   registerIpc,
@@ -53,5 +54,7 @@ export {
   clampScale,
   defaultScaleForWidth,
   KnownHosts,
-  fingerprint
+  fingerprint,
+  parseBatchHosts,
+  BATCH_HOST_LIMIT
 }

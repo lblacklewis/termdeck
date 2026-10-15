@@ -1,7 +1,11 @@
-import { useState, type FormEvent, type JSX } from 'react'
+import { useMemo, useState, type FormEvent, type JSX } from 'react'
 import type { AuthMethod, SavedSession, SessionFolder, SessionTree } from '@shared/types'
+import { BATCH_HOST_LIMIT, parseBatchHosts } from '@shared/batchHosts'
 
 const api = window.termdeck
+
+/** How the form is being filled: one host, or a list of them. */
+type EditorMode = 'one' | 'many'
 
 export interface SessionEditorProps {
   /** Existing session to edit, or null when creating a new one. */
@@ -10,6 +14,8 @@ export interface SessionEditorProps {
   defaultParentId: string | null
   folders: SessionFolder[]
   knownTags: string[]
+  /** Already saved sessions, so a batch can skip the ones that are already there. */
+  existing?: SavedSession[]
   /** Credentials carried over from the quick-connect dialog. */
   prefill?: { password?: string; passphrase?: string }
   onCancel: () => void
@@ -50,6 +56,7 @@ export function SessionEditor({
   defaultParentId,
   folders,
   knownTags,
+  existing,
   prefill,
   onCancel,
   onSaved,
@@ -61,6 +68,18 @@ export function SessionEditor({
   const [username, setUsername] = useState(session?.username ?? 'root')
   const [authMethod, setAuthMethod] = useState<AuthMethod>(session?.authMethod ?? 'password')
   const [privateKeyPath, setPrivateKeyPath] = useState(session?.privateKeyPath ?? '')
+
+  /**
+   * Batch mode: a list of hosts instead of one form.
+   *
+   * Adding a subnet used to mean filling this form in once per address, so the
+   * hosts arrived one at a time and the password had to be typed again for each.
+   * Here the username, port, folder, authentication and password are shared, and
+   * only the addresses differ — which is the whole shape of the job.
+   */
+  const [mode, setMode] = useState<EditorMode>('one')
+  const [hostsText, setHostsText] = useState('')
+  const batch = useMemo(() => parseBatchHosts(hostsText), [hostsText])
 
   /**
    * Password/passphrase fields. They start empty for an existing session:
@@ -84,8 +103,69 @@ export function SessionEditor({
   const [busy, setBusy] = useState(false)
 
   const options = folderOptions(folders)
-  const canSave = host.trim().length > 0 && username.trim().length > 0
   const editing = !!session?.id
+  const batching = mode === 'many' && !editing
+
+  const sharedPort = ((): number => {
+    const parsed = Number.parseInt(port, 10)
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 22
+  })()
+
+  /**
+   * The batch, minus the hosts that are already saved.
+   *
+   * Pasting `10.17.20.210-215` twice should not leave twelve sessions behind, and
+   * the count of what was skipped is worth showing: a list that quietly came out
+   * shorter is the one thing the user cannot check for themselves.
+   */
+  const batchPlan = useMemo(() => {
+    const saved = new Set(
+      (existing ?? []).map((s) => `${s.username}@${s.host}:${s.port}`)
+    )
+    const skipped: string[] = []
+    const add = batch.entries.filter((entry) => {
+      const key = `${entry.username ?? username.trim()}@${entry.host}:${entry.port ?? sharedPort}`
+      if (!saved.has(key)) return true
+      skipped.push(entry.host)
+      return false
+    })
+    return { add, skipped }
+  }, [batch.entries, existing, sharedPort, username])
+
+  const canSave = batching
+    ? batchPlan.add.length > 0 && username.trim().length > 0
+    : host.trim().length > 0 && username.trim().length > 0
+
+  /**
+   * What the box currently means, in words.
+   *
+   * Shown before saving rather than discovered afterwards: the summary is where
+   * "the range only went up to 5" and "three of these are already saved" are
+   * visible, and both are things a silent list would hide.
+   */
+  const batchSummary = useMemo((): string => {
+    if (!hostsText.trim()) {
+      return (
+        'One host per line. A range like 10.17.20.210-215 is expanded, ' +
+        'user@host:port overrides the shared username and port, and lines ' +
+        `starting with # are ignored. Up to ${BATCH_HOST_LIMIT} at a time.`
+      )
+    }
+    const parts = [
+      `${batchPlan.add.length} host${batchPlan.add.length === 1 ? '' : 's'} will be added`
+    ]
+    if (batchPlan.skipped.length > 0) {
+      parts.push(`${batchPlan.skipped.length} already saved, skipped`)
+    }
+    if (batch.problems.length > 0) {
+      const first = batch.problems[0]
+      parts.push(
+        `${batch.problems.length} could not be read (${first.text}: ${first.reason})`
+      )
+    }
+    if (batch.truncated) parts.push(`only the first ${BATCH_HOST_LIMIT} are added`)
+    return parts.join(' · ')
+  }, [batch.problems, batch.truncated, batchPlan, hostsText])
 
   const addTag = (raw: string): void => {
     const tag = raw.trim()
@@ -112,6 +192,33 @@ export function SessionEditor({
     setBusy(true)
     setError(null)
     try {
+      if (batching) {
+        /*
+         * One write for the whole list, and the shared password sealed under each
+         * new session's id. A session that is later rejected still gets asked for
+         * its own password at connect time; nothing here needs to know which one
+         * that will be.
+         */
+        const tree = await api.saveSessions({
+          sessions: batchPlan.add.map((entry) => ({
+            // The address is the name: "root@" six times over is six rows the
+            // eye cannot tell apart, and the address is what is being scanned for.
+            name: entry.host,
+            host: entry.host,
+            port: entry.port ?? sharedPort,
+            username: entry.username ?? username.trim(),
+            authMethod,
+            privateKeyPath: privateKeyPath.trim() || undefined,
+            tags,
+            notes: notes.trim() || undefined,
+            parentId
+          })),
+          credential: password ? { password } : undefined
+        })
+        onSaved(tree)
+        return
+      }
+
       const parsedPort = Number.parseInt(port, 10)
 
       // Only send credentials the user actually edited; omitted keys keep
@@ -157,47 +264,115 @@ export function SessionEditor({
   return (
     <form className="td-drawer-form" onSubmit={(e) => void submit(e)} data-testid="session-form">
       <div className="td-form">
-        <label className="td-field">
-          <span>Name</span>
-          <input
-            aria-label="session-name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={host ? `${username}@${host}` : 'prod-web-1'}
-          />
-        </label>
+        {/*
+          One host or many. Only offered when creating: editing is about a session
+          that exists, and there is no such thing as editing six of them at once.
+        */}
+        {!editing && (
+          <div className="td-field">
+            <span>Mode</span>
+            <div className="td-segmented">
+              {(
+                [
+                  ['one', 'One host'],
+                  ['many', 'Several hosts']
+                ] as Array<[EditorMode, string]>
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={mode === value ? 'is-active' : ''}
+                  data-testid={`session-mode-${value}`}
+                  onClick={() => setMode(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
-        <div className="td-field-row">
-          <label className="td-field td-field-grow">
-            <span>Host</span>
+        {!batching && (
+          <label className="td-field">
+            <span>Name</span>
             <input
-              aria-label="session-host"
-              value={host}
-              onChange={(e) => setHost(e.target.value)}
-              placeholder="10.0.0.1 or example.com"
+              aria-label="session-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={host ? `${username}@${host}` : 'prod-web-1'}
+            />
+          </label>
+        )}
+
+        {batching ? (
+          <>
+            <label className="td-field">
+              <span>Hosts</span>
+              <textarea
+                aria-label="session-hosts"
+                className="td-hosts-input"
+                rows={7}
+                spellCheck={false}
+                placeholder={'One per line, for example:\n10.17.20.210-215\nroot@web1.example.com:2222'}
+                value={hostsText}
+                onChange={(e) => setHostsText(e.target.value)}
+              />
+            </label>
+            <p className="td-hint" data-testid="batch-summary">
+              {batchSummary}
+            </p>
+          </>
+        ) : (
+          <div className="td-field-row">
+            <label className="td-field td-field-grow">
+              <span>Host</span>
+              <input
+                aria-label="session-host"
+                value={host}
+                onChange={(e) => setHost(e.target.value)}
+                placeholder="10.0.0.1 or example.com"
+                spellCheck={false}
+              />
+            </label>
+            <label className="td-field td-field-port">
+              <span>Port</span>
+              <input
+                aria-label="session-port"
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+                inputMode="numeric"
+              />
+            </label>
+          </div>
+        )}
+
+        {/*
+          Username and port are the shared values in batch mode, so they sit
+          together on one row there; the port is only a per-host field in the
+          single form, where it has already been asked for above.
+        */}
+        <div className={batching ? 'td-field-row' : undefined}>
+          <label className={batching ? 'td-field td-field-grow' : 'td-field'}>
+            <span>Username</span>
+            <input
+              aria-label="session-username"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
               spellCheck={false}
             />
           </label>
-          <label className="td-field td-field-port">
-            <span>Port</span>
-            <input
-              aria-label="session-port"
-              value={port}
-              onChange={(e) => setPort(e.target.value)}
-              inputMode="numeric"
-            />
-          </label>
+          {batching && (
+            <label className="td-field td-field-port">
+              <span>Port</span>
+              <input
+                aria-label="session-port"
+                value={port}
+                onChange={(e) => setPort(e.target.value)}
+                inputMode="numeric"
+              />
+            </label>
+          )}
         </div>
-
-        <label className="td-field">
-          <span>Username</span>
-          <input
-            aria-label="session-username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            spellCheck={false}
-          />
-        </label>
 
         <label className="td-field">
           <span>Folder</span>
@@ -242,7 +417,8 @@ export function SessionEditor({
           <label className="td-field">
             <span>
               Password
-              {session?.hasPassword && !passwordTouched && (
+              {batching && <span className="td-field-note"> — shared by every host</span>}
+              {!batching && session?.hasPassword && !passwordTouched && (
                 <span className="td-field-note"> — one is saved</span>
               )}
             </span>
@@ -399,7 +575,11 @@ export function SessionEditor({
           data-testid="session-save"
           disabled={!canSave || busy}
         >
-          {busy ? 'Saving…' : 'Save'}
+          {busy
+            ? 'Saving…'
+            : batching
+              ? `Add ${batchPlan.add.length} host${batchPlan.add.length === 1 ? '' : 's'}`
+              : 'Save'}
         </button>
       </div>
     </form>

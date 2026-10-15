@@ -12,8 +12,9 @@ interface HostsPageProps {
   onDelete: (id: string) => void
   onDuplicate: (session: SavedSession) => void
   onNewHost: (parentId: string | null) => void
-  onCreateGroup: (name: string, parentId: string | null) => void
-  onRenameGroup: (id: string, name: string) => void
+  /** Open the naming prompt; the shell owns the dialog and the save. */
+  onCreateGroup: (parentId: string | null) => void
+  onRenameGroup: (id: string) => void
   onDeleteGroup: (id: string) => void
   onMove: (sessionId: string, parentId: string | null) => void
   /** Re-file a whole group, which is how nesting is rearranged. */
@@ -68,7 +69,6 @@ export function HostsPage({
   const [filter, setFilter] = useState('')
   const [tagFilter, setTagFilter] = useState<string | null>(null)
   const [view, setView] = useState<ViewMode>('list')
-  const [renaming, setRenaming] = useState<{ id: string; value: string } | null>(null)
   const [menu, setMenu] = useState<{
     x: number
     y: number
@@ -218,8 +218,8 @@ export function HostsPage({
       items: groupMenu(node),
       run: (id) => {
         if (id === 'newHost') onNewHost(node.id)
-        else if (id === 'newSub') onCreateGroup('New group', node.id)
-        else if (id === 'rename' && node.id) setRenaming({ id: node.id, value: node.name })
+        else if (id === 'newSub') onCreateGroup(node.id)
+        else if (id === 'rename' && node.id) onRenameGroup(node.id)
         else if (id === 'delete' && node.id) onDeleteGroup(node.id)
       }
     })
@@ -245,7 +245,7 @@ export function HostsPage({
       ],
       run: (id) => {
         if (id === 'newHost') onNewHost(null)
-        else if (id === 'newGroup') onCreateGroup('New group', null)
+        else if (id === 'newGroup') onCreateGroup(null)
         else if (id === 'cards') setView('cards')
         else if (id === 'rows') setView('list')
       }
@@ -415,83 +415,47 @@ export function HostsPage({
           </p>
         </div>
         <div className="td-page-actions">
-          {renaming ? (
-            <form
-              className="td-rename-inline"
-              data-testid="hosts-rename-form"
-              onSubmit={(e) => {
-                e.preventDefault()
-                const name = renaming.value.trim()
-                if (name) onRenameGroup(renaming.id, name)
-                setRenaming(null)
-              }}
+          <input
+            className="td-page-search"
+            aria-label="filter-hosts"
+            placeholder="Filter hosts"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          <div className="td-view-switch" role="group" aria-label="Host list style">
+            <button
+              className={`td-seg-btn${view === 'list' ? ' is-active' : ''}`}
+              data-testid="hosts-view-list"
+              aria-pressed={view === 'list'}
+              title="Rows"
+              onClick={() => setView('list')}
             >
-              <input
-                className="td-page-search"
-                aria-label="group-name"
-                value={renaming.value}
-                autoFocus
-                onChange={(e) => setRenaming({ ...renaming, value: e.target.value })}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') setRenaming(null)
-                }}
-              />
-              <button className="td-btn td-btn-primary" type="submit" data-testid="hosts-rename-save">
-                Rename
-              </button>
-              <button className="td-btn" type="button" onClick={() => setRenaming(null)}>
-                Cancel
-              </button>
-            </form>
-          ) : (
-            <>
-              <input
-                className="td-page-search"
-                aria-label="filter-hosts"
-                placeholder="Filter hosts"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-              <div className="td-view-switch" role="group" aria-label="Host list style">
-                <button
-                  className={`td-seg-btn${view === 'list' ? ' is-active' : ''}`}
-                  data-testid="hosts-view-list"
-                  aria-pressed={view === 'list'}
-                  title="Rows"
-                  onClick={() => setView('list')}
-                >
-                  ☰ Rows
-                </button>
-                <button
-                  className={`td-seg-btn${view === 'cards' ? ' is-active' : ''}`}
-                  data-testid="hosts-view-cards"
-                  aria-pressed={view === 'cards'}
-                  title="Cards"
-                  onClick={() => setView('cards')}
-                >
-                  ▦ Cards
-                </button>
-              </div>
-              <button
-                className="td-btn"
-                data-testid="hosts-new-group"
-                onClick={() => onCreateGroup('New group', null)}
-              >
-                New group
-              </button>
-              <button
-                className="td-btn td-btn-primary"
-                data-testid="hosts-new-host"
-                onClick={() => onNewHost(null)}
-              >
-                New host
-              </button>
-            </>
-          )}
+              ☰ Rows
+            </button>
+            <button
+              className={`td-seg-btn${view === 'cards' ? ' is-active' : ''}`}
+              data-testid="hosts-view-cards"
+              aria-pressed={view === 'cards'}
+              title="Cards"
+              onClick={() => setView('cards')}
+            >
+              ▦ Cards
+            </button>
+          </div>
+          <button className="td-btn" data-testid="hosts-new-group" onClick={() => onCreateGroup(null)}>
+            New group
+          </button>
+          <button
+            className="td-btn td-btn-primary"
+            data-testid="hosts-new-host"
+            onClick={() => onNewHost(null)}
+          >
+            New host
+          </button>
         </div>
       </header>
 
-      {knownTags.length > 0 && !renaming && (
+      {knownTags.length > 0 && (
         <div className="td-page-filters">
           {knownTags.map((tag) => (
             <button

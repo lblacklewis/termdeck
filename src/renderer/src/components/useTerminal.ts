@@ -9,6 +9,7 @@ import { buildTerminalOptions, terminalThemeFor } from './terminalTheme'
 import {
   LineTimestamps,
   applyCursorBlink,
+  fitsArePaused,
   registerRefit,
   registerStamps,
   registerTerminal,
@@ -189,6 +190,12 @@ export function useTerminal(
      */
     const fitToBox = (): void => {
       if (disposed) return
+      /*
+       * A drag in progress is measured once, at the end, rather than on every
+       * frame of it: see `setFitsPaused`. The resume fits everything, so nothing
+       * is left at the size it happened to have mid-gesture.
+       */
+      if (fitsArePaused()) return
       const h = container.clientHeight
       const w = container.clientWidth
       if (h <= 0 || w <= 0) return

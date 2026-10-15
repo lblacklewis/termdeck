@@ -22,7 +22,8 @@ interface SessionTreeProps {
   onNewSession: () => void
   onContextMenu: (state: ContextMenuState) => void
   onCreateFolder: (parentId: string | null) => void
-  onRenameFolder: (id: string, name: string) => void
+  /** Opens the naming prompt; the shell owns the dialog and the save. */
+  onRenameFolder: (id: string) => void
   onDeleteFolder: (id: string) => void
   onToggleFolder: (id: string, expanded: boolean) => void
   onMove: (payload: DragPayload, parentId: string | null) => void
@@ -119,7 +120,6 @@ export function SessionTree({
   showHeader = true
 }: SessionTreeProps): JSX.Element {
   const children = useMemo(() => indexChildren(tree), [tree])
-  const [renaming, setRenaming] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   // The drag payload is also kept in a ref: reading dataTransfer during
   // `dragover` is disallowed by the spec, so it is only available on `drop`.
@@ -285,44 +285,27 @@ export function SessionTree({
           }}
           {...dropZone(key, () => folder.id, { selfId: folder.id })}
         >
-          {renaming === folder.id ? (
-            <input
-              className="td-inline-input"
-              autoFocus
-              defaultValue={folder.name}
-              onBlur={(e) => {
-                const value = e.currentTarget.value.trim()
-                if (value) onRenameFolder(folder.id, value)
-                setRenaming(null)
-              }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') e.currentTarget.blur()
-                if (e.key === 'Escape') setRenaming(null)
-              }}
-            />
-          ) : (
-            <button
-              className="td-node-main"
-              onClick={() => onToggleFolder(folder.id, !expanded)}
-              onDoubleClick={() => setRenaming(folder.id)}
+          <button
+            className="td-node-main"
+            onClick={() => onToggleFolder(folder.id, !expanded)}
+            onDoubleClick={() => onRenameFolder(folder.id)}
+          >
+            <span
+              className="td-caret"
+              data-contrast-exempt
+              aria-hidden="true"
             >
-              <span
-                className="td-caret"
-                data-contrast-exempt
-                aria-hidden="true"
-              >
-                {expanded ? '▾' : '▸'}
-              </span>
-              <span
-                className="td-node-dot td-node-dot-folder"
-                style={folder.color ? { background: folder.color } : undefined}
-              />
-              <span className="td-node-label">{folder.name}</span>
-              <span className="td-node-count" data-contrast-exempt>
-                {total || ''}
-              </span>
-            </button>
-          )}
+              {expanded ? '▾' : '▸'}
+            </span>
+            <span
+              className="td-node-dot td-node-dot-folder"
+              style={folder.color ? { background: folder.color } : undefined}
+            />
+            <span className="td-node-label">{folder.name}</span>
+            <span className="td-node-count" data-contrast-exempt>
+              {total || ''}
+            </span>
+          </button>
 
           {/*
             Folder rows keep only the two actions with no other route: there is
@@ -334,7 +317,7 @@ export function SessionTree({
             <button className="td-mini" title="New subfolder" onClick={() => onCreateFolder(folder.id)}>
               ⊞
             </button>
-            <button className="td-mini" title="Rename" onClick={() => setRenaming(folder.id)}>
+            <button className="td-mini" title="Rename" onClick={() => onRenameFolder(folder.id)}>
               ✎
             </button>
           </span>

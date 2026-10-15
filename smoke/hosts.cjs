@@ -74,11 +74,20 @@ async function main() {
 
   await win.loadFile(path.join(ROOT, 'out', 'renderer', 'index.html'))
   await win.webContents.executeJavaScript(`localStorage.setItem('tdDebug','1'); true`)
-  // prompt() is used by the group rename flow; stub it so an unattended run
-  // cannot sit on a modal nobody can answer.
-  await win.webContents.executeJavaScript(`window.prompt = () => 'Renamed group'; true`)
   await win.reload()
   await sleep(3000)
+  /*
+   * A tripwire, not a crutch.
+   *
+   * Naming a group must go through the app's own centred dialog: the browser's
+   * `prompt()` is refused by Electron's renderer, which is how renaming from the
+   * drawer used to close its menu and do nothing. Counting calls means a
+   * regression to `prompt()` fails here instead of hanging an unattended run.
+   * Installed after the reload, whose fresh context would discard it.
+   */
+  await win.webContents.executeJavaScript(
+    `window.__tdPromptCalls = 0; window.prompt = () => { window.__tdPromptCalls++; return null }; true`
+  )
 
   const probe = `
     (async () => {
@@ -92,6 +101,24 @@ async function main() {
         const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
         setter.call(el, value)
         el.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      /*
+       * Answer the centred naming prompt.
+       *
+       * Creating or renaming a group asks for its name now, in a dialog in the
+       * middle of the window: it used to create a second "New group" silently, and
+       * to rename through a field in the page header, at the opposite corner from
+       * the row that was right-clicked.
+       */
+      const answerNamePrompt = async (value) => {
+        await wait(400)
+        const form = document.querySelector('[data-testid="name-prompt"]')
+        if (!form) return false
+        setValue(form.querySelector('[aria-label="group-name"]'), value)
+        await wait(150)
+        form.querySelector('[data-testid="name-prompt-save"]').click()
+        await wait(900)
+        return true
       }
 
       // ---- open the Hosts page --------------------------------------------
@@ -142,7 +169,8 @@ async function main() {
         groupNames().join(','))
 
       document.querySelector('[data-testid="hosts-new-group"]').click()
-      await wait(800)
+      const askedForName = await answerNamePrompt('New group')
+      push('a new group asks for its name in a centred dialog', askedForName)
       push('a new group can be created', groupNames().includes('New group'),
         groupNames().join(','))
 
@@ -166,21 +194,24 @@ async function main() {
          * Rename through the real control.
          *
          * It used to call the browser prompt, which Electron's renderer refuses —
-         * the menu item closed and nothing happened. Now it opens an inline field,
-         * so the check drives that: open, type, save, and confirm the new name is
-         * actually in the tree.
+         * the menu item closed and nothing happened. Then it became an inline field
+         * in the far corner of the page; now it is the same centred dialog that
+         * creating a group uses, so the check drives that: open, type, save, and
+         * confirm the new name is actually in the tree.
          */
         if (menu) {
           menu.querySelector('[data-menu-id="rename"]').click()
           await wait(500)
-          const form = document.querySelector('[data-testid="hosts-rename-form"]')
-          push('rename opens an inline field rather than a browser prompt', form,
-            'form=' + !!form)
-          if (form) {
-            const input = form.querySelector('[aria-label="group-name"]')
+          const prompt = document.querySelector('[data-testid="name-prompt"]')
+          push('rename opens a centred dialog rather than a browser prompt', !!prompt,
+            'prompt=' + !!prompt)
+          if (prompt) {
+            const input = prompt.querySelector('[aria-label="group-name"]')
+            push('the dialog is prefilled with the current name',
+              input && input.value === 'New group', 'value=' + (input ? input.value : 'none'))
             setValue(input, 'Renamed group')
             await wait(200)
-            form.querySelector('[data-testid="hosts-rename-save"]').click()
+            prompt.querySelector('[data-testid="name-prompt-save"]').click()
             await wait(900)
             const tree = await api.loadSessionTree()
             push('the renamed group is saved',
@@ -216,7 +247,8 @@ async function main() {
 
         if (subMenu && subMenu.querySelector('[data-menu-id="newSub"]')) {
           subMenu.querySelector('[data-menu-id="newSub"]').click()
-          await wait(1200)
+          const namedSub = await answerNamePrompt('Nested')
+          push('a sub-group asks for its name too', namedSub)
 
           const tree = await api.loadSessionTree()
           const child = tree.folders.find((f) => f.parentId === prodFolder.id)
@@ -225,7 +257,7 @@ async function main() {
               ' children=' + tree.folders.filter((f) => f.parentId === prodFolder.id).map((f) => f.name).join(','))
 
           push('the sub-group is rendered immediately, while still empty',
-            groupNames().includes('prod / New group') &&
+            groupNames().includes('prod / Nested') &&
               !!document.querySelector('.td-host-subgroups'),
             'groups=' + groupNames().join(' | ') + ' subgroups=' +
               document.querySelectorAll('.td-host-subgroups').length)
@@ -281,7 +313,7 @@ async function main() {
         const before = groupNames().length
         if (pageMenu && pageMenu.querySelector('[data-menu-id="newGroup"]')) {
           pageMenu.querySelector('[data-menu-id="newGroup"]').click()
-          await wait(900)
+          await answerNamePrompt('From the menu')
           push('the page menu can create a group', groupNames().length === before + 1,
             before + ' -> ' + groupNames().length + ': ' + groupNames().join(','))
         }
@@ -360,12 +392,19 @@ async function main() {
     })()
   `
 
-  // prompt() is used by the rename flow; already stubbed before the reload.
   try {
     report(await win.webContents.executeJavaScript(probe))
   } catch (err) {
     report([{ name: 'hosts probe', ok: false, detail: String((err && err.message) || err) }])
   }
+
+  report([
+    {
+      name: 'no naming flow falls back to the browser prompt',
+      ok: (await win.webContents.executeJavaScript('window.__tdPromptCalls')) === 0,
+      detail: 'prompt() calls=' + (await win.webContents.executeJavaScript('window.__tdPromptCalls'))
+    }
+  ])
 
   // ---- duplicate connection from the tab menu -----------------------------
   // Needs a real pane: the menu describes a *connection*, and the welcome pane has
