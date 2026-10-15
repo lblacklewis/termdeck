@@ -73,14 +73,8 @@ export function SnippetsPage({
   return (
     <div className="td-page" data-testid="snippets-page">
       <header className="td-page-head">
-        <div>
-          <h1>Snippets</h1>
-          <p className="td-page-sub">
-            {snippets.length} saved command{snippets.length === 1 ? '' : 's'}
-            {!canSend && ' · no active terminal'}
-          </p>
-        </div>
-        <div className="td-page-actions">
+        <div className="td-page-search-row">
+          <span className="td-page-search-icon" aria-hidden="true" />
           <input
             className="td-page-search"
             aria-label="filter-snippets"
@@ -88,9 +82,24 @@ export function SnippetsPage({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <button className="td-btn td-btn-primary" data-testid="snippets-new" onClick={() => onNew('')}>
-            New snippet
-          </button>
+        </div>
+        <div className="td-page-bar">
+          <h1 className="td-sr-only">Snippets</h1>
+          <div className="td-page-actions">
+            <button
+              className="td-btn td-btn-primary"
+              data-testid="snippets-new"
+              onClick={() => onNew('')}
+            >
+              + New snippet
+            </button>
+          </div>
+          <div className="td-page-meta">
+            <span className="td-page-sub">
+              {snippets.length} saved command{snippets.length === 1 ? '' : 's'}
+              {!canSend && ' · no active terminal'}
+            </span>
+          </div>
         </div>
       </header>
 

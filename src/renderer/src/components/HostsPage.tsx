@@ -407,68 +407,83 @@ export function HostsPage({
   return (
     <div className="td-page" data-testid="hosts-page" onContextMenu={openPageMenu}>
       <header className="td-page-head">
-        <div>
-          <h1>Hosts</h1>
-          <p className="td-page-sub">
-            {total} host{total === 1 ? '' : 's'} · {groupCount} group
-            {groupCount === 1 ? '' : 's'} · {openTitles.size} connected
-          </p>
-        </div>
-        <div className="td-page-actions">
+        <div className="td-page-search-row">
+          <span className="td-page-search-icon" aria-hidden="true" />
           <input
             className="td-page-search"
             aria-label="filter-hosts"
-            placeholder="Filter hosts"
+            placeholder="Filter hosts or user@hostname…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <div className="td-view-switch" role="group" aria-label="Host list style">
+        </div>
+        <div className="td-page-bar">
+          <h1 className="td-sr-only">Hosts</h1>
+          <div className="td-page-actions">
             <button
-              className={`td-seg-btn${view === 'list' ? ' is-active' : ''}`}
-              data-testid="hosts-view-list"
-              aria-pressed={view === 'list'}
-              title="Rows"
-              onClick={() => setView('list')}
+              className="td-btn td-btn-primary"
+              data-testid="hosts-new-host"
+              onClick={() => onNewHost(null)}
             >
-              ☰ Rows
+              + New host
             </button>
             <button
-              className={`td-seg-btn${view === 'cards' ? ' is-active' : ''}`}
-              data-testid="hosts-view-cards"
-              aria-pressed={view === 'cards'}
-              title="Cards"
-              onClick={() => setView('cards')}
+              className="td-btn"
+              data-testid="hosts-new-group"
+              onClick={() => onCreateGroup(null)}
             >
-              ▦ Cards
+              New group
             </button>
+            {/*
+              Tag filters sit with the actions rather than in a row of their own:
+              they are the same kind of thing as the view switch (a way of narrowing
+              what is listed), and the reference app keeps them on this line too.
+            */}
+            {knownTags.length > 0 && (
+              <div className="td-page-filters">
+                {knownTags.map((tag) => (
+                  <button
+                    key={tag}
+                    className={`td-tag td-tag-filterable${tagFilter === tag ? ' is-on' : ''}`}
+                    onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
+                    title={tagFilter === tag ? `Clear filter: ${tag}` : `Filter by: ${tag}`}
+                  >
+                    {tag}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <button className="td-btn" data-testid="hosts-new-group" onClick={() => onCreateGroup(null)}>
-            New group
-          </button>
-          <button
-            className="td-btn td-btn-primary"
-            data-testid="hosts-new-host"
-            onClick={() => onNewHost(null)}
-          >
-            New host
-          </button>
+          <div className="td-page-meta">
+            <span className="td-page-sub">
+              {total} host{total === 1 ? '' : 's'} · {groupCount} group
+              {groupCount === 1 ? '' : 's'} · {openTitles.size} connected
+            </span>
+            <div className="td-view-switch" role="group" aria-label="Host list style">
+              <button
+                className={`td-seg-btn${view === 'list' ? ' is-active' : ''}`}
+                data-testid="hosts-view-list"
+                aria-pressed={view === 'list'}
+                aria-label="Rows"
+                title="Rows"
+                onClick={() => setView('list')}
+              >
+                ☰
+              </button>
+              <button
+                className={`td-seg-btn${view === 'cards' ? ' is-active' : ''}`}
+                data-testid="hosts-view-cards"
+                aria-pressed={view === 'cards'}
+                aria-label="Cards"
+                title="Cards"
+                onClick={() => setView('cards')}
+              >
+                ▦
+              </button>
+            </div>
+          </div>
         </div>
       </header>
-
-      {knownTags.length > 0 && (
-        <div className="td-page-filters">
-          {knownTags.map((tag) => (
-            <button
-              key={tag}
-              className={`td-tag td-tag-filterable${tagFilter === tag ? ' is-on' : ''}`}
-              onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
-              title={tagFilter === tag ? `Clear filter: ${tag}` : `Filter by: ${tag}`}
-            >
-              {tag}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Right-click anywhere that is not a host or a group opens the page menu,
           so "new host" is always one click away. */}

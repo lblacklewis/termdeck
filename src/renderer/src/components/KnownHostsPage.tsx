@@ -68,15 +68,8 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
   return (
     <div className="td-page" data-testid="known-hosts-page">
       <header className="td-page-head">
-        <div>
-          <h1>Known Hosts</h1>
-          <p className="td-page-sub">
-            {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}
-            {hashedCount > 0 && ` · ${hashedCount} hashed`}
-            {revokedCount > 0 && ` · ${revokedCount} revoked`}
-          </p>
-        </div>
-        <div className="td-page-actions">
+        <div className="td-page-search-row">
+          <span className="td-page-search-icon" aria-hidden="true" />
           <input
             className="td-page-search"
             aria-label="filter-known-hosts"
@@ -84,9 +77,21 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <button className="td-btn" onClick={() => void refresh()} title="Reload from disk">
-            Reload
-          </button>
+        </div>
+        <div className="td-page-bar">
+          <h1 className="td-sr-only">Known Hosts</h1>
+          <div className="td-page-actions">
+            <button className="td-btn" onClick={() => void refresh()} title="Reload from disk">
+              Reload
+            </button>
+          </div>
+          <div className="td-page-meta">
+            <span className="td-page-sub">
+              {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}
+              {hashedCount > 0 && ` · ${hashedCount} hashed`}
+              {revokedCount > 0 && ` · ${revokedCount} revoked`}
+            </span>
+          </div>
         </div>
       </header>
 

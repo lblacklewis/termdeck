@@ -3144,15 +3144,86 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   overflow: hidden;
 }
 
+/*
+ * The top of a list page.
+ *
+ * Two rows, the shape the reference app uses: the filter is a strip across the
+ * page rather than one more control in a row of buttons, and the row beneath it
+ * holds the page's actions on the left and its counts and view switch on the
+ * right. The page name stays in the DOM as a heading for screen readers but is not
+ * drawn — the navigation rail already says which page this is, so drawing it again
+ * only costs a line of the tallest area on screen.
+ */
 .td-page-head {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 22px 14px;
+  flex-direction: column;
   border-bottom: 1px solid var(--td-border);
   background: var(--td-bg-raised);
+}
+
+.td-page-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 22px;
+  border-bottom: 1px solid var(--td-border);
+}
+
+/*
+ * The magnifier is drawn rather than typed: the app's other icons are plain
+ * Unicode glyphs, and the magnifier among them (⌕) sits on the baseline
+ * differently from the letters beside it, which is the sort of thing that shows
+ * up as a wobbly first row on every page.
+ */
+.td-page-search-icon {
+  flex: 0 0 auto;
+  position: relative;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--td-text-faint);
+  border-radius: 50%;
+}
+
+.td-page-search-icon::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 5px;
+  height: 1.5px;
+  background: var(--td-text-faint);
+  border-radius: 1px;
+  rotate: 45deg;
+}
+
+.td-page-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 22px;
+}
+
+/* The counts and, where there is one, the view switch. */
+.td-page-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+/* Kept for screen readers where the design has no room to draw a title. */
+.td-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 .td-page-head h1 {
@@ -3163,20 +3234,31 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
 }
 
 .td-page-sub {
-  margin: 3px 0 0;
+  margin: 0;
   color: var(--td-text-dim);
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .td-page-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+/* Tag filters, sitting with the actions instead of in a row of their own. */
+.td-page-actions .td-page-filters {
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0;
+  border-bottom: none;
 }
 
 .td-page-search {
-  width: 240px;
-  padding: 7px 11px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 12px;
   background: var(--td-bg-sunken);
   border: 1px solid var(--td-border-strong);
   border-radius: var(--td-radius);

@@ -40,14 +40,8 @@ export function LogsPage({ entries, onClear }: LogsPageProps): JSX.Element {
   return (
     <div className="td-page" data-testid="logs-page">
       <header className="td-page-head">
-        <div>
-          <h1>Logs</h1>
-          <p className="td-page-sub">
-            {entries.length} event{entries.length === 1 ? '' : 's'} · {counts.error} error
-            {counts.error === 1 ? '' : 's'} · {counts.warn} warning{counts.warn === 1 ? '' : 's'}
-          </p>
-        </div>
-        <div className="td-page-actions">
+        <div className="td-page-search-row">
+          <span className="td-page-search-icon" aria-hidden="true" />
           <input
             className="td-page-search"
             aria-label="filter-logs"
@@ -55,20 +49,31 @@ export function LogsPage({ entries, onClear }: LogsPageProps): JSX.Element {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <select
-            className="td-select td-select-inline"
-            aria-label="log-level"
-            value={level}
-            onChange={(e) => setLevel(e.target.value as typeof level)}
-          >
-            <option value="all">All levels</option>
-            <option value="info">Info</option>
-            <option value="warn">Warnings</option>
-            <option value="error">Errors</option>
-          </select>
-          <button className="td-btn" onClick={onClear} disabled={entries.length === 0}>
-            Clear
-          </button>
+        </div>
+        <div className="td-page-bar">
+          <h1 className="td-sr-only">Logs</h1>
+          <div className="td-page-actions">
+            <button className="td-btn" onClick={onClear} disabled={entries.length === 0}>
+              Clear
+            </button>
+          </div>
+          <div className="td-page-meta">
+            <span className="td-page-sub">
+              {entries.length} event{entries.length === 1 ? '' : 's'} · {counts.error} error
+              {counts.error === 1 ? '' : 's'} · {counts.warn} warning{counts.warn === 1 ? '' : 's'}
+            </span>
+            <select
+              className="td-select td-select-inline"
+              aria-label="log-level"
+              value={level}
+              onChange={(e) => setLevel(e.target.value as typeof level)}
+            >
+              <option value="all">All levels</option>
+              <option value="info">Info</option>
+              <option value="warn">Warnings</option>
+              <option value="error">Errors</option>
+            </select>
+          </div>
         </div>
       </header>
 
