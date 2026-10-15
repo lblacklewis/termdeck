@@ -23,7 +23,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Docking | ✅ drag to edge = split, drag to centre = tab group, floating groups |
 | Host key verification | ✅ `known_hosts`, hashed entries, change/mismatch warning |
 | Credentials | ✅ saved per session, AES-256-GCM at rest, prompt with "remember" on connect |
-| Appearance | ✅ 11 themes with live preview, 80–150% interface scale, audited contrast |
+| Appearance | ✅ 12 themes (incl. the pink Blossom) with live preview, 80–150% interface scale, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
 | Known Hosts | ✅ browse every stored key and forget one |
 | Saved sessions | ✅ multi-level folders, tags, filtering, drag-to-move, per-session auth |
@@ -286,7 +286,10 @@ process is closed.
 Themes restyle the application shell and the terminal together. A theme is plain
 data (`src/shared/themes.ts`); `useTheme` maps it onto CSS custom properties on
 `<html>`, and the terminal palette is passed straight to xterm. Adding a theme
-needs no CSS changes.
+needs no CSS changes — except that the preview strip in the picker is drawn from
+three empty spans inside a `<button>`, and Chromium gives buttons
+`align-items: flex-start`, so it needs an explicit `align-self: stretch` or every
+card renders as a blank strip.
 
 Two things are derived rather than authored:
 
@@ -490,6 +493,13 @@ rediscovered.
   save. This is what made a restored pane's Reconnect button answer "no longer
   saved" every time: the pane had only recorded its own, by then dead, live
   session id.
+- **A `<button>` does not stretch its children the way a `div` would.** Chromium's
+  own stylesheet sets `align-items: flex-start` on buttons, which beats the flex
+  container default, so a `display: flex; flex-direction: column` button whose
+  children have no intrinsic width collapses them. That is what left every theme
+  preview in the picker blank since the first release; `align-self: stretch` on the
+  strip is the fix, and `smoke:ui3` now measures the strips rather than trusting
+  them to render.
 - **A transformed ancestor becomes the containing block for `position: fixed`.**
   That is what pushed the first context-menu right-click inside a drawer hundreds
   of pixels off-screen; menus are portalled to `<body>`.

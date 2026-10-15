@@ -2150,6 +2150,16 @@ kbd {
 
 .td-theme-swatch {
   display: flex;
+  /*
+   * Stretch to the card's width.
+   *
+   * The card is a `<button>`, and Chromium's own stylesheet gives buttons
+   * `align-items: flex-start`, which overrides the flex container's default
+   * `stretch`. The swatch holds nothing but three empty spans, so without this it
+   * shrink-wraps to its own 1px borders and every preview in the picker renders
+   * as a blank strip — which is what it did.
+   */
+  align-self: stretch;
   height: 34px;
   border-radius: 8px;
   overflow: hidden;

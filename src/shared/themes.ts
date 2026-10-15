@@ -518,6 +518,58 @@ const PAPER: Theme = {
   }
 }
 
+/**
+ * A pink light theme: blossom-tinted chrome, white panes and a rose accent.
+ *
+ * Kept in the same shape as the others — every value here is a colour the rest of
+ * the app derives from, so nothing else has to know this theme exists.
+ */
+const BLOSSOM: Theme = {
+  id: 'blossom',
+  name: 'Blossom',
+  scheme: 'light',
+  preview: ['#ffffff', '#fdf1f4', '#d6336c'],
+  ui: {
+    bg: '#fdf1f4',
+    bgRaised: '#ffffff',
+    bgSunken: '#fbe7ee',
+    border: '#f2d9e2',
+    borderStrong: '#e0bccb',
+    text: '#3b2430',
+    textDim: '#7b5261',
+    textFaint: '#9a6e7d',
+    accent: '#d6336c',
+    accentHover: '#b82a5b',
+    danger: '#cc2b45',
+    green: '#1f8a5b',
+    orange: '#b06a12',
+    overlay: 'rgba(214, 51, 108, 0.05)'
+  },
+  terminal: {
+    background: '#fff8fa',
+    foreground: '#3b2430',
+    cursor: '#d6336c',
+    cursorAccent: '#fff8fa',
+    selectionBackground: '#f9cfdd',
+    black: '#3b2430',
+    red: '#c92a4a',
+    green: '#1f8a5b',
+    yellow: '#946b12',
+    blue: '#2f5fbe',
+    magenta: '#b03a86',
+    cyan: '#0f7d8c',
+    white: '#f6e6ea',
+    brightBlack: '#9c7382',
+    brightRed: '#d63a54',
+    brightGreen: '#24996a',
+    brightYellow: '#a8791f',
+    brightBlue: '#3f6fd0',
+    brightMagenta: '#bb4a90',
+    brightCyan: '#17899a',
+    brightWhite: '#ffffff'
+  }
+}
+
 export const THEMES: Theme[] = [
   TERMIUS_DARK,
   TERMIUS_LIGHT,
@@ -529,7 +581,8 @@ export const THEMES: Theme[] = [
   NORD,
   GRUVBOX,
   CATPPUCCIN,
-  PAPER
+  PAPER,
+  BLOSSOM
 ]
 
 export const DEFAULT_THEME_ID = TERMIUS_DARK.id

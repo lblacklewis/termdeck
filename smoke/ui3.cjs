@@ -244,6 +244,32 @@ async function main() {
       push('many themes are offered', themeIds.length >= 8, themeIds.join(','))
       push('theme list has no duplicates',
         new Set(themeIds).size === themeIds.length, themeIds.length + ' ids')
+      push('the pink theme is offered', themeIds.indexOf('blossom') >= 0, themeIds.join(','))
+
+      /*
+       * The preview strip is the only way to tell the cards apart before picking
+       * one, and it is drawn from three empty spans. They collapsed to 0px for as
+       * long as the picker has existed (the card is a <button>, and Chromium gives
+       * buttons align-items: flex-start), which no assertion noticed because a
+       * strip with no text never shows up in a contrast audit either.
+       */
+      const swatches = [...document.querySelectorAll('[data-testid="theme-grid"] .td-theme-card')]
+        .map((card) => {
+          const id = card.getAttribute('data-theme-id')
+          const swatch = card.querySelector('.td-theme-swatch')
+          if (!swatch) return id + ': no swatch'
+          const kids = [...swatch.children]
+          const width = Math.round(swatch.getBoundingClientRect().width)
+          const collapsed = kids.filter((k) => k.getBoundingClientRect().width < 4).length
+          const colours = new Set(kids.map((k) => getComputedStyle(k).backgroundColor))
+          if (width < 40) return id + ': strip ' + width + 'px'
+          if (collapsed) return id + ': ' + collapsed + ' colour(s) collapsed'
+          if (colours.size !== kids.length) return id + ': colours repeat'
+          return null
+        })
+        .filter(Boolean)
+      push('every theme preview shows its own colours', swatches.length === 0,
+        swatches.join(' | ') || themeIds.length + ' previews measured')
 
       const measure = () => {
         const root = getComputedStyle(document.documentElement)
