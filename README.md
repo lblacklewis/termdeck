@@ -326,6 +326,15 @@ its effective background. `scripts/tunecontrast.cjs` derives compliant muted-tex
 colours from each theme's own foreground.
 
 
+**Deleting a group asks first when it would take hosts with it.** The store deletes
+a folder together with every host inside it, and inside every sub-group of it, so
+one click on "Delete folder" used to throw a whole client's worth of hosts away
+silently. The question now names the group and counts what is inside it ("still
+holds 3 hosts across 1 sub-group") and the confirm button says how many hosts it
+will delete. An *empty* group is still removed straight away — there is nothing to
+lose, and a dialog for it would just be a click added to every tidy-up. Both entry
+points are guarded: the Hosts page and the drawer's session tree.
+
 ## Sharing saved hosts
 
 Hosts page → **Export** writes the whole tree — groups, hosts, tags, and the saved

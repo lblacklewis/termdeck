@@ -54,6 +54,7 @@ import { LogsPage, type LogEntry } from './components/LogsPage'
 import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
 import { NamePrompt } from './components/NamePrompt'
+import { ConfirmDialog } from './components/ConfirmDialog'
 import { ShareDialog } from './components/ShareDialog'
 import { NavRail, type PageId } from './components/NavRail'
 import { getTerminal, readScrollback, setFitsPaused } from './components/terminalRegistry'
@@ -270,6 +271,16 @@ export function App(): JSX.Element {
   const [hostKeyRequest, setHostKeyRequest] = useState<HostKeyRequest | null>(null)
   /** Which side of the share dialog is open, if either. */
   const [shareMode, setShareMode] = useState<'export' | 'import' | null>(null)
+  /**
+   * A destructive action waiting for a yes.
+   *
+   * Deleting a group takes its hosts with it — every host inside it, and inside
+   * every sub-group — so a group that still holds something is never removed from
+   * a single click on a menu item.
+   */
+  const [confirmAction, setConfirmAction] = useState<
+    { kind: 'delete-folder'; id: string; name: string; hosts: number; groups: number } | null
+  >(null)
   const [toast, setToast] = useState<string | null>(null)
   /** Error from a toast-style connection attempt (no dialog on screen). */
   const [alert, setAlert] = useState<{ message: string; code?: string; sessionId?: string } | null>(
@@ -2017,6 +2028,67 @@ export function App(): JSX.Element {
     []
   )
 
+  // ---- deleting groups ----------------------------------------------------
+
+  /**
+   * Everything inside a folder, counting downwards.
+   *
+   * Deleting a folder removes its whole subtree, so the question "does this
+   * contain anything?" has to be about the subtree and not just the folder's own
+   * children.
+   */
+  const folderContents = useCallback((folderId: string): { hosts: number; groups: number } => {
+    const { folders, sessions } = treeRef.current
+    /*
+     * Seeded with the folder itself, because a host filed *directly* in it has
+     * this id as its parent — collecting only the descendants below it reported
+     * "0 hosts" for the most common shape of all, and the group then went without
+     * a question.
+     */
+    const inside = new Set<string>([folderId])
+    const stack = [folderId]
+    while (stack.length > 0) {
+      const id = stack.pop() as string
+      for (const child of folders) {
+        if (child.parentId === id && !inside.has(child.id)) {
+          inside.add(child.id)
+          stack.push(child.id)
+        }
+      }
+    }
+    return {
+      hosts: sessions.filter((s) => s.parentId !== null && inside.has(s.parentId)).length,
+      groups: inside.size - 1
+    }
+  }, [])
+
+  /**
+   * Delete a group, asking first when it would take hosts with it.
+   *
+   * The store deletes a folder together with every host inside it, which is the
+   * right behaviour but was never questioned: one mis-click on "Delete folder"
+   * threw away a whole client's worth of hosts silently. An empty group is still
+   * removed straight away — there is nothing to lose, and a dialog for it is noise.
+   */
+  const requestDeleteFolder = useCallback(
+    (id: string) => {
+      const folder = treeRef.current.folders.find((f) => f.id === id)
+      const { hosts, groups } = folderContents(id)
+      if (hosts === 0) {
+        void api.deleteFolder(id)
+        return
+      }
+      setConfirmAction({
+        kind: 'delete-folder',
+        id,
+        name: folder?.name ?? 'This group',
+        hosts,
+        groups
+      })
+    },
+    [folderContents]
+  )
+
   const runContextAction = useCallback(
     (menu: ContextMenuState, actionId: string) => {
       const target = menu.target
@@ -2036,14 +2108,14 @@ export function App(): JSX.Element {
         if (actionId === 'newSessionHere') openEditor(null, folder.id)
         else if (actionId === 'newFolderHere') askFolderName({ kind: 'new-folder', parentId: folder.id })
         else if (actionId === 'renameFolder') askFolderName({ kind: 'rename-folder', id: folder.id })
-        else if (actionId === 'deleteFolder') void api.deleteFolder(folder.id)
+        else if (actionId === 'deleteFolder') requestDeleteFolder(folder.id)
         return
       }
 
       if (actionId === 'newFolderRoot') askFolderName({ kind: 'new-folder', parentId: null })
       else if (actionId === 'newSessionRoot') openEditor(null, null)
     },
-    [askFolderName, connectSaved, duplicateSession, openEditor]
+    [askFolderName, connectSaved, duplicateSession, openEditor, requestDeleteFolder]
   )
 
   // ---- pane output --------------------------------------------------------
@@ -2698,7 +2770,7 @@ export function App(): JSX.Element {
           onNewHost={(parentId) => openEditor(null, parentId)}
           onCreateGroup={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
           onRenameGroup={(id) => askFolderName({ kind: 'rename-folder', id })}
-          onDeleteGroup={(id) => void api.deleteFolder(id)}
+          onDeleteGroup={(id) => requestDeleteFolder(id)}
           onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
           onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
           onExportShare={() => setShareMode('export')}
@@ -2825,7 +2897,7 @@ export function App(): JSX.Element {
                   onContextMenu={setContextMenu}
                   onCreateFolder={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
                   onRenameFolder={(id) => askFolderName({ kind: 'rename-folder', id })}
-                  onDeleteFolder={(id) => void api.deleteFolder(id)}
+                  onDeleteFolder={(id) => requestDeleteFolder(id)}
                   onToggleFolder={(id, expanded) =>
                     void api.saveFolder({ id, name: folderName(tree, id), expanded })
                   }
@@ -3357,6 +3429,35 @@ export function App(): JSX.Element {
           onClose={() => setShareMode(null)}
           onMessage={(message) => setToast(message)}
         />
+      )}
+
+      {confirmAction?.kind === 'delete-folder' && (
+        <ConfirmDialog
+          title="Delete group?"
+          danger
+          testId="confirm-delete-folder"
+          confirmLabel={
+            confirmAction.hosts === 1 ? 'Delete 1 host' : `Delete ${confirmAction.hosts} hosts`
+          }
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={() => {
+            const { id } = confirmAction
+            setConfirmAction(null)
+            void api.deleteFolder(id)
+          }}
+        >
+          <p className="td-quit-text" data-testid="confirm-delete-folder-detail">
+            “{confirmAction.name}” still holds {confirmAction.hosts} host
+            {confirmAction.hosts === 1 ? '' : 's'}
+            {confirmAction.groups > 0
+              ? ` across ${confirmAction.groups} sub-group${confirmAction.groups === 1 ? '' : 's'}`
+              : ''}
+            .
+          </p>
+          <p className="td-hint">
+            Deleting a group deletes the hosts inside it. This cannot be undone.
+          </p>
+        </ConfirmDialog>
       )}
 
       {passwordPrompt && (

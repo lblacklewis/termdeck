@@ -246,6 +246,109 @@ async function main() {
         }
       }
 
+      // ---- deleting a group that still holds hosts asks first --------------
+      /*
+       * The store deletes a folder together with every host inside it (and inside
+       * every sub-group). That is the right behaviour, but it was never
+       * questioned: one mis-click on "Delete folder" threw a whole client's worth
+       * of hosts away with no undo and nothing on screen to notice.
+       */
+      {
+        await api.saveFolder({ name: 'Doomed', parentId: null })
+        const folderTree = await api.loadSessionTree()
+        const doomedFolder = folderTree.folders.find((f) => f.name === 'Doomed')
+        await api.saveSession({
+          name: 'doomed-host',
+          host: '10.9.9.9',
+          port: 22,
+          username: 'root',
+          authMethod: 'password',
+          tags: [],
+          parentId: doomedFolder.id
+        })
+
+        const sectionFor = (name) => [...document.querySelectorAll('[data-host-group]')]
+          .find((s) => s.getAttribute('data-host-group') === name)
+        // The page redraws from a broadcast, so give the new group a moment rather
+        // than assuming a fixed delay is enough.
+        const waitForGroup = async (name) => {
+          for (let i = 0; i < 25; i++) {
+            const el = sectionFor(name)
+            if (el) return el
+            await wait(200)
+          }
+          return null
+        }
+        const openGroupMenu = async (name) => {
+          const section = await waitForGroup(name)
+          if (!section) return false
+          const head = section.querySelector('.td-host-group-head')
+          if (!head) return false
+          const box = head.getBoundingClientRect()
+          head.dispatchEvent(new MouseEvent('contextmenu', {
+            bubbles: true, cancelable: true, button: 2,
+            clientX: Math.round(box.x + 30), clientY: Math.round(box.y + 10)
+          }))
+          await wait(450)
+          return !!document.querySelector('[data-testid="hosts-menu"]')
+        }
+
+        const opened = await openGroupMenu('Doomed')
+        push('a group holding hosts can be found on the page', opened,
+          'groups=' + groupNames().join(' | '))
+
+        if (opened) {
+          document.querySelector('[data-testid="hosts-menu"]')
+            .querySelector('[data-menu-id="delete"]').click()
+          await wait(600)
+
+          const dialog = document.querySelector('[data-testid="confirm-delete-folder"]')
+          push('deleting a group with hosts asks first', !!dialog, 'dialog=' + !!dialog)
+          const detail = dialog
+            ? (dialog.querySelector('[data-testid="confirm-delete-folder-detail"]') || {}).textContent || ''
+            : 'no dialog'
+          push('and the question says what is inside',
+            /Doomed/.test(detail) && /1 host/.test(detail), detail)
+
+          if (dialog) dialog.querySelector('[data-testid="confirm-cancel"]').click()
+          await wait(700)
+          const afterCancel = await api.loadSessionTree()
+          push('cancelling leaves the group and its host alone',
+            afterCancel.folders.some((f) => f.name === 'Doomed') &&
+              afterCancel.sessions.some((s) => s.name === 'doomed-host'),
+            afterCancel.folders.map((f) => f.name).join(','))
+
+          if (await openGroupMenu('Doomed')) {
+            document.querySelector('[data-testid="hosts-menu"]')
+              .querySelector('[data-menu-id="delete"]').click()
+            await wait(600)
+            const dialog2 = document.querySelector('[data-testid="confirm-delete-folder"]')
+            if (dialog2) dialog2.querySelector('[data-testid="confirm-accept"]').click()
+            await wait(900)
+            const afterConfirm = await api.loadSessionTree()
+            push('confirming deletes the group and the host inside it',
+              !afterConfirm.folders.some((f) => f.name === 'Doomed') &&
+                !afterConfirm.sessions.some((s) => s.name === 'doomed-host'),
+              afterConfirm.folders.map((f) => f.name).join(','))
+          }
+        }
+
+        /*
+         * An empty group has nothing to lose, and a dialog for it is noise — the
+         * question exists to protect hosts, not to add a click to every tidy-up.
+         */
+        await api.saveFolder({ name: 'Empty group', parentId: null })
+        if (await openGroupMenu('Empty group')) {
+          document.querySelector('[data-testid="hosts-menu"]')
+            .querySelector('[data-menu-id="delete"]').click()
+          await wait(700)
+          push('an empty group is removed without a dialog',
+            !document.querySelector('[data-testid="confirm-delete-folder"]') &&
+              !(await api.loadSessionTree()).folders.some((f) => f.name === 'Empty group'),
+            'dialog=' + !!document.querySelector('[data-testid="confirm-delete-folder"]'))
+        }
+      }
+
       // ---- a sub-group is created and must actually appear ----------------
       // It used to be created in the store and then not rendered, because the page
       // dropped any group that was empty and not top-level — indistinguishable

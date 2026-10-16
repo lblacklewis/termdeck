@@ -238,6 +238,43 @@ async function main() {
       cancel2.click()
       await new Promise((r) => setTimeout(r, 400))
 
+      /*
+       * Deleting a folder that still holds hosts asks first, in the drawer too.
+       *
+       * The drawer's tree reaches the same guarded handler as the Hosts page, and
+       * this is the assertion that keeps it that way: the menu item must open a
+       * question, not delete on the spot.
+       */
+      const withHost = await api.saveFolder({ name: 'guarded-folder' })
+      const guarded = withHost.folders.find((x) => x.name === 'guarded-folder')
+      await api.saveSession({
+        name: 'guarded-host',
+        host: '10.5.5.5',
+        username: 'root',
+        authMethod: 'password',
+        tags: [],
+        parentId: guarded.id
+      })
+      await new Promise((r) => setTimeout(r, 800))
+      const guardedRow = document.querySelector('.td-node[data-node-id="' + guarded.id + '"]')
+      guardedRow.dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 220, clientY: 300 })
+      )
+      await new Promise((r) => setTimeout(r, 350))
+      const gmenu = document.querySelector('[data-testid="context-menu"]')
+      gmenu.querySelector('[data-menu-id="deleteFolder"]').click()
+      await new Promise((r) => setTimeout(r, 700))
+      const guardDialog = document.querySelector('[data-testid="confirm-delete-folder"]')
+      push('deleting a folder with a host asks first in the drawer too', !!guardDialog,
+        'dialog=' + !!guardDialog)
+      if (guardDialog) guardDialog.querySelector('[data-testid="confirm-cancel"]').click()
+      await new Promise((r) => setTimeout(r, 600))
+      const keptTree = await api.loadSessionTree()
+      push('and cancelling keeps the folder and its host',
+        keptTree.folders.some((f) => f.name === 'guarded-folder') &&
+          keptTree.sessions.some((s) => s.name === 'guarded-host'),
+        keptTree.folders.map((f) => f.name).join(','))
+
       // Right-clicking empty tree space offers root actions.
       const root = document.querySelector('.td-tree-root')
       root.dispatchEvent(new MouseEvent('contextmenu', {
