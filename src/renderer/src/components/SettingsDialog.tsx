@@ -17,6 +17,7 @@ import { THEMES, findTheme } from '@shared/themes'
 import { formatEvent, isValidBinding, parseBinding } from './useShortcuts'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { applyTheme } from './useTheme'
+import { LANGUAGES, setLanguage, t, type Language } from '../i18n'
 
 const api = window.termdeck
 
@@ -107,10 +108,17 @@ export function SettingsDialog({
     onApplyScale(scale)
   }
 
+  /** Language previews like the theme does: the whole dialog redraws at once. */
+  const previewLanguage = (language: Language): void => {
+    setDraft((d) => ({ ...d, language }))
+    setLanguage(language)
+  }
+
   const dismiss = (): void => {
     // Revert an unsaved preview.
     if (draft.theme !== settings.theme) applyTheme(findTheme(settings.theme))
     if (draft.uiScale !== settings.uiScale) onApplyScale(settings.uiScale)
+    if (draft.language !== settings.language) setLanguage(settings.language)
     onClose()
   }
 
@@ -125,11 +133,19 @@ export function SettingsDialog({
    * settings arrive before the dialog closes), which would undo the very value
    * that was just saved.
    */
-  const lastAppliedRef = useRef({ theme: draft.theme, scale: draft.uiScale })
-  lastAppliedRef.current = { theme: draft.theme, scale: draft.uiScale }
+  const lastAppliedRef = useRef({
+    theme: draft.theme,
+    scale: draft.uiScale,
+    language: draft.language
+  })
+  lastAppliedRef.current = { theme: draft.theme, scale: draft.uiScale, language: draft.language }
 
-  const savedRef = useRef({ theme: settings.theme, scale: settings.uiScale })
-  savedRef.current = { theme: settings.theme, scale: settings.uiScale }
+  const savedRef = useRef({
+    theme: settings.theme,
+    scale: settings.uiScale,
+    language: settings.language
+  })
+  savedRef.current = { theme: settings.theme, scale: settings.uiScale, language: settings.language }
 
   // `onApplyScale` is stable (the shell memoises it), so it is deliberately not
   // a dependency: this must run only on unmount.
@@ -142,6 +158,7 @@ export function SettingsDialog({
       const saved = savedRef.current
       if (applied.theme !== saved.theme) applyTheme(findTheme(saved.theme))
       if (applied.scale !== saved.scale) applyScaleRef.current(saved.scale)
+      if (applied.language !== saved.language) setLanguage(saved.language)
     },
     []
   )
@@ -212,16 +229,16 @@ export function SettingsDialog({
 
   const shortcutMenuItems = (binding: Keybinding): MenuItem[] => {    const original = DEFAULT_KEYBINDINGS.find((b) => b.id === binding.id)
     return [
-      { id: 'rebind', label: 'Change shortcut...' },
-      { id: 'clear', label: 'Remove shortcut', disabled: !binding.keys },
+      { id: 'rebind', label: t('settingsdialog.change_shortcut', 'Change shortcut...') },
+      { id: 'clear', label: t('settingsdialog.remove_shortcut', 'Remove shortcut'), disabled: !binding.keys },
       {
         id: 'reset',
-        label: 'Reset to default',
+        label: t('settingsdialog.reset_to_default', 'Reset to default'),
         disabled: !original || original.keys === binding.keys,
         separatorBefore: true
       },
-      { id: 'moveUp', label: 'Move up' },
-      { id: 'moveDown', label: 'Move down' }
+      { id: 'moveUp', label: t('settingsdialog.move_up', 'Move up') },
+      { id: 'moveDown', label: t('settingsdialog.move_down', 'Move down') }
     ]
   }
 
@@ -278,7 +295,7 @@ export function SettingsDialog({
               className={`td-settings-tab${tab === id ? ' is-active' : ''}`}
               onClick={() => setTab(id)}
             >
-              {label}
+              {t('settingstab.' + id, label)}
             </button>
           ))}
         </nav>
@@ -292,6 +309,8 @@ export function SettingsDialog({
                 scale={draft.uiScale}
                 savedScale={settings.uiScale}
                 onScale={previewScale}
+                language={draft.language}
+                onLanguage={previewLanguage}
               />
             )}
 
@@ -321,8 +340,7 @@ export function SettingsDialog({
             {tab === 'shortcuts' && (
               <div className="td-field-stack">
                 <p className="td-hint">
-                  Click a shortcut and press the new combination (<kbd>Esc</kbd> cancels), or
-                  right-click a row for more. Drag rows to change their order.
+                  {t('settingsdialog.click_a_shortcut_and_press_t', 'Click a shortcut and press the new combination (')}<kbd>{t('settingsdialog.esc', 'Esc')}</kbd> {t('settingsdialog.cancels_or_right_click_a_row', 'cancels), or right-click a row for more. Drag rows to change their order.')}
                 </p>
                 {/*
                   The digit family is not a row: which number means which session is
@@ -333,17 +351,13 @@ export function SettingsDialog({
                   express (zoom).
                 */}
                 <p className="td-hint" data-testid="page-shortcuts">
-                  <kbd>Alt</kbd>+<kbd>1</kbd>…<kbd>9</kbd> jumps straight to a session —
-                  1 is the first pane in the arrangement, 2 the second, and so on.{' '}
-                  <kbd>Alt</kbd>+<kbd>[</kbd> and <kbd>Alt</kbd>+<kbd>]</kbd> step to the
-                  previous and next session and wrap around at both ends.{' '}
-                  <kbd>Ctrl</kbd>+<kbd>=</kbd> and <kbd>Ctrl</kbd>+<kbd>-</kbd> make the
-                  whole interface larger and smaller, a step at a time through the sizes
-                  on the Appearance tab.
+                  <kbd>{t('settingsdialog.alt', 'Alt')}</kbd>+<kbd>1</kbd>…<kbd>9</kbd> {t('settingsdialog.jumps_straight_to_a_session', 'jumps straight to a session — 1 is the first pane in the arrangement, 2 the second, and so on.')}{' '}
+                  <kbd>{t('settingsdialog.alt_2', 'Alt')}</kbd>+<kbd>[</kbd> and <kbd>{t('settingsdialog.alt_3', 'Alt')}</kbd>+<kbd>]</kbd> {t('settingsdialog.step_to_the_previous_and_nex', 'step to the previous and next session and wrap around at both ends.')}{' '}
+                  <kbd>{t('settingsdialog.ctrl', 'Ctrl')}</kbd>+<kbd>=</kbd> and <kbd>{t('settingsdialog.ctrl_2', 'Ctrl')}</kbd>+<kbd>-</kbd> {t('settingsdialog.make_the_whole_interface_lar', 'make the whole interface larger and smaller, a step at a time through the sizes on the Appearance tab.')}
                 </p>
                 {[...conflicts.entries()].map(([keys, labels]) => (
                   <div key={keys} className="td-form-error">
-                    Shortcut conflict on <b>{keys}</b>: {labels.join(', ')}
+                    {t('settingsdialog.shortcut_conflict_on', 'Shortcut conflict on')}<b>{keys}</b>: {labels.join(', ')}
                   </div>
                 ))}
                 <ul className="td-shortcut-list" data-testid="shortcut-list">
@@ -386,10 +400,12 @@ export function SettingsDialog({
                         setMenu({ x: e.clientX, y: e.clientY, id: binding.id })
                       }}
                     >
-                      <span className="td-drag-grip" title="Drag to reorder">
+                      <span className="td-drag-grip" title={t('settingsdialog.drag_to_reorder', 'Drag to reorder')}>
                         ⠿
                       </span>
-                      <span className="td-shortcut-label">{binding.label}</span>
+                      <span className="td-shortcut-label">
+                        {t('keybinding.' + binding.id, binding.label)}
+                      </span>
                       <button
                         className={`td-key-btn${recording === binding.id ? ' is-recording' : ''}${
                           binding.keys ? '' : ' is-empty'
@@ -401,7 +417,7 @@ export function SettingsDialog({
                       </button>
                       <button
                         className="td-mini"
-                        title="Remove shortcut"
+                        title={t('settingsdialog.remove_shortcut_2', 'Remove shortcut')}
                         onClick={() => setBindingKeys(binding.id, '')}
                       >
                         ✕
@@ -415,7 +431,7 @@ export function SettingsDialog({
             {tab === 'hostkeys' && (
               <div className="td-field-stack">
                 <label className="td-field">
-                  <span>Unknown host keys</span>
+                  <span>{t('settingsdialog.unknown_host_keys', 'Unknown host keys')}</span>
                   <select
                     className="td-select"
                     value={draft.hostKeys.policy}
@@ -426,14 +442,13 @@ export function SettingsDialog({
                       }))
                     }
                   >
-                    <option value="ask">Ask me (show the fingerprint)</option>
-                    <option value="strict">Refuse to connect</option>
-                    <option value="trust">Trust on first use (insecure)</option>
+                    <option value="ask">{t('settingsdialog.ask_me_show_the_fingerprint', 'Ask me (show the fingerprint)')}</option>
+                    <option value="strict">{t('settingsdialog.refuse_to_connect', 'Refuse to connect')}</option>
+                    <option value="trust">{t('settingsdialog.trust_on_first_use_insecure', 'Trust on first use (insecure)')}</option>
                   </select>
                 </label>
                 <p className="td-hint">
-                  A <b>changed</b> host key is never accepted automatically, even under "trust
-                  on first use" — that is exactly the case a man-in-the-middle would produce.
+                  A <b>changed</b> {t('settingsdialog.host_key_is_never_accepted_a', 'host key is never accepted automatically, even under "trust on first use" — that is exactly the case a man-in-the-middle would produce.')}
                 </p>
               </div>
             )}
@@ -449,7 +464,7 @@ export function SettingsDialog({
       <div className="td-drawer-actions">
         <span className="td-spacer" />
         <button className="td-btn" onClick={dismiss}>
-          Close
+          {t('settingsdialog.close', 'Close')}
         </button>
         <button
           className="td-btn td-btn-primary"
@@ -488,7 +503,9 @@ function ThemeTab({
   onPick,
   scale,
   savedScale,
-  onScale
+  onScale,
+  language,
+  onLanguage
 }: {
   activeTheme: string
   savedTheme: string
@@ -496,19 +513,41 @@ function ThemeTab({
   scale: number
   savedScale: number
   onScale: (scale: number) => void
+  language: Language
+  onLanguage: (language: Language) => void
 }): JSX.Element {
   const previewing = activeTheme !== savedTheme
 
   return (
     <div className="td-field-stack">
+      {/*
+        Language sits above the themes because it changes every label in this
+        dialog — including the ones below it, which is also the fastest way to see
+        what the choice does.
+      */}
+      <label className="td-field">
+        <span>{t('settingsdialog.language', 'Language')}</span>
+        <select
+          className="td-select"
+          aria-label="language"
+          data-testid="language-pick"
+          value={language}
+          onChange={(e) => onLanguage(e.target.value as Language)}
+        >
+          {LANGUAGES.map((entry) => (
+            <option key={entry.id} value={entry.id}>
+              {entry.label}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="td-theme-head">
         <p className="td-hint">
-          Pick a theme to preview it straight away — the whole app and the terminal change
-          together. Press <b>Save settings</b> to keep it.
+          {t('settingsdialog.pick_a_theme_to_preview_it_s', 'Pick a theme to preview it straight away — the whole app and the terminal change together. Press')}<b>{t('settingsdialog.save_settings', 'Save settings')}</b> {t('settingsdialog.to_keep_it', 'to keep it.')}
         </p>
         {previewing && (
           <span className="td-preview-badge" data-testid="theme-previewing">
-            Previewing {findTheme(activeTheme).name}
+            {t('settingsdialog.previewing', 'Previewing')}{findTheme(activeTheme).name}
           </span>
         )}
       </div>
@@ -547,7 +586,7 @@ function ThemeTab({
         shortcut could land on a size no chip showed — a highlighted nothing.
       */}
       <div className="td-field">
-        <span>Interface size</span>
+        <span>{t('settingsdialog.interface_size', 'Interface size')}</span>
         <div className="td-scale-picks" data-testid="scale-picks">
           {UI_SCALES.map((value) => (
             <button
@@ -579,25 +618,23 @@ function CredentialsTab({ status }: { status: CredentialStatus; onChanged: (s: C
       <div className="td-cred-badge">
         <span className="td-cred-icon">🔒</span>
         <div>
-          <strong>Passwords are saved and encrypted automatically</strong>
+          <strong>{t('settingsdialog.passwords_are_saved_and_encr', 'Passwords are saved and encrypted automatically')}</strong>
           <p className="td-hint">{status.detail}</p>
         </div>
       </div>
 
       <dl className="td-kv">
-        <dt>Protection</dt>
+        <dt>{t('settingsdialog.protection', 'Protection')}</dt>
         <dd>{status.backend === 'os' ? 'OS keychain' : 'Local key file'}</dd>
-        <dt>Encryption</dt>
+        <dt>{t('settingsdialog.encryption', 'Encryption')}</dt>
         <dd>{status.encrypted ? 'AES-256-GCM' : 'None'}</dd>
-        <dt>Sessions with saved credentials</dt>
+        <dt>{t('settingsdialog.sessions_with_saved_credenti', 'Sessions with saved credentials')}</dt>
         <dd data-testid="credential-count">{status.credentialCount}</dd>
       </dl>
 
       {status.backend === 'local' && (
         <p className="td-hint">
-          This system exposes no OS keychain to the app, so the encryption key lives in a file
-          next to the data with owner-only permissions. That protects against casual reading, not
-          against someone who can already read your user profile.
+          {t('settingsdialog.this_system_exposes_no_os_ke', 'This system exposes no OS keychain to the app, so the encryption key lives in a file next to the data with owner-only permissions. That protects against casual reading, not against someone who can already read your user profile.')}
         </p>
       )}
     </div>
@@ -655,17 +692,17 @@ function TerminalTab({
   return (
     <div className="td-field-stack">
       <label className="td-field">
-        <span>Font family</span>
+        <span>{t('settingsdialog.font_family', 'Font family')}</span>
         <input
           aria-label="font-family"
           list="td-font-choices"
           value={primaryFamily}
-          placeholder="Type or pick a font"
+          placeholder={t('settingsdialog.type_or_pick_a_font', 'Type or pick a font')}
           onChange={(e) => setFamily(e.target.value)}
         />
         <datalist id="td-font-choices">
           {fonts.bundled.map((name) => (
-            <option key={`bundled-${name}`} value={name} label="ships with TermDeck" />
+            <option key={`bundled-${name}`} value={name} label={t('settingsdialog.ships_with_termdeck', 'ships with TermDeck')} />
           ))}
           {fonts.monospace.map((name) => (
             <option key={`mono-${name}`} value={name} />
@@ -679,7 +716,7 @@ function TerminalTab({
            * the fallback — which is exactly what used to happen silently.
            */}
           {fonts.suggested.map((name) => (
-            <option key={`suggested-${name}`} value={name} label="not installed" />
+            <option key={`suggested-${name}`} value={name} label={t('settingsdialog.not_installed', 'not installed')} />
           ))}
         </datalist>
         <span className="td-hint" data-testid="font-hint">
@@ -713,13 +750,13 @@ function TerminalTab({
       )}
 
       <div className="td-font-preview" style={{ fontFamily: `"${previewFamily}", monospace` }} data-testid="font-preview">
-        <span>Monospace 0123456789</span>
-        <span className="td-font-preview-dim">git commit -m &quot;fix&quot; · {`{ } ( ) => ; | ~`}</span>
+        <span>{t('settingsdialog.monospace_0123456789', 'Monospace 0123456789')}</span>
+        <span className="td-font-preview-dim">{t('settingsdialog.git_commit_m_quot_fix_quot', 'git commit -m &quot;fix&quot; ·')}{`{ } ( ) => ; | ~`}</span>
       </div>
 
       <div className="td-field-row">
         <label className="td-field td-field-grow">
-          <span>Font size</span>
+          <span>{t('settingsdialog.font_size', 'Font size')}</span>
           <input
             aria-label="font-size"
             type="number"
@@ -730,7 +767,7 @@ function TerminalTab({
           />
         </label>
         <label className="td-field td-field-grow">
-          <span>Line height</span>
+          <span>{t('settingsdialog.line_height', 'Line height')}</span>
           <input
             aria-label="line-height"
             type="number"
@@ -745,7 +782,7 @@ function TerminalTab({
 
       <div className="td-field-row">
         <label className="td-field td-field-grow">
-          <span>Cursor</span>
+          <span>{t('settingsdialog.cursor', 'Cursor')}</span>
           <select
             aria-label="cursor-style"
             className="td-select"
@@ -754,14 +791,14 @@ function TerminalTab({
               onChange({ cursorStyle: e.target.value as TerminalSettings['cursorStyle'] })
             }
           >
-            <option value="outline">Outline (hollow box)</option>
-            <option value="bar">Bar</option>
-            <option value="block">Block</option>
-            <option value="underline">Underline</option>
+            <option value="outline">{t('settingsdialog.outline_hollow_box', 'Outline (hollow box)')}</option>
+            <option value="bar">{t('settingsdialog.bar', 'Bar')}</option>
+            <option value="block">{t('settingsdialog.block', 'Block')}</option>
+            <option value="underline">{t('settingsdialog.underline', 'Underline')}</option>
           </select>
         </label>
         <label className="td-field td-field-grow">
-          <span>Scrollback lines</span>
+          <span>{t('settingsdialog.scrollback_lines', 'Scrollback lines')}</span>
           <input
             aria-label="scrollback"
             type="number"
@@ -776,7 +813,7 @@ function TerminalTab({
 
       <div className="td-field-row">
         <label className="td-field td-field-grow">
-          <span>Cursor blink</span>
+          <span>{t('settingsdialog.cursor_blink', 'Cursor blink')}</span>
           <select
             aria-label="cursor-blink-rate"
             className="td-select"
@@ -787,11 +824,11 @@ function TerminalTab({
               else onChange({ cursorBlink: true, cursorBlinkMs: Number(v) })
             }}
           >
-            <option value="off">Off (steady)</option>
-            <option value="1200">Slow — 1.2s</option>
-            <option value="900">Relaxed — 0.9s</option>
-            <option value="650">Normal — 0.65s</option>
-            <option value="400">Fast — 0.4s</option>
+            <option value="off">{t('settingsdialog.off_steady', 'Off (steady)')}</option>
+            <option value="1200">{t('settingsdialog.slow_1_2s', 'Slow — 1.2s')}</option>
+            <option value="900">{t('settingsdialog.relaxed_0_9s', 'Relaxed — 0.9s')}</option>
+            <option value="650">{t('settingsdialog.normal_0_65s', 'Normal — 0.65s')}</option>
+            <option value="400">{t('settingsdialog.fast_0_4s', 'Fast — 0.4s')}</option>
           </select>
         </label>
         <div className="td-field td-field-grow" />
@@ -805,8 +842,7 @@ function TerminalTab({
           onChange={(e) => onChange({ showTimestamps: e.target.checked })}
         />
         <span>
-          Show a timestamp column beside each pane. Times are recorded per line as output arrives;
-          they are not saved with the session.
+          {t('settingsdialog.show_a_timestamp_column_besi', 'Show a timestamp column beside each pane. Times are recorded per line as output arrives; they are not saved with the session.')}
         </span>
       </label>
     </div>
@@ -830,8 +866,8 @@ function ClipboardTab({
           onChange={(e) => onChange({ copyOnSelect: e.target.checked })}
         />
         <span>
-          <b>Copy on select</b> — dragging over text copies it immediately. Leaves{' '}
-          <kbd>Ctrl</kbd>+<kbd>C</kbd> free for the remote shell.
+          <b>{t('settingsdialog.copy_on_select', 'Copy on select')}</b> {t('settingsdialog.dragging_over_text_copies_it', '— dragging over text copies it immediately. Leaves')}{' '}
+          <kbd>{t('settingsdialog.ctrl_3', 'Ctrl')}</kbd>+<kbd>C</kbd> {t('settingsdialog.free_for_the_remote_shell', 'free for the remote shell.')}
         </span>
       </label>
 
@@ -843,7 +879,7 @@ function ClipboardTab({
           onChange={(e) => onChange({ pasteOnRightClick: e.target.checked })}
         />
         <span>
-          <b>Right-click paste</b> — paste the clipboard instead of opening a menu.
+          <b>{t('settingsdialog.right_click_paste', 'Right-click paste')}</b> {t('settingsdialog.paste_the_clipboard_instead', '— paste the clipboard instead of opening a menu.')}
         </span>
       </label>
 
@@ -855,7 +891,7 @@ function ClipboardTab({
           onChange={(e) => onChange({ pasteOnMiddleClick: e.target.checked })}
         />
         <span>
-          <b>Middle-click paste</b> — paste with the middle mouse button.
+          <b>{t('settingsdialog.middle_click_paste', 'Middle-click paste')}</b> {t('settingsdialog.paste_with_the_middle_mouse', '— paste with the middle mouse button.')}
         </span>
       </label>
 
@@ -867,7 +903,7 @@ function ClipboardTab({
           onChange={(e) => onChange({ confirmMultilinePaste: e.target.checked })}
         />
         <span>
-          <b>Confirm multi-line paste</b> — ask before sending several commands at once.
+          <b>{t('settingsdialog.confirm_multi_line_paste', 'Confirm multi-line paste')}</b> {t('settingsdialog.ask_before_sending_several_c', '— ask before sending several commands at once.')}
         </span>
       </label>
     </div>
@@ -918,7 +954,7 @@ export function WellbeingTab({
 
   return (
     <div className="td-field-stack" data-testid="wellbeing-tab">
-      <h3 className="td-settings-heading">Break reminder</h3>
+      <h3 className="td-settings-heading">{t('settingsdialog.break_reminder', 'Break reminder')}</h3>
       <label className="td-check">
         <input
           type="checkbox"
@@ -927,8 +963,7 @@ export function WellbeingTab({
           onChange={(e) => onBreak({ enabled: e.target.checked })}
         />
         <span>
-          <b>Remind me to take a break</b> — counted only while this window is focused, so a
-          reminder never fires at an empty desk.
+          <b>{t('settingsdialog.remind_me_to_take_a_break', 'Remind me to take a break')}</b> {t('settingsdialog.counted_only_while_this_wind', '— counted only while this window is focused, so a reminder never fires at an empty desk.')}
         </span>
       </label>
 
@@ -966,14 +1001,14 @@ export function WellbeingTab({
             onChange={(e) => onBreak({ minutes: Number(e.target.value) })}
           />
           <button className="td-btn" data-testid="break-preview" onClick={onPreviewBreak}>
-            Try it now
+            {t('settingsdialog.try_it_now', 'Try it now')}
           </button>
         </div>
       </label>
 
       {breakSettings.mode === 'pomodoro' && (
         <label className="td-field">
-          <span>Minutes per break</span>
+          <span>{t('settingsdialog.minutes_per_break', 'Minutes per break')}</span>
           <input
             type="number"
             min={1}
@@ -987,7 +1022,7 @@ export function WellbeingTab({
 
       <div className="td-field-row">
         <label className="td-field td-field-grow">
-          <span>Wait for the terminals to be quiet for</span>
+          <span>{t('settingsdialog.wait_for_the_terminals_to_be', 'Wait for the terminals to be quiet for')}</span>
           <input
             type="number"
             min={2}
@@ -998,7 +1033,7 @@ export function WellbeingTab({
           />
         </label>
         <label className="td-field td-field-grow">
-          <span>Snooze for</span>
+          <span>{t('settingsdialog.snooze_for', 'Snooze for')}</span>
           <input
             type="number"
             min={1}
@@ -1011,9 +1046,8 @@ export function WellbeingTab({
       </div>
 
       <p className="td-hint">
-        Counted only while this window is focused, and the nudge waits for {breakSettings.idleSeconds}
-        s of silence in every session so it never lands in the middle of a command. It appears as a
-        bar above the panes — take the break, cover the screen with the lock, or put it off.
+        {t('settingsdialog.counted_only_while_this_wind_2', 'Counted only while this window is focused, and the nudge waits for')}{breakSettings.idleSeconds}
+        {t('settingsdialog.s_of_silence_in_every_sessio', 's of silence in every session so it never lands in the middle of a command. It appears as a bar above the panes — take the break, cover the screen with the lock, or put it off.')}
         {breakSettings.mode === 'pomodoro' &&
           ' A pomodoro break counts down in wall-clock time, because you are supposed to be away; the countdown sits in the drawer footer.'}
       </p>
@@ -1025,10 +1059,9 @@ export function WellbeingTab({
             }${breakStats.pomodoros > 0 ? ` · ${breakStats.pomodoros} pomodoro rounds` : ''}.`}
       </p>
 
-      <h3 className="td-settings-heading">Drawer sections</h3>
+      <h3 className="td-settings-heading">{t('settingsdialog.drawer_sections', 'Drawer sections')}</h3>
       <p className="td-hint">
-        Which blocks the Terminal drawer shows. They can also be dragged into order, and hidden by
-        right-clicking a heading there.
+        {t('settingsdialog.which_blocks_the_terminal_dr', 'Which blocks the Terminal drawer shows. They can also be dragged into order, and hidden by right-clicking a heading there.')}
       </p>
       <div className="td-section-toggles">
         {sections.map((section) => (
@@ -1045,16 +1078,14 @@ export function WellbeingTab({
                 )
               }
             />
-            <span>{SIDEBAR_SECTION_LABELS[section.id]}</span>
+            <span>{t('sidertab.' + section.id, SIDEBAR_SECTION_LABELS[section.id])}</span>
           </label>
         ))}
       </div>
 
-      <h3 className="td-settings-heading">Lock screen</h3>
+      <h3 className="td-settings-heading">{t('settingsdialog.lock_screen', 'Lock screen')}</h3>
       <p className="td-hint">
-        <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> covers the window so the panes cannot be read.
-        It hides the screen rather than suspending anything: the sessions behind it stay
-        connected. Leave the password empty to unlock with a single click.
+        <kbd>{t('settingsdialog.ctrl_4', 'Ctrl')}</kbd>+<kbd>{t('settingsdialog.alt_4', 'Alt')}</kbd>+<kbd>L</kbd> {t('settingsdialog.covers_the_window_so_the_pan', 'covers the window so the panes cannot be read. It hides the screen rather than suspending anything: the sessions behind it stay connected. Leave the password empty to unlock with a single click.')}
       </p>
       <div className="td-field-row">
         <input
@@ -1074,7 +1105,7 @@ export function WellbeingTab({
           data-testid="lock-save"
           onClick={() => void commitLock(password)}
         >
-          Save
+          {t('settingsdialog.save', 'Save')}
         </button>
         <button
           className="td-btn"
@@ -1082,7 +1113,7 @@ export function WellbeingTab({
           disabled={!lockStatus.hasPassword}
           onClick={() => void commitLock(null)}
         >
-          Clear
+          {t('settingsdialog.clear', 'Clear')}
         </button>
       </div>
       <p className="td-hint" data-testid="lock-status">

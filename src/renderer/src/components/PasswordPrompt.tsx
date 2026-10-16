@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type JSX } from 'react'
 import type { SavedSession } from '@shared/types'
 import { ModalShell } from './ModalShell'
+import { t } from '../i18n'
 
 export interface PasswordPromptResult {
   password: string
@@ -50,7 +51,7 @@ export function PasswordPrompt({
     <ModalShell onDismiss={onCancel} testId="password-prompt">
       <div className="td-modal-head">
         <h2>{retry ? 'Password rejected' : 'Password required'}</h2>
-        <button className="td-icon-btn" onClick={onCancel} title="Cancel">
+        <button className="td-icon-btn" onClick={onCancel} title={t('passwordprompt.cancel', 'Cancel')}>
           ✕
         </button>
       </div>
@@ -74,7 +75,7 @@ export function PasswordPrompt({
         )}
 
         <label className="td-field">
-          <span>Password</span>
+          <span>{t('passwordprompt.password', 'Password')}</span>
           <div className="td-field-row">
             <input
               className="td-field-grow"
@@ -99,15 +100,14 @@ export function PasswordPrompt({
             onChange={(e) => setRemember(e.target.checked)}
           />
           <span>
-            Save this password for <b>{session.name}</b>. It is stored encrypted on this machine,
-            with the key held by your operating system's keychain.
+            {t('passwordprompt.save_this_password_for', 'Save this password for')}<b>{session.name}</b>{t('passwordprompt.it_is_stored_encrypted_on_th', '. It is stored encrypted on this machine, with the key held by your operating system\'s keychain.')}
           </span>
         </label>
 
         <div className="td-modal-foot">
           <span className="td-spacer" />
           <button type="button" className="td-btn" onClick={onCancel}>
-            Cancel
+            {t('passwordprompt.cancel_2', 'Cancel')}
           </button>
           <button
             type="submit"

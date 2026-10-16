@@ -1,5 +1,6 @@
 import { useEffect, type JSX } from 'react'
 import { ModalShell } from './ModalShell'
+import { t } from '../i18n'
 
 interface QuitConfirmDialogProps {
   /** Live terminal sessions that closing the window would end. */
@@ -37,10 +38,10 @@ export function QuitConfirmDialog({
   return (
     <ModalShell onDismiss={onCancel} testId="quit-confirm">
       <div className="td-modal-head">
-        <h2>Quit TermDeck?</h2>
+        <h2>{t('quitconfirmdialog.quit_termdeck', 'Quit TermDeck?')}</h2>
         <button
           className="td-icon-btn"
-          title="Cancel"
+          title={t('quitconfirmdialog.cancel', 'Cancel')}
           data-testid="quit-close"
           onClick={onCancel}
         >
@@ -55,8 +56,7 @@ export function QuitConfirmDialog({
             : 'No connections are open.'}
         </p>
         <p className="td-hint">
-          Saved sessions, settings and this window arrangement are kept — only the live
-          connections end.
+          {t('quitconfirmdialog.saved_sessions_settings_and', 'Saved sessions, settings and this window arrangement are kept — only the live connections end.')}
         </p>
       </div>
 
@@ -69,7 +69,7 @@ export function QuitConfirmDialog({
           autoFocus
           onClick={onCancel}
         >
-          Cancel
+          {t('quitconfirmdialog.cancel_2', 'Cancel')}
         </button>
         <button
           type="button"
@@ -77,7 +77,7 @@ export function QuitConfirmDialog({
           data-testid="quit-confirm-btn"
           onClick={onConfirm}
         >
-          Quit
+          {t('quitconfirmdialog.quit', 'Quit')}
         </button>
       </div>
     </ModalShell>

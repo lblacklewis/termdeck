@@ -23,7 +23,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Docking | ✅ drag to edge = split, drag to centre = tab group, floating groups |
 | Host key verification | ✅ `known_hosts`, hashed entries, change/mismatch warning |
 | Credentials | ✅ saved per session, AES-256-GCM at rest, prompt with "remember" on connect |
-| Appearance | ✅ 13 themes (incl. the light Blossom and Lavender) with live preview, 80–150% interface scale, audited contrast |
+| Appearance | ✅ 13 themes (incl. the light Blossom and Lavender) with live preview, 80–150% interface scale, English + 简体中文, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
 | Known Hosts | ✅ browse every stored key and forget one |
 | Saved sessions | ✅ multi-level folders, tags, filtering, drag-to-move, per-session auth |
@@ -154,6 +154,28 @@ zoom moved. So every scale change (including the drawer's live preview, which is
 why the preview is applied through the shell rather than the dialog) re-asserts
 the layout once the zoom has landed. `smoke:repeat` alternates the plain launch
 with a mid-run scale change so neither path can regress quietly.
+
+**Interface language.** Settings → Appearance → *Language*: English or 简体中文.
+Picking one redraws the whole shell immediately — the drawer, the rail and the
+menus around it included — and *Save settings* keeps it; closing by any route puts
+the stored one back, exactly like the theme preview.
+
+The English text is the source of truth and lives **at the call site**:
+`t('hostspage.new_host', 'New host…')`. `src/renderer/src/i18n/zh.ts` holds only
+the translations, so a key with no translation shows English and a missing entry is
+never a blank label. Anything that is not prose is left alone on purpose — product
+and font names, `Ctrl`/`Alt`/`Esc`, sample commands and paths.
+
+```bash
+npm run extract:i18n   # after adding UI text: wrap the new strings, list them
+npm run check:i18n     # in `verify`: stale keys, and one key with two English texts
+```
+
+`extract:i18n` is a real codemod (TypeScript compiler API, not regexes): it wraps
+JSX text, UI-named attributes and `label:`/`title:` properties, and knows the
+difference between a label ("Terminal") and a value ("monospace"). Two traps it
+exists to avoid are in *Gotchas* below — a `t()` call at module scope, and a
+preview that repaints only the dialog.
 
 On a first run the default follows the display: 100% up to 1800 logical pixels
 wide, 105% to 2200, and 115% above that — a 2560px desktop monitor makes the
@@ -548,6 +570,8 @@ npm run smoke:ui5       # navigation rail, pages, drawers, Known Hosts, new them
 npm run smoke:ctxmenu   # context menu geometry inside a drawer
 npm run smoke:tabmenu   # pane-tab menu actions
 npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick connect
+npm run smoke:share    # encrypted host export/import
+npm run smoke:i18n     # language switch, persistence, revert
 npm run smoke:features3 # font picker, cursor blink, broadcast input
 npm run smoke:scale     # interface scale: applies, previsualises, persists, reverts
 npm run smoke:batch     # adding hosts in bulk: ranges, shared credentials, what is skipped
@@ -571,6 +595,17 @@ testing and resolved CSS variables rather than painted pixel values.
 These each cost real debugging time; they are recorded so they are not
 rediscovered.
 
+- **A `t()` call at module scope is evaluated once, before the language is known.**
+  The nav rail's labels were a module-level `PAGES` array, so they were translated
+  at import time — with English — and never re-evaluated: switching to Chinese left
+  the rail English while every label around it changed. Anything translated must be
+  built during render (a function, or an array inside the component).
+- **A React-rendered string cannot be previewed the way a theme is.** The theme
+  preview works by writing CSS variables, which needs no re-render; text does. The
+  dialog therefore changes the language imperatively (like the theme) *and* the
+  shell subscribes to the change — and the stored value is pushed from an effect on
+  `settings.language` rather than on every render, or the preview would be undone by
+  the very render it caused.
 - **A selector that waits for a class the library only adds under an option you
   disabled never matches — and nothing complains.** Cursor blinking was animated on
   xterm's `xterm-cursor-blink` class, but xterm only adds that class while *its*

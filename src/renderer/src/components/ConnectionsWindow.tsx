@@ -1,6 +1,7 @@
 import { useEffect, useState, type JSX } from 'react'
 import type { SessionInfo } from '@shared/types'
 import { ModalShell } from './ModalShell'
+import { t } from '../i18n'
 
 interface ConnectionsWindowProps {
   sessions: SessionInfo[]
@@ -52,14 +53,14 @@ export function ConnectionsWindow({
       <div className="td-connections-body">
         <div className="td-connections-summary">
           <span>
-            {sessions.length} open · {sshCount} SSH · {localCount} local
+            {sessions.length} {t('connectionswindow.open', 'open ·')}{sshCount} SSH · {localCount} local
           </span>
         </div>
 
         {sessions.length === 0 && (
           <div className="td-connections-empty">
-            No open connections. Double-click a saved session, or press{' '}
-            <kbd>Ctrl</kbd>+<kbd>T</kbd> to connect.
+            {t('connectionswindow.no_open_connections_double_c', 'No open connections. Double-click a saved session, or press')}{' '}
+            <kbd>{t('connectionswindow.ctrl', 'Ctrl')}</kbd>+<kbd>T</kbd> {t('connectionswindow.to_connect', 'to connect.')}
           </div>
         )}
 
@@ -67,10 +68,10 @@ export function ConnectionsWindow({
           <table className="td-connections-table">
             <thead>
               <tr>
-                <th>Session</th>
-                <th>Type</th>
-                <th>Connected</th>
-                <th>Size</th>
+                <th>{t('connectionswindow.session', 'Session')}</th>
+                <th>{t('connectionswindow.type', 'Type')}</th>
+                <th>{t('connectionswindow.connected', 'Connected')}</th>
+                <th>{t('connectionswindow.size', 'Size')}</th>
                 <th />
               </tr>
             </thead>
@@ -96,14 +97,14 @@ export function ConnectionsWindow({
                       data-action="focus"
                       onClick={() => onFocus(session.id)}
                     >
-                      Focus
+                      {t('connectionswindow.focus', 'Focus')}
                     </button>
                     <button
                       className="td-btn td-btn-sm td-btn-danger"
                       data-action="close"
                       onClick={() => onCloseSession(session.id)}
                     >
-                      Close
+                      {t('connectionswindow.close', 'Close')}
                     </button>
                   </td>
                 </tr>
@@ -116,7 +117,7 @@ export function ConnectionsWindow({
       <div className="td-drawer-actions">
         <span className="td-spacer" />
         <button className="td-btn" onClick={onDismiss}>
-          Close window
+          {t('connectionswindow.close_window', 'Close window')}
         </button>
       </div>
     </>
@@ -127,8 +128,8 @@ export function ConnectionsWindow({
   return (
     <ModalShell onDismiss={onDismiss} className="td-modal-wide" testId="connections-window">
       <div className="td-modal-head">
-        <h2>Connections</h2>
-        <button className="td-icon-btn" onClick={onDismiss} title="Close">
+        <h2>{t('connectionswindow.connections', 'Connections')}</h2>
+        <button className="td-icon-btn" onClick={onDismiss} title={t('connectionswindow.close_2', 'Close')}>
           ✕
         </button>
       </div>

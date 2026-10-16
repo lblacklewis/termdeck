@@ -1,4 +1,5 @@
 import { useMemo, useState, type JSX } from 'react'
+import { t } from '../i18n'
 
 export interface LogEntry {
   id: string
@@ -45,16 +46,16 @@ export function LogsPage({ entries, onClear }: LogsPageProps): JSX.Element {
           <input
             className="td-page-search"
             aria-label="filter-logs"
-            placeholder="Filter messages"
+            placeholder={t('logspage.filter_messages', 'Filter messages')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
         </div>
         <div className="td-page-bar">
-          <h1 className="td-sr-only">Logs</h1>
+          <h1 className="td-sr-only">{t('logspage.logs', 'Logs')}</h1>
           <div className="td-page-actions">
             <button className="td-btn" onClick={onClear} disabled={entries.length === 0}>
-              Clear
+              {t('logspage.clear', 'Clear')}
             </button>
           </div>
           <div className="td-page-meta">
@@ -68,10 +69,10 @@ export function LogsPage({ entries, onClear }: LogsPageProps): JSX.Element {
               value={level}
               onChange={(e) => setLevel(e.target.value as typeof level)}
             >
-              <option value="all">All levels</option>
-              <option value="info">Info</option>
-              <option value="warn">Warnings</option>
-              <option value="error">Errors</option>
+              <option value="all">{t('logspage.all_levels', 'All levels')}</option>
+              <option value="info">{t('logspage.info', 'Info')}</option>
+              <option value="warn">{t('logspage.warnings', 'Warnings')}</option>
+              <option value="error">{t('logspage.errors', 'Errors')}</option>
             </select>
           </div>
         </div>
@@ -80,13 +81,12 @@ export function LogsPage({ entries, onClear }: LogsPageProps): JSX.Element {
       <div className="td-page-body">
         {entries.length === 0 && (
           <div className="td-page-empty">
-            Nothing logged yet. Connection attempts, host-key decisions and session exits appear
-            here for this run only — nothing is written to disk.
+            {t('logspage.nothing_logged_yet_connectio', 'Nothing logged yet. Connection attempts, host-key decisions and session exits appear here for this run only — nothing is written to disk.')}
           </div>
         )}
 
         {entries.length > 0 && visible.length === 0 && (
-          <div className="td-page-empty">No entry matches that filter.</div>
+          <div className="td-page-empty">{t('logspage.no_entry_matches_that_filter', 'No entry matches that filter.')}</div>
         )}
 
         {visible.length > 0 && (

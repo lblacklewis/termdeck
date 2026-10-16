@@ -4,6 +4,7 @@ import { useTerminal, type TerminalHandle } from './useTerminal'
 import { useClipboard, needsPasteConfirmation } from './useClipboard'
 import { useSettings } from './useSettings'
 import { getStamps, getTerminal, onTerminalRender } from './terminalRegistry'
+import { t } from '../i18n'
 
 interface TerminalPanelProps {
   /** Absent for a pane restored from a saved layout. */
@@ -217,7 +218,7 @@ export function TerminalPanel({
         <div className="td-welcome-inner">
           <div className="td-watermark-title">{title || 'Session'}</div>
           <p className="td-hint">
-            This pane was restored from your last layout. Nothing is reconnected automatically.
+            {t('terminalpanel.this_pane_was_restored_from', 'This pane was restored from your last layout. Nothing is reconnected automatically.')}
           </p>
           <button
             className="td-btn td-btn-primary"
@@ -272,11 +273,11 @@ export function TerminalPanel({
 
       {pending !== null && (
         <div className="td-paste-guard">
-          <div className="td-paste-guard-title">Paste {pending.split(/\r?\n/).length} lines?</div>
+          <div className="td-paste-guard-title">{t('terminalpanel.paste', 'Paste')}{pending.split(/\r?\n/).length} lines?</div>
           <pre className="td-paste-guard-preview">{pending.slice(0, 400)}</pre>
           <div className="td-paste-guard-actions">
             <button className="td-btn" onClick={() => setPending(null)}>
-              Cancel
+              {t('terminalpanel.cancel', 'Cancel')}
             </button>
             <button
               className="td-btn td-btn-primary"
@@ -285,7 +286,7 @@ export function TerminalPanel({
                 setPending(null)
               }}
             >
-              Paste
+              {t('terminalpanel.paste_2', 'Paste')}
             </button>
           </div>
         </div>
@@ -293,8 +294,8 @@ export function TerminalPanel({
 
       {ended !== null && (
         <div className="td-terminal-banner">
-          <span>Session ended{ended.code !== null ? ` with exit code ${ended.code}` : ''}.</span>
-          <span className="td-terminal-banner-hint">Drag or close this tab, then reconnect.</span>
+          <span>{t('terminalpanel.session_ended', 'Session ended')}{ended.code !== null ? ` with exit code ${ended.code}` : ''}.</span>
+          <span className="td-terminal-banner-hint">{t('terminalpanel.drag_or_close_this_tab_then', 'Drag or close this tab, then reconnect.')}</span>
         </div>
       )}
     </div>

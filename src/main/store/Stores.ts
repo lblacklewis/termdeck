@@ -112,7 +112,10 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
     theme: typeof stored.theme === 'string' && stored.theme ? stored.theme : defaults.theme,
     // Clamped here so a hand-edited file cannot leave the UI unusable
     // (invisible at 0.1, unusable at 10).
-    uiScale: clampScale(stored.uiScale ?? screenDefaultScale)
+    uiScale: clampScale(stored.uiScale ?? screenDefaultScale),
+    // An unknown language falls back to English rather than to a blank UI.
+    language: stored.language === 'zh-CN' ? 'zh-CN' : 'en',
+    onboarded: stored.onboarded === true
   }
 }
 

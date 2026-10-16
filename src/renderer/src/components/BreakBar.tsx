@@ -1,5 +1,6 @@
 import { type JSX } from 'react'
 import { formatClock, useCountdown } from './useCountdown'
+import { t } from '../i18n'
 
 interface BreakBarProps {
   kind: 'reminder' | 'break' | 'work'
@@ -53,17 +54,17 @@ export function BreakBar({
 
       {kind === 'reminder' && (
         <span className="td-break-text">
-          <b>{minutes} minutes</b> without a break — stand up, and look at something further away.
+          <b>{minutes} minutes</b> {t('breakbar.without_a_break_stand_up_and', 'without a break — stand up, and look at something further away.')}
         </span>
       )}
       {kind === 'break' && (
         <span className="td-break-text" data-testid="break-countdown">
-          <b>Break — {formatClock(left)}</b> left. Walk away; the terminals can wait.
+          <b>{t('breakbar.break', 'Break —')}{formatClock(left)}</b> {t('breakbar.left_walk_away_the_terminals', 'left. Walk away; the terminals can wait.')}
         </span>
       )}
       {kind === 'work' && (
         <span className="td-break-text">
-          <b>Break over.</b> {minutes} minutes to the next one.
+          <b>{t('breakbar.break_over', 'Break over.')}</b> {minutes} {t('breakbar.minutes_to_the_next_one', 'minutes to the next one.')}
         </span>
       )}
 
@@ -74,12 +75,12 @@ export function BreakBar({
               className="td-btn td-btn-primary"
               data-testid="break-lock"
               onClick={onTakeBreakAndLock}
-              title="Record the break and cover the screen"
+              title={t('breakbar.record_the_break_and_cover_t', 'Record the break and cover the screen')}
             >
-              Break &amp; lock
+              {t('breakbar.break_amp_lock', 'Break &amp; lock')}
             </button>
             <button className="td-btn" data-testid="break-done" onClick={onTakeBreak}>
-              Break taken
+              {t('breakbar.break_taken', 'Break taken')}
             </button>
             <button
               className="td-btn"
@@ -97,19 +98,19 @@ export function BreakBar({
               className="td-btn"
               data-testid="break-lock"
               onClick={onTakeBreakAndLock}
-              title="Cover the screen for the rest of the break"
+              title={t('breakbar.cover_the_screen_for_the_res', 'Cover the screen for the rest of the break')}
             >
-              Lock screen
+              {t('breakbar.lock_screen', 'Lock screen')}
             </button>
             <button className="td-btn td-btn-primary" data-testid="break-end" onClick={onEndBreak}>
-              Back to work
+              {t('breakbar.back_to_work', 'Back to work')}
             </button>
           </>
         )}
 
         {kind === 'work' && (
           <button className="td-btn td-btn-primary" data-testid="break-done" onClick={onDismiss}>
-            Start the next round
+            {t('breakbar.start_the_next_round', 'Start the next round')}
           </button>
         )}
 
@@ -117,7 +118,7 @@ export function BreakBar({
           <button
             className="td-icon-btn"
             data-testid="break-dismiss"
-            title="Not now"
+            title={t('breakbar.not_now', 'Not now')}
             onClick={kind === 'break' ? onEndBreak : onDismiss}
           >
             ✕

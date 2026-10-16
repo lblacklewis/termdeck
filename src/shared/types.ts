@@ -686,7 +686,20 @@ export interface AppSettings {
    * can do about it.
    */
   uiScale: number
+  /** Interface language; the catalog lives in the renderer (see `i18n/zh.ts`). */
+  language: Language
+  /**
+   * False until the first-run welcome has been dealt with.
+   *
+   * Absent in a settings file written before the welcome existed, which is exactly
+   * the case the welcome is for: an existing install gets it once, and a fresh one
+   * gets it before anything else.
+   */
+  onboarded?: boolean
 }
+
+/** Languages with a catalog. `en` is the source text and needs no catalog. */
+export type Language = 'en' | 'zh-CN'
 
 /** Defaults live in the main process so they have a single source of truth. */
 export const DEFAULT_KEYBINDINGS: Keybinding[] = [
@@ -795,7 +808,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   break: DEFAULT_BREAK_SETTINGS,
   breakStats: DEFAULT_BREAK_STATS,
   theme: 'termius-dark',
-  uiScale: 1
+  uiScale: 1,
+  language: 'en'
 }
 
 // ---- renderer bridge ---------------------------------------------------

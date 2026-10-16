@@ -1,5 +1,6 @@
 import { useMemo, useState, type JSX } from 'react'
 import type { Snippet } from '@shared/types'
+import { t } from '../i18n'
 
 interface SnippetsPageProps {
   snippets: Snippet[]
@@ -78,25 +79,25 @@ export function SnippetsPage({
           <input
             className="td-page-search"
             aria-label="filter-snippets"
-            placeholder="Filter commands"
+            placeholder={t('snippetspage.filter_commands', 'Filter commands')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
         </div>
         <div className="td-page-bar">
-          <h1 className="td-sr-only">Snippets</h1>
+          <h1 className="td-sr-only">{t('snippetspage.snippets', 'Snippets')}</h1>
           <div className="td-page-actions">
             <button
               className="td-btn td-btn-primary"
               data-testid="snippets-new"
               onClick={() => onNew('')}
             >
-              + New snippet
+              {t('snippetspage.new_snippet', '+ New snippet')}
             </button>
           </div>
           <div className="td-page-meta">
             <span className="td-page-sub">
-              {snippets.length} saved command{snippets.length === 1 ? '' : 's'}
+              {snippets.length} {t('snippetspage.saved_command', 'saved command')}{snippets.length === 1 ? '' : 's'}
               {!canSend && ' · no active terminal'}
             </span>
           </div>
@@ -106,12 +107,12 @@ export function SnippetsPage({
       <div className="td-page-body">
         {snippets.length === 0 && (
           <div className="td-page-empty">
-            No snippets yet. Save a command here once and send it to any session with a click.
+            {t('snippetspage.no_snippets_yet_save_a_comma', 'No snippets yet. Save a command here once and send it to any session with a click.')}
           </div>
         )}
 
         {snippets.length > 0 && groups.length === 0 && (
-          <div className="td-page-empty">No snippet matches that filter.</div>
+          <div className="td-page-empty">{t('snippetspage.no_snippet_matches_that_filt', 'No snippet matches that filter.')}</div>
         )}
 
         {groups.map(([group, items]) => {
@@ -173,7 +174,7 @@ export function SnippetsPage({
                         if (from) reorder(from, snippet.id)
                       }}
                     >
-                      <span className="td-drag-grip" title="Drag to reorder">
+                      <span className="td-drag-grip" title={t('snippetspage.drag_to_reorder', 'Drag to reorder')}>
                         ⠿
                       </span>
                       <div className="td-snippet-row-main">
@@ -199,21 +200,21 @@ export function SnippetsPage({
                           data-action="send"
                           onClick={() => onSend(snippet)}
                         >
-                          Send
+                          {t('snippetspage.send', 'Send')}
                         </button>
                         <button
                           className="td-btn td-btn-sm"
                           data-action="edit"
                           onClick={() => onEdit(snippet)}
                         >
-                          Edit
+                          {t('snippetspage.edit', 'Edit')}
                         </button>
                         <button
                           className="td-btn td-btn-sm td-btn-danger"
                           data-action="delete"
                           onClick={() => onDelete(snippet.id)}
                         >
-                          Delete
+                          {t('snippetspage.delete', 'Delete')}
                         </button>
                       </div>
                     </li>

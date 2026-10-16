@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent, type JSX } from 'react'
 import type { AuthMethod, SavedSession, SessionFolder, SessionTree } from '@shared/types'
 import { BATCH_HOST_LIMIT, parseBatchHosts } from '@shared/batchHosts'
+import { t } from '../i18n'
 
 const api = window.termdeck
 
@@ -270,7 +271,7 @@ export function SessionEditor({
         */}
         {!editing && (
           <div className="td-field">
-            <span>Mode</span>
+            <span>{t('sessioneditor.mode', 'Mode')}</span>
             <div className="td-segmented">
               {(
                 [
@@ -294,7 +295,7 @@ export function SessionEditor({
 
         {!batching && (
           <label className="td-field">
-            <span>Name</span>
+            <span>{t('sessioneditor.name', 'Name')}</span>
             <input
               aria-label="session-name"
               value={name}
@@ -307,7 +308,7 @@ export function SessionEditor({
         {batching ? (
           <>
             <label className="td-field">
-              <span>Hosts</span>
+              <span>{t('sessioneditor.hosts', 'Hosts')}</span>
               <textarea
                 aria-label="session-hosts"
                 className="td-hosts-input"
@@ -325,17 +326,17 @@ export function SessionEditor({
         ) : (
           <div className="td-field-row">
             <label className="td-field td-field-grow">
-              <span>Host</span>
+              <span>{t('sessioneditor.host', 'Host')}</span>
               <input
                 aria-label="session-host"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
-                placeholder="10.0.0.1 or example.com"
+                placeholder={t('sessioneditor.10_0_0_1_or_example_com', '10.0.0.1 or example.com')}
                 spellCheck={false}
               />
             </label>
             <label className="td-field td-field-port">
-              <span>Port</span>
+              <span>{t('sessioneditor.port', 'Port')}</span>
               <input
                 aria-label="session-port"
                 value={port}
@@ -353,7 +354,7 @@ export function SessionEditor({
         */}
         <div className={batching ? 'td-field-row' : undefined}>
           <label className={batching ? 'td-field td-field-grow' : 'td-field'}>
-            <span>Username</span>
+            <span>{t('sessioneditor.username', 'Username')}</span>
             <input
               aria-label="session-username"
               value={username}
@@ -363,7 +364,7 @@ export function SessionEditor({
           </label>
           {batching && (
             <label className="td-field td-field-port">
-              <span>Port</span>
+              <span>{t('sessioneditor.port_2', 'Port')}</span>
               <input
                 aria-label="session-port"
                 value={port}
@@ -375,14 +376,14 @@ export function SessionEditor({
         </div>
 
         <label className="td-field">
-          <span>Folder</span>
+          <span>{t('sessioneditor.folder', 'Folder')}</span>
           <select
             aria-label="session-folder"
             className="td-select"
             value={parentId ?? ''}
             onChange={(e) => setParentId(e.target.value || null)}
           >
-            <option value="">(root)</option>
+            <option value="">{t('sessioneditor.root', '(root)')}</option>
             {options.map((o) => (
               <option key={o.id} value={o.id}>
                 {o.label}
@@ -392,7 +393,7 @@ export function SessionEditor({
         </label>
 
         <div className="td-field">
-          <span>Authentication</span>
+          <span>{t('sessioneditor.authentication', 'Authentication')}</span>
           <div className="td-segmented">
             {(
               [
@@ -416,10 +417,10 @@ export function SessionEditor({
         {authMethod === 'password' && (
           <label className="td-field">
             <span>
-              Password
-              {batching && <span className="td-field-note"> — shared by every host</span>}
+              {t('sessioneditor.password', 'Password')}
+              {batching && <span className="td-field-note"> {t('sessioneditor.shared_by_every_host', '— shared by every host')}</span>}
               {!batching && session?.hasPassword && !passwordTouched && (
-                <span className="td-field-note"> — one is saved</span>
+                <span className="td-field-note"> {t('sessioneditor.one_is_saved', '— one is saved')}</span>
               )}
             </span>
             <div className="td-field-row">
@@ -437,13 +438,12 @@ export function SessionEditor({
               />
               {session?.id && session.hasPassword && (
                 <button type="button" className="td-btn" onClick={() => void reveal()}>
-                  Show
+                  {t('sessioneditor.show', 'Show')}
                 </button>
               )}
             </div>
             <span className="td-hint">
-              Saved encrypted on this machine, with the key held by your operating system's
-              keychain — no master password to type.
+              {t('sessioneditor.saved_encrypted_on_this_mach', 'Saved encrypted on this machine, with the key held by your operating system\'s keychain — no master password to type.')}
             </span>
           </label>
         )}
@@ -451,7 +451,7 @@ export function SessionEditor({
         {authMethod === 'key' && (
           <>
             <label className="td-field">
-              <span>Private key file</span>
+              <span>{t('sessioneditor.private_key_file', 'Private key file')}</span>
               <div className="td-field-row">
                 <input
                   className="td-field-grow"
@@ -470,16 +470,16 @@ export function SessionEditor({
                     })
                   }
                 >
-                  Browse…
+                  {t('sessioneditor.browse', 'Browse…')}
                 </button>
               </div>
             </label>
 
             <label className="td-field">
               <span>
-                Key passphrase (optional)
+                {t('sessioneditor.key_passphrase_optional', 'Key passphrase (optional)')}
                 {session?.hasPassphrase && !passphraseTouched && (
-                  <span className="td-field-note"> — one is saved</span>
+                  <span className="td-field-note"> {t('sessioneditor.one_is_saved_2', '— one is saved')}</span>
                 )}
               </span>
               <input
@@ -499,12 +499,12 @@ export function SessionEditor({
 
         {authMethod === 'agent' && (
           <p className="td-hint">
-            Uses <code>SSH_AUTH_SOCK</code>, or Pageant on Windows.
+            {t('sessioneditor.uses', 'Uses')}<code>SSH_AUTH_SOCK</code>{t('sessioneditor.or_pageant_on_windows', ', or Pageant on Windows.')}
           </p>
         )}
 
         <div className="td-field">
-          <span>Tags</span>
+          <span>{t('sessioneditor.tags', 'Tags')}</span>
           <div className="td-tag-editor">
             {tags.map((tag) => (
               <span key={tag} className="td-tag">
@@ -522,7 +522,7 @@ export function SessionEditor({
               aria-label="session-tag-input"
               className="td-tag-input"
               list="td-known-tags"
-              placeholder="add tag…"
+              placeholder={t('sessioneditor.add_tag', 'add tag…')}
               value={tagInput}
               onChange={(e) => setTagInput(e.target.value)}
               onKeyDown={(e) => {
@@ -543,7 +543,7 @@ export function SessionEditor({
         </div>
 
         <label className="td-field">
-          <span>Notes</span>
+          <span>{t('sessioneditor.notes', 'Notes')}</span>
           <input
             aria-label="session-notes"
             value={notes}
@@ -562,12 +562,12 @@ export function SessionEditor({
             disabled={busy}
             onClick={() => void remove()}
           >
-            Delete
+            {t('sessioneditor.delete', 'Delete')}
           </button>
         )}
         <span className="td-spacer" />
         <button type="button" className="td-btn" onClick={onCancel}>
-          Cancel
+          {t('sessioneditor.cancel', 'Cancel')}
         </button>
         <button
           type="submit"

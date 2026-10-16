@@ -1,6 +1,7 @@
 import { useMemo, useState, type JSX } from 'react'
 import type { Snippet } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { t } from '../i18n'
 
 interface SnippetBarProps {
   snippets: Snippet[]
@@ -78,17 +79,17 @@ export function SnippetBar({
   }
 
   const menuItems = (snippet: Snippet): MenuItem[] => [
-    { id: 'send', label: 'Send to terminal', disabled: !canSend },
-    { id: 'edit', label: 'Edit…' },
-    { id: 'duplicate', label: 'Duplicate' },
+    { id: 'send', label: t('snippetbar.send_to_terminal', 'Send to terminal'), disabled: !canSend },
+    { id: 'edit', label: t('snippetbar.edit', 'Edit…') },
+    { id: 'duplicate', label: t('snippetbar.duplicate', 'Duplicate') },
     {
       id: 'ungroup',
-      label: 'Move to Ungrouped',
+      label: t('snippetbar.move_to_ungrouped', 'Move to Ungrouped'),
       separatorBefore: true,
       // Only offer it when it would do something.
       disabled: groupOf(snippet) === UNGROUPED
     },
-    { id: 'delete', label: 'Delete', danger: true, separatorBefore: true }
+    { id: 'delete', label: t('snippetbar.delete', 'Delete'), danger: true, separatorBefore: true }
   ]
 
   const runMenuAction = (snippet: Snippet, actionId: string): void => {
@@ -107,7 +108,7 @@ export function SnippetBar({
           onClick={() => setActiveGroup(ALL)}
           data-group={ALL}
         >
-          All
+          {t('snippetbar.all', 'All')}
           <span className="td-snippet-count" data-contrast-exempt>
             {snippets.length}
           </span>
@@ -159,7 +160,7 @@ export function SnippetBar({
       >
         {visible.length === 0 && (
           <span className="td-snippet-empty">
-            No snippets yet — click <b>+</b> to save a command.
+            {t('snippetbar.no_snippets_yet_click', 'No snippets yet — click')}<b>+</b> {t('snippetbar.to_save_a_command', 'to save a command.')}
           </span>
         )}
 
@@ -229,7 +230,7 @@ export function SnippetBar({
         >
           +
         </button>
-        <button className="td-icon-btn" title="Hide snippet bar" onClick={onHide}>
+        <button className="td-icon-btn" title={t('snippetbar.hide_snippet_bar', 'Hide snippet bar')} onClick={onHide}>
           ⌄
         </button>
       </div>

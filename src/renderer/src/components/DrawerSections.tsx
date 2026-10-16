@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from 'react'
 import type { HistoryEntry, HistorySessionSummary, SidebarSectionId, SftpEntry } from '@shared/types'
+import { t } from '../i18n'
 
 /**
  * The Terminal drawer's blocks.
@@ -103,7 +104,7 @@ export function SectionFrame({
       <div
         className="td-sidebar-section td-section-head"
         draggable
-        title="Drag to reorder · right-click for options"
+        title={t('drawersections.drag_to_reorder_right_click', 'Drag to reorder · right-click for options')}
         onDragStart={(e) => {
           e.dataTransfer.effectAllowed = 'move'
           // Firefox refuses to start a drag without data on the transfer.
@@ -157,7 +158,7 @@ export function SectionFrame({
           <div
             className="td-section-resize"
             data-testid={`resize-${id}`}
-            title="Drag to resize · double-click to reset"
+            title={t('drawersections.drag_to_resize_double_click', 'Drag to resize · double-click to reset')}
             onPointerDown={startResize}
             onDoubleClick={() => onResize(id, 0)}
           />
@@ -210,7 +211,7 @@ export function HistoryPanel({
             value={sessionId ?? ''}
             onChange={(e) => onPick(e.target.value)}
           >
-            {!current && sessionId && <option value={sessionId}>This session</option>}
+            {!current && sessionId && <option value={sessionId}>{t('drawersections.this_session', 'This session')}</option>}
             {sessions.map((s) => (
               <option key={s.sessionId} value={s.sessionId}>
                 {s.title} · {s.count}
@@ -239,7 +240,7 @@ export function HistoryPanel({
               </button>
               <button
                 className="td-history-remove"
-                title="Remove from history"
+                title={t('drawersections.remove_from_history', 'Remove from history')}
                 onClick={() => onDelete(entry.id)}
               >
                 ✕
@@ -249,7 +250,7 @@ export function HistoryPanel({
         </ul>
       )}
 
-      <p className="td-section-note">Kept for 7 days, per session.</p>
+      <p className="td-section-note">{t('drawersections.kept_for_7_days_per_session', 'Kept for 7 days, per session.')}</p>
     </div>
   )
 }
@@ -325,7 +326,7 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
   if (!sessionId) {
     return (
       <p className="td-section-empty" data-testid="sftp-empty">
-        Connect to a host to browse its files.
+        {t('drawersections.connect_to_a_host_to_browse', 'Connect to a host to browse its files.')}
       </p>
     )
   }
@@ -355,7 +356,7 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
       <div className="td-sftp-bar">
         <button
           className="td-icon-btn"
-          title="Up one level"
+          title={t('drawersections.up_one_level', 'Up one level')}
           data-testid="sftp-up"
           disabled={busy || path === '/'}
           onClick={() => void load(parent)}
@@ -367,7 +368,7 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
         </span>
         <button
           className="td-icon-btn"
-          title="Refresh"
+          title={t('drawersections.refresh', 'Refresh')}
           data-testid="sftp-refresh"
           disabled={busy}
           onClick={() => void load(path || '')}
@@ -376,7 +377,7 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
         </button>
         <button
           className="td-icon-btn"
-          title="Upload a file here"
+          title={t('drawersections.upload_a_file_here', 'Upload a file here')}
           data-testid="sftp-upload"
           disabled={busy}
           onClick={() => void upload()}
@@ -386,8 +387,8 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
       </div>
 
       <ul className="td-sftp-list" data-testid="sftp-list">
-        {busy && entries.length === 0 && <li className="td-section-empty">Reading…</li>}
-        {!busy && entries.length === 0 && <li className="td-section-empty">Empty directory.</li>}
+        {busy && entries.length === 0 && <li className="td-section-empty">{t('drawersections.reading', 'Reading…')}</li>}
+        {!busy && entries.length === 0 && <li className="td-section-empty">{t('drawersections.empty_directory', 'Empty directory.')}</li>}
         {entries.map((entry) => (
           <li
             key={entry.path}
@@ -423,7 +424,7 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
               if (entry) void download(entry)
             }}
           >
-            Download
+            {t('drawersections.download', 'Download')}
           </button>
         </div>
       )}

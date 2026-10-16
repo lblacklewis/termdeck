@@ -1,5 +1,6 @@
 import { useEffect, type JSX, type ReactNode } from 'react'
 import { ModalShell } from './ModalShell'
+import { t } from '../i18n'
 
 interface ConfirmDialogProps {
   title: string
@@ -48,7 +49,7 @@ export function ConfirmDialog({
     <ModalShell onDismiss={onCancel} testId={testId}>
       <div className="td-modal-head">
         <h2>{title}</h2>
-        <button className="td-icon-btn" title="Cancel" onClick={onCancel}>
+        <button className="td-icon-btn" title={t('confirmdialog.cancel', 'Cancel')} onClick={onCancel}>
           ✕
         </button>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react'
 import { ModalShell } from './ModalShell'
+import { t } from '../i18n'
 
 export interface NamePromptProps {
   title: string
@@ -61,7 +62,7 @@ export function NamePrompt({
     <ModalShell onDismiss={onCancel} testId="name-prompt">
       <div className="td-modal-head">
         <h2>{title}</h2>
-        <button className="td-icon-btn" onClick={onCancel} title="Cancel">
+        <button className="td-icon-btn" onClick={onCancel} title={t('nameprompt.cancel', 'Cancel')}>
           ✕
         </button>
       </div>
@@ -89,7 +90,7 @@ export function NamePrompt({
         <div className="td-modal-foot">
           <span className="td-spacer" />
           <button type="button" className="td-btn" onClick={onCancel}>
-            Cancel
+            {t('nameprompt.cancel_2', 'Cancel')}
           </button>
           <button
             type="submit"

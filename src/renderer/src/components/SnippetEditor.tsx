@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent, type JSX } from 'react'
 import type { Snippet } from '@shared/types'
 import { Drawer } from './Drawer'
+import { t } from '../i18n'
 
 interface SnippetEditorProps {
   /** Existing snippet to edit, or null when creating. */
@@ -63,18 +64,18 @@ export function SnippetEditor({
       <form className="td-drawer-form" onSubmit={submit}>
         <div className="td-form">
           <label className="td-field">
-            <span>Label</span>
+            <span>{t('snippeteditor.label', 'Label')}</span>
             <input
               autoFocus
               aria-label="snippet-label"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
-              placeholder="Restart nginx"
+              placeholder={t('snippeteditor.restart_nginx', 'Restart nginx')}
             />
           </label>
 
           <label className="td-field">
-            <span>Command</span>
+            <span>{t('snippeteditor.command', 'Command')}</span>
             <textarea
               className="td-textarea"
               aria-label="snippet-command"
@@ -95,7 +96,7 @@ export function SnippetEditor({
 
           <div className="td-field-row">
             <label className="td-field td-field-grow">
-              <span>Group</span>
+              <span>{t('snippeteditor.group', 'Group')}</span>
               <select
                 aria-label="snippet-group"
                 className="td-select"
@@ -105,7 +106,7 @@ export function SnippetEditor({
                   setNewGroup('')
                 }}
               >
-                <option value="">Ungrouped</option>
+                <option value="">{t('snippeteditor.ungrouped', 'Ungrouped')}</option>
                 {groups.map((g) => (
                   <option key={g} value={g}>
                     {g}
@@ -114,7 +115,7 @@ export function SnippetEditor({
               </select>
             </label>
             <label className="td-field td-field-grow">
-              <span>Or new group</span>
+              <span>{t('snippeteditor.or_new_group', 'Or new group')}</span>
               <input
                 aria-label="snippet-new-group"
                 value={newGroup}
@@ -125,7 +126,7 @@ export function SnippetEditor({
           </div>
 
           <label className="td-field">
-            <span>Description (optional)</span>
+            <span>{t('snippeteditor.description_optional', 'Description (optional)')}</span>
             <input
               aria-label="snippet-description"
               value={description}
@@ -143,12 +144,12 @@ export function SnippetEditor({
               className="td-btn td-btn-danger"
               onClick={() => onDeleted(snippet.id)}
             >
-              Delete
+              {t('snippeteditor.delete', 'Delete')}
             </button>
           )}
           <span className="td-spacer" />
           <button type="button" className="td-btn" onClick={onCancel}>
-            Cancel
+            {t('snippeteditor.cancel', 'Cancel')}
           </button>
           <button
             type="submit"
@@ -156,7 +157,7 @@ export function SnippetEditor({
             data-testid="snippet-save"
             disabled={!canSave}
           >
-            Save
+            {t('snippeteditor.save', 'Save')}
           </button>
         </div>
       </form>

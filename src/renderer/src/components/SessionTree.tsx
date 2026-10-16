@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type DragEvent, type JSX } from 'react'
 import type { SavedSession, SessionFolder, SessionTree as Tree } from '@shared/types'
+import { t } from '../i18n'
 
 export type DragPayload =
   | { kind: 'session'; id: string }
@@ -240,7 +241,7 @@ export function SessionTree({
                 style={session.color ? { background: session.color } : undefined}
               />
               <span className="td-node-label">{session.name}</span>
-              {isConnecting && <span className="td-node-spinner" title="Connecting…" />}
+              {isConnecting && <span className="td-node-spinner" title={t('sessiontree.connecting', 'Connecting…')} />}
             </button>
 
             {/*
@@ -314,10 +315,10 @@ export function SessionTree({
             is on that menu too, which is also the safer place for it.
           */}
           <span className="td-node-actions">
-            <button className="td-mini" title="New subfolder" onClick={() => onCreateFolder(folder.id)}>
+            <button className="td-mini" title={t('sessiontree.new_subfolder', 'New subfolder')} onClick={() => onCreateFolder(folder.id)}>
               ⊞
             </button>
-            <button className="td-mini" title="Rename" onClick={() => onRenameFolder(folder.id)}>
+            <button className="td-mini" title={t('sessiontree.rename', 'Rename')} onClick={() => onRenameFolder(folder.id)}>
               ✎
             </button>
           </span>
@@ -344,19 +345,19 @@ export function SessionTree({
     <div className="td-tree">
       {showHeader && (
         <div className="td-tree-toolbar">
-          <span className="td-sidebar-section">Sessions</span>
+          <span className="td-sidebar-section">{t('sessiontree.sessions', 'Sessions')}</span>
           <span className="td-tree-toolbar-actions">
             {/* Creating a session belongs with the session list, not in the
                 sidebar's global actions. */}
             <button
               className="td-mini"
-              title="New session"
+              title={t('sessiontree.new_session', 'New session')}
               data-testid="tree-new-session"
               onClick={onNewSession}
             >
               +
             </button>
-            <button className="td-mini" title="New folder" onClick={() => onCreateFolder(null)}>
+            <button className="td-mini" title={t('sessiontree.new_folder', 'New folder')} onClick={() => onCreateFolder(null)}>
               ⊞
             </button>
           </span>
@@ -392,7 +393,7 @@ export function SessionTree({
         {rootSessions}
         {tree.folders.length === 0 && tree.sessions.length === 0 && (
           <li className="td-session-empty">
-            No saved sessions. Use “New session” to add one.
+            {t('sessiontree.no_saved_sessions_use_new_se', 'No saved sessions. Use “New session” to add one.')}
           </li>
         )}
       </ul>

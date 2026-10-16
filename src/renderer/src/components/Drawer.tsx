@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactElement, type ReactNode } from 'react'
+import { t } from '../i18n'
 
 interface DrawerProps {
   open: boolean
@@ -69,7 +70,7 @@ export function Drawer({
       >
         <div className="td-drawer-head">
           <h2>{title}</h2>
-          <button className="td-icon-btn" onClick={onClose} title="Close" data-testid="drawer-close">
+          <button className="td-icon-btn" onClick={onClose} title={t('drawer.close', 'Close')} data-testid="drawer-close">
             ✕
           </button>
         </div>

@@ -70,6 +70,7 @@ import {
 import { useShortcuts, matchesBinding } from './components/useShortcuts'
 import { refitAll } from './components/terminalRegistry'
 import { useTheme } from './components/useTheme'
+import { onLanguageChange, setLanguage, t } from './i18n'
 
 const api = window.termdeck
 
@@ -112,6 +113,20 @@ export function App(): JSX.Element {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS)
   // Applies the theme to the document (CSS custom properties) as it changes.
   useTheme(settings.theme)
+
+  /*
+   * The active language, published to the module the strings come from.
+   *
+   * Applied from an effect rather than during render, and re-rendered on any
+   * change: the settings dialog previews a language imperatively (the same way it
+   * previews a theme), so an unconditional `setLanguage(saved)` on every render
+   * would immediately undo the preview. This way the stored value is written when
+   * it *changes*, and everything else — the preview, the revert — flows through the
+   * subscription and redraws the whole shell.
+   */
+  useEffect(() => setLanguage(settings.language), [settings.language])
+  const [, forceLanguageRender] = useState(0)
+  useEffect(() => onLanguageChange(() => forceLanguageRender((n) => n + 1)), [])
 
   /*
    * Apply the interface scale.
@@ -615,9 +630,9 @@ export function App(): JSX.Element {
       createWatermarkComponent: () =>
         new ReactWatermarkRenderer(() => (
           <div className="td-watermark-inner">
-            <div className="td-watermark-title">No session</div>
+            <div className="td-watermark-title">{t('app.no_session', 'No session')}</div>
             <div className="td-watermark-hint">
-              Open a saved session, or press <kbd>Ctrl</kbd>+<kbd>T</kbd> to connect.
+              {t('app.open_a_saved_session_or_pres', 'Open a saved session, or press')}<kbd>{t('app.ctrl', 'Ctrl')}</kbd>+<kbd>T</kbd> {t('app.to_connect', 'to connect.')}
             </div>
           </div>
         )),
@@ -779,7 +794,7 @@ export function App(): JSX.Element {
           refreshPanelParams(panel.id)
         }
       } else {
-        dock.api.addPanel({ id: 'welcome', component: 'welcome', title: 'Welcome' })
+        dock.api.addPanel({ id: 'welcome', component: 'welcome', title: t('app.welcome', 'Welcome') })
       }
     })
 
@@ -1396,7 +1411,7 @@ export function App(): JSX.Element {
     const active = dockApiRef.current?.activePanel
     const sessionId = active && active.id !== 'welcome' ? active.id : null
     if (!sessionId) {
-      setAlert({ message: 'No active terminal. Connect to a host first.' })
+      setAlert({ message: t('app.no_active_terminal_connect_t', 'No active terminal. Connect to a host first.') })
       return
     }
     // The command was run once already, so Enter is part of it.
@@ -1782,16 +1797,25 @@ export function App(): JSX.Element {
     if (!sectionMenu) return []
     const other = settings.sidebar.side === 'left' ? 'right' : 'left'
     const items: MenuItem[] = [
-      { id: 'hide', label: `Hide ${SIDEBAR_SECTION_LABELS[sectionMenu.id]}` },
+      {
+        id: 'hide',
+        label: `${t('sidertab.hide', 'Hide')} ${t(
+          'sidertab.' + sectionMenu.id,
+          SIDEBAR_SECTION_LABELS[sectionMenu.id]
+        )}`
+      },
       // The deterministic way to move the drawer: the drag gesture is a drag, and
       // a drag is not something everyone reaches for.
       { id: 'dock', label: `Move drawer to the ${other} side`, separatorBefore: true }
     ]
     const hidden = sectionState.filter((s) => !s.visible)
     if (hidden.length > 0) {
-      items.push({ id: 'show-heading', label: 'Show section', separatorBefore: true, disabled: true })
+      items.push({ id: 'show-heading', label: t('app.show_section', 'Show section'), separatorBefore: true, disabled: true })
       for (const section of hidden) {
-        items.push({ id: `show:${section.id}`, label: SIDEBAR_SECTION_LABELS[section.id] })
+        items.push({
+          id: `show:${section.id}`,
+          label: t('sidertab.' + section.id, SIDEBAR_SECTION_LABELS[section.id])
+        })
       }
     }
     return items
@@ -2005,24 +2029,24 @@ export function App(): JSX.Element {
       if (menu.target.kind === 'session') {
         const { session } = menu.target
         return [
-          { id: 'connect', label: 'Connect' },
-          { id: 'edit', label: 'Edit…' },
-          { id: 'duplicate', label: 'Duplicate' },
-          { id: 'copyHost', label: 'Copy host', separatorBefore: true },
-          { id: 'delete', label: 'Delete', danger: true, separatorBefore: true }
+          { id: 'connect', label: t('app.connect', 'Connect') },
+          { id: 'edit', label: t('app.edit', 'Edit…') },
+          { id: 'duplicate', label: t('app.duplicate', 'Duplicate') },
+          { id: 'copyHost', label: t('app.copy_host', 'Copy host'), separatorBefore: true },
+          { id: 'delete', label: t('app.delete', 'Delete'), danger: true, separatorBefore: true }
         ]
       }
       if (menu.target.kind === 'folder') {
         return [
-          { id: 'newSessionHere', label: 'New session here' },
-          { id: 'newFolderHere', label: 'New subfolder' },
-          { id: 'renameFolder', label: 'Rename…', separatorBefore: true },
-          { id: 'deleteFolder', label: 'Delete folder', danger: true, separatorBefore: true }
+          { id: 'newSessionHere', label: t('app.new_session_here', 'New session here') },
+          { id: 'newFolderHere', label: t('app.new_subfolder', 'New subfolder') },
+          { id: 'renameFolder', label: t('app.rename', 'Rename…'), separatorBefore: true },
+          { id: 'deleteFolder', label: t('app.delete_folder', 'Delete folder'), danger: true, separatorBefore: true }
         ]
       }
       return [
-        { id: 'newFolderRoot', label: 'New folder' },
-        { id: 'newSessionRoot', label: 'New session' }
+        { id: 'newFolderRoot', label: t('app.new_folder', 'New folder') },
+        { id: 'newSessionRoot', label: t('app.new_session', 'New session') }
       ]
     },
     []
@@ -2385,35 +2409,35 @@ export function App(): JSX.Element {
     return [
       {
         id: 'duplicateConnection',
-        label: 'Duplicate connection',
-        hint: 'same host, new tab',
+        label: t('app.duplicate_connection', 'Duplicate connection'),
+        hint: t('app.same_host_new_tab', 'same host, new tab'),
       },
       {
         id: 'reload',
-        label: 'Reload / reconnect',
-        hint: 'fresh session',
+        label: t('app.reload_reconnect', 'Reload / reconnect'),
+        hint: t('app.fresh_session', 'fresh session'),
       },
-      { id: 'copyTitle', label: 'Copy tab name', separatorBefore: true },
-      { id: 'copyText', label: 'Copy all output' },
-      { id: 'saveText', label: 'Save output to file…' },
+      { id: 'copyTitle', label: t('app.copy_tab_name', 'Copy tab name'), separatorBefore: true },
+      { id: 'copyText', label: t('app.copy_all_output', 'Copy all output') },
+      { id: 'saveText', label: t('app.save_output_to_file', 'Save output to file…') },
       {
         id: 'toggleTimestamps',
         label: settings.terminal.showTimestamps ? 'Hide timestamps' : 'Show timestamps',
         hint: settings.terminal.showTimestamps ? 'on' : 'off',
         separatorBefore: true
       },
-      { id: 'close', label: 'Close', separatorBefore: true, disabled: closable.length === 0 },
+      { id: 'close', label: t('app.close', 'Close'), separatorBefore: true, disabled: closable.length === 0 },
       {
         id: 'closeOthers',
-        label: 'Close other tabs',
+        label: t('app.close_other_tabs', 'Close other tabs'),
         disabled: closable.filter((p) => p.id !== tabMenu.panelId).length === 0
       },
       {
         id: 'closeRight',
-        label: 'Close tabs to the right',
+        label: t('app.close_tabs_to_the_right', 'Close tabs to the right'),
         disabled: index < 0 || index >= panels.length - 1
       },
-      { id: 'closeAll', label: 'Close all tabs', danger: true, separatorBefore: true }
+      { id: 'closeAll', label: t('app.close_all_tabs', 'Close all tabs'), danger: true, separatorBefore: true }
     ]
   }, [tabMenu, settings.terminal.showTimestamps])
 
@@ -2823,7 +2847,7 @@ export function App(): JSX.Element {
               <SectionFrame
                 key={section.id}
                 id={section.id}
-              title={SIDEBAR_SECTION_LABELS[section.id]}
+                title={t('sidertab.' + section.id, SIDEBAR_SECTION_LABELS[section.id])}
               testId={`section-${section.id}`}
               collapsed={section.collapsed === true}
               height={section.height}
@@ -2914,7 +2938,7 @@ export function App(): JSX.Element {
                 <ul className="td-session-list">
                   {sessions.length === 0 && (
                     <li className="td-session-empty">
-                      None yet — double-click a saved session to connect.
+                      {t('app.none_yet_double_click_a_save', 'None yet — double-click a saved session to connect.')}
                     </li>
                   )}
                   {sessions.map((s) => (
@@ -2932,7 +2956,7 @@ export function App(): JSX.Element {
                       </button>
                       <button
                         className="td-session-close"
-                        title="Close session"
+                        title={t('app.close_session', 'Close session')}
                         onClick={() => closeSession(s.id)}
                       >
                         ✕
@@ -2973,7 +2997,7 @@ export function App(): JSX.Element {
           <div className="td-sidebar-footer">
             <button
               className="td-icon-btn"
-              title="New connection (Ctrl+T)"
+              title={t('app.new_connection_ctrl_t', 'New connection (Ctrl+T)')}
               data-testid="new-connection"
               onClick={() => setDialogOpen(true)}
             >
@@ -2995,11 +3019,11 @@ export function App(): JSX.Element {
                 })
               }
             >
-              &gt;_
+              {t('app.gt', '&gt;_')}
             </button>
             <button
               className="td-icon-btn"
-              title="Connections window"
+              title={t('app.connections_window', 'Connections window')}
               data-testid="open-connections"
               onClick={() => setConnectionsOpen(true)}
             >
@@ -3008,7 +3032,7 @@ export function App(): JSX.Element {
             </button>
             <button
               className="td-icon-btn"
-              title="Snippet bar"
+              title={t('app.snippet_bar', 'Snippet bar')}
               data-testid="toggle-snippets"
               onClick={() => setSnippetBarVisible((v) => !v)}
             >
@@ -3016,7 +3040,7 @@ export function App(): JSX.Element {
             </button>
             <button
               className="td-icon-btn"
-              title="Settings"
+              title={t('app.settings', 'Settings')}
               data-testid="open-settings"
               onClick={() => setSettingsOpen(true)}
             >
@@ -3033,7 +3057,7 @@ export function App(): JSX.Element {
                 phase={wellness.phase}
                 endsAt={wellness.endsAt}
                 round={settings.break.minutes}
-                title="Pomodoro — click for the settings"
+                title={t('app.pomodoro_click_for_the_setti', 'Pomodoro — click for the settings')}
                 onClick={() => setSettingsOpen(true)}
               />
             )}
@@ -3046,7 +3070,7 @@ export function App(): JSX.Element {
               className="td-drawer-grip"
               data-testid="drawer-grip"
               draggable
-              title="Drag to the other edge to move the whole drawer · double-click to swap sides"
+              title={t('app.drag_to_the_other_edge_to_mo', 'Drag to the other edge to move the whole drawer · double-click to swap sides')}
               onDragStart={(e) => {
                 e.dataTransfer.effectAllowed = 'move'
                 e.dataTransfer.setData('text/plain', 'drawer')
@@ -3067,7 +3091,7 @@ export function App(): JSX.Element {
           <div
             className="td-sidebar-resize"
             data-testid="drawer-resize"
-            title="Drag to resize the drawer"
+            title={t('app.drag_to_resize_the_drawer', 'Drag to resize the drawer')}
             onPointerDown={startDrawerResize}
           />
 
@@ -3167,7 +3191,7 @@ export function App(): JSX.Element {
         {!snippetBarVisible && !focusMode && (
           <button
             className="td-snippet-restore"
-            title="Show snippet bar"
+            title={t('app.show_snippet_bar', 'Show snippet bar')}
             onClick={() => setSnippetBarVisible(true)}
           >
             ⌃
@@ -3267,7 +3291,7 @@ export function App(): JSX.Element {
       <Drawer
         open={settingsOpen}
         size="lg"
-        title="Settings"
+        title={t('app.settings_2', 'Settings')}
         testId="settings-drawer"
         onClose={() => {
           setSettingsOpen(false)
@@ -3349,7 +3373,7 @@ export function App(): JSX.Element {
         <Drawer
           open
           size="xl"
-          title="Connections"
+          title={t('app.connections', 'Connections')}
           testId="connections-drawer"
           onClose={() => setConnectionsOpen(false)}
         >
@@ -3382,7 +3406,7 @@ export function App(): JSX.Element {
       {alert && (
         <div className="td-alert" role="alert" data-testid="connect-alert">
           <div className="td-alert-body">
-            <strong>Connection failed</strong>
+            <strong>{t('app.connection_failed', 'Connection failed')}</strong>
             <p>{alert.message}</p>
           </div>
           <div className="td-alert-actions">
@@ -3397,11 +3421,11 @@ export function App(): JSX.Element {
                   if (session) setPasswordPrompt({ session, retry: true, reason: alert.message })
                 }}
               >
-                Enter password
+                {t('app.enter_password', 'Enter password')}
               </button>
             )}
             <button className="td-btn td-btn-sm" onClick={() => setAlert(null)}>
-              Dismiss
+              {t('app.dismiss', 'Dismiss')}
             </button>
           </div>
         </div>
@@ -3410,7 +3434,7 @@ export function App(): JSX.Element {
       {namePrompt && (
         <NamePrompt
           title={namePrompt.kind === 'new-folder' ? 'New group' : 'Rename group'}
-          label="Group name"
+          label={t('app.group_name', 'Group name')}
           initialValue={namePrompt.kind === 'rename-folder' ? namePrompt.name : ''}
           placeholder={namePrompt.kind === 'new-folder' ? 'e.g. client' : undefined}
           confirmLabel={namePrompt.kind === 'new-folder' ? 'Create' : 'Rename'}
@@ -3433,7 +3457,7 @@ export function App(): JSX.Element {
 
       {confirmAction?.kind === 'delete-folder' && (
         <ConfirmDialog
-          title="Delete group?"
+          title={t('app.delete_group', 'Delete group?')}
           danger
           testId="confirm-delete-folder"
           confirmLabel={
@@ -3447,7 +3471,7 @@ export function App(): JSX.Element {
           }}
         >
           <p className="td-quit-text" data-testid="confirm-delete-folder-detail">
-            “{confirmAction.name}” still holds {confirmAction.hosts} host
+            “{confirmAction.name}{t('app.still_holds', '” still holds')}{confirmAction.hosts} host
             {confirmAction.hosts === 1 ? '' : 's'}
             {confirmAction.groups > 0
               ? ` across ${confirmAction.groups} sub-group${confirmAction.groups === 1 ? '' : 's'}`
@@ -3455,7 +3479,7 @@ export function App(): JSX.Element {
             .
           </p>
           <p className="td-hint">
-            Deleting a group deletes the hosts inside it. This cannot be undone.
+            {t('app.deleting_a_group_deletes_the', 'Deleting a group deletes the hosts inside it. This cannot be undone.')}
           </p>
         </ConfirmDialog>
       )}

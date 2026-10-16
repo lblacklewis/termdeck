@@ -1,6 +1,7 @@
 import { useMemo, useState, type JSX } from 'react'
 import type { HostsView, SavedSession, SessionFolder, SessionInfo, SessionTree } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { t } from '../i18n'
 
 interface HostsPageProps {
   tree: SessionTree
@@ -164,7 +165,9 @@ export function HostsPage({
       treeNodes.push({
         key: '__unfiled__',
         id: null,
-        name: UNFILED,
+        // The label is translated; `path` stays the constant, because it is what
+        // the drag targets and the smoke probes key on.
+        name: t('hostspage.unfiled', 'Unfiled'),
         path: UNFILED,
         depth: 0,
         hosts: unfiled,
@@ -178,24 +181,27 @@ export function HostsPage({
   const groupCount = tree.folders.length
 
   const folderOf = (id: string | null): string =>
-    (id && tree.folders.find((f) => f.id === id)?.name) || UNFILED
+    (id && tree.folders.find((f) => f.id === id)?.name) || t('hostspage.unfiled', 'Unfiled')
 
   const hostMenu = (session: SavedSession): MenuItem[] => [
-    { id: 'connect', label: 'Connect' },
-    { id: 'edit', label: 'Edit…' },
-    { id: 'duplicate', label: 'Duplicate' },
-    { id: 'newInGroup', label: 'New host here…', separatorBefore: true },
-    { id: 'delete', label: 'Delete', danger: true, separatorBefore: true }
+    { id: 'connect', label: t('hostspage.connect', 'Connect') },
+    { id: 'edit', label: t('hostspage.edit', 'Edit…') },
+    { id: 'duplicate', label: t('hostspage.duplicate', 'Duplicate') },
+    { id: 'newInGroup', label: t('hostspage.new_host_here', 'New host here…'), separatorBefore: true },
+    { id: 'delete', label: t('hostspage.delete', 'Delete'), danger: true, separatorBefore: true }
   ]
 
   const groupMenu = (node: GroupNode): MenuItem[] => [
-    { id: 'newHost', label: 'New host…' },
-    { id: 'newSub', label: 'New sub-group…', hint: 'nested' },
-    { id: 'rename', label: 'Rename group…', disabled: node.id === null },
+    { id: 'newHost', label: t('hostspage.new_host', 'New host…') },
+    { id: 'newSub', label: t('hostspage.new_sub_group', 'New sub-group…'), hint: 'nested' },
+    { id: 'rename', label: t('hostspage.rename_group', 'Rename group…'), disabled: node.id === null },
     {
       id: 'delete',
-      label: 'Delete group',
-      hint: node.id === null ? undefined : `${node.hosts.length} host(s)`,
+      label: t('hostspage.delete_group', 'Delete group'),
+      hint:
+        node.id === null
+          ? undefined
+          : t('hostspage.host_count', '{n} host(s)', { n: node.hosts.length }),
       danger: true,
       separatorBefore: true,
       disabled: node.id === null
@@ -248,10 +254,10 @@ export function HostsPage({
       x: event.clientX,
       y: event.clientY,
       items: [
-        { id: 'newHost', label: 'New host…' },
-        { id: 'newGroup', label: 'New group…' },
-        { id: 'cards', label: 'Show as cards', disabled: view === 'cards', separatorBefore: true },
-        { id: 'rows', label: 'Show as rows', disabled: view === 'list' }
+        { id: 'newHost', label: t('hostspage.new_host_2', 'New host…') },
+        { id: 'newGroup', label: t('hostspage.new_group', 'New group…') },
+        { id: 'cards', label: t('hostspage.show_as_cards', 'Show as cards'), disabled: view === 'cards', separatorBefore: true },
+        { id: 'rows', label: t('hostspage.show_as_rows', 'Show as rows'), disabled: view === 'list' }
       ],
       run: (id) => {
         if (id === 'newHost') onNewHost(null)
@@ -327,7 +333,11 @@ export function HostsPage({
           >
             <span
               className={`td-host-status${connected ? ' is-on' : ''}`}
-              title={connected ? 'Connected' : 'Not connected'}
+              title={
+                connected
+                  ? t('hostspage.connected', 'Connected')
+                  : t('hostspage.not_connected', 'Not connected')
+              }
               data-contrast-exempt
             />
             <div className="td-host-main">
@@ -353,12 +363,14 @@ export function HostsPage({
                 data-action="connect"
                 onClick={() => onConnect(session)}
               >
-                {connected ? 'Focus' : 'Connect'}
+                {connected
+                  ? t('hostspage.focus', 'Focus')
+                  : t('hostspage.connect', 'Connect')}
               </button>
               <button
                 className="td-icon-btn"
                 data-action="menu"
-                title="More…"
+                title={t('hostspage.more', 'More…')}
                 onClick={(e) => openHostMenu(e, session)}
               >
                 ⋯
@@ -369,7 +381,9 @@ export function HostsPage({
       })}
       {hosts.length === 0 && (
         <li className="td-host-group-empty" data-contrast-exempt>
-          {depth > 0 ? 'Empty group' : 'No hosts in this group yet'}
+          {depth > 0
+            ? t('hostspage.empty_group', 'Empty group')
+            : t('hostspage.no_hosts_in_group', 'No hosts in this group yet')}
         </li>
       )}
     </ul>
@@ -422,27 +436,27 @@ export function HostsPage({
           <input
             className="td-page-search"
             aria-label="filter-hosts"
-            placeholder="Filter hosts or user@hostname…"
+            placeholder={t('hostspage.filter_hosts_or_user_hostnam', 'Filter hosts or user@hostname…')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
         </div>
         <div className="td-page-bar">
-          <h1 className="td-sr-only">Hosts</h1>
+          <h1 className="td-sr-only">{t('hostspage.hosts', 'Hosts')}</h1>
           <div className="td-page-actions">
             <button
               className="td-btn td-btn-primary"
               data-testid="hosts-new-host"
               onClick={() => onNewHost(null)}
             >
-              + New host
+              {t('hostspage.new_host_3', '+ New host')}
             </button>
             <button
               className="td-btn"
               data-testid="hosts-new-group"
               onClick={() => onCreateGroup(null)}
             >
-              New group
+              {t('hostspage.new_group_2', 'New group')}
             </button>
             {/*
               Sharing sits with the other list-level actions: it is about the whole
@@ -450,10 +464,10 @@ export function HostsPage({
               colleague needs to be told about.
             */}
             <button className="td-btn" data-testid="hosts-import" onClick={onImportShare}>
-              Import
+              {t('hostspage.import', 'Import')}
             </button>
             <button className="td-btn" data-testid="hosts-export" onClick={onExportShare}>
-              Export
+              {t('hostspage.export', 'Export')}
             </button>
             {/*
               Tag filters sit with the actions rather than in a row of their own:
@@ -477,16 +491,19 @@ export function HostsPage({
           </div>
           <div className="td-page-meta">
             <span className="td-page-sub">
-              {total} host{total === 1 ? '' : 's'} · {groupCount} group
-              {groupCount === 1 ? '' : 's'} · {openTitles.size} connected
+              {t('hostspage.summary', '{hosts} hosts · {groups} groups · {connected} connected', {
+                hosts: total,
+                groups: groupCount,
+                connected: openTitles.size
+              })}
             </span>
-            <div className="td-view-switch" role="group" aria-label="Host list style">
+            <div className="td-view-switch" role="group" aria-label={t('hostspage.host_list_style', 'Host list style')}>
               <button
                 className={`td-seg-btn${view === 'list' ? ' is-active' : ''}`}
                 data-testid="hosts-view-list"
                 aria-pressed={view === 'list'}
-                aria-label="Rows"
-                title="Rows"
+                aria-label={t('hostspage.rows', 'Rows')}
+                title={t('hostspage.rows_2', 'Rows')}
                 onClick={() => onViewChange('list')}
               >
                 ☰
@@ -495,8 +512,8 @@ export function HostsPage({
                 className={`td-seg-btn${view === 'cards' ? ' is-active' : ''}`}
                 data-testid="hosts-view-cards"
                 aria-pressed={view === 'cards'}
-                aria-label="Cards"
-                title="Cards"
+                aria-label={t('hostspage.cards', 'Cards')}
+                title={t('hostspage.cards_2', 'Cards')}
                 onClick={() => onViewChange('cards')}
               >
                 ▦
@@ -511,8 +528,7 @@ export function HostsPage({
       <div className="td-page-body" data-testid="hosts-body" onContextMenu={openPageMenu}>
         {total === 0 && (
           <div className="td-page-empty">
-            No hosts yet. Use <b>New host</b> above, or press <kbd>Ctrl</kbd>+<kbd>T</kbd> to connect
-            without saving.
+            {t('hostspage.no_hosts_yet_use', 'No hosts yet. Use')}<b>{t('hostspage.new_host_4', 'New host')}</b> {t('hostspage.above_or_press', 'above, or press')}<kbd>{t('hostspage.ctrl', 'Ctrl')}</kbd>+<kbd>T</kbd> {t('hostspage.to_connect_without_saving', 'to connect without saving.')}
           </div>
         )}
 
@@ -520,7 +536,7 @@ export function HostsPage({
 
         {total > 0 && groups.length === 0 && (
           <div className="td-page-empty" data-testid="hosts-no-matches">
-            No hosts match the current filter.
+            {t('hostspage.no_hosts_match_the_current_f', 'No hosts match the current filter.')}
           </div>
         )}
       </div>

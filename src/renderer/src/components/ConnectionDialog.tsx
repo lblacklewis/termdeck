@@ -1,6 +1,7 @@
 import { useState, type FormEvent, type JSX } from 'react'
 import type { AuthMethod, CreateSessionResult, SshConnectPayload } from '@shared/types'
 import { Drawer } from './Drawer'
+import { t } from '../i18n'
 
 const api = window.termdeck
 
@@ -65,23 +66,23 @@ export function ConnectionDialog({
   }
 
   return (
-    <Drawer open title="Quick connect" size="md" testId="drawer" onClose={onCancel}>
+    <Drawer open title={t('connectiondialog.quick_connect', 'Quick connect')} size="md" testId="drawer" onClose={onCancel}>
       <form className="td-drawer-form" onSubmit={(e) => void submit(e)}>
         <div className="td-form">
           <div className="td-field-row">
             <label className="td-field td-field-grow">
-              <span>Host</span>
+              <span>{t('connectiondialog.host', 'Host')}</span>
               <input
                 autoFocus
                 aria-label="ssh-host"
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
-                placeholder="10.0.0.1 or example.com"
+                placeholder={t('connectiondialog.10_0_0_1_or_example_com', '10.0.0.1 or example.com')}
                 spellCheck={false}
               />
             </label>
             <label className="td-field td-field-port">
-              <span>Port</span>
+              <span>{t('connectiondialog.port', 'Port')}</span>
               <input
                 aria-label="ssh-port"
                 value={port}
@@ -93,7 +94,7 @@ export function ConnectionDialog({
           </div>
 
           <label className="td-field">
-            <span>Username</span>
+            <span>{t('connectiondialog.username', 'Username')}</span>
             <input
               aria-label="ssh-username"
               value={username}
@@ -103,7 +104,7 @@ export function ConnectionDialog({
           </label>
 
           <div className="td-field">
-            <span>Authentication</span>
+            <span>{t('connectiondialog.authentication', 'Authentication')}</span>
             <div className="td-segmented">
               {(
                 [
@@ -126,7 +127,7 @@ export function ConnectionDialog({
 
           {authMethod === 'password' && (
             <label className="td-field">
-              <span>Password</span>
+              <span>{t('connectiondialog.password', 'Password')}</span>
               <input
                 type="password"
                 aria-label="ssh-password"
@@ -140,7 +141,7 @@ export function ConnectionDialog({
           {authMethod === 'key' && (
             <>
               <label className="td-field">
-                <span>Private key file</span>
+                <span>{t('connectiondialog.private_key_file', 'Private key file')}</span>
                 <div className="td-field-row">
                   <input
                     className="td-field-grow"
@@ -159,12 +160,12 @@ export function ConnectionDialog({
                       })
                     }
                   >
-                    Browse…
+                    {t('connectiondialog.browse', 'Browse…')}
                   </button>
                 </div>
               </label>
               <label className="td-field">
-                <span>Key passphrase (optional)</span>
+                <span>{t('connectiondialog.key_passphrase_optional', 'Key passphrase (optional)')}</span>
                 <input
                   type="password"
                   aria-label="ssh-passphrase"
@@ -178,7 +179,7 @@ export function ConnectionDialog({
 
           {authMethod === 'agent' && (
             <p className="td-hint">
-              Uses <code>SSH_AUTH_SOCK</code>, or Pageant on Windows.
+              {t('connectiondialog.uses', 'Uses')}<code>SSH_AUTH_SOCK</code>{t('connectiondialog.or_pageant_on_windows', ', or Pageant on Windows.')}
             </p>
           )}
 
@@ -193,11 +194,11 @@ export function ConnectionDialog({
             disabled={!canSubmit}
             onClick={() => onSaveAsSession(buildPayload())}
           >
-            Save as session…
+            {t('connectiondialog.save_as_session', 'Save as session…')}
           </button>
           <span className="td-spacer" />
           <button type="button" className="td-btn" onClick={onCancel}>
-            Cancel
+            {t('connectiondialog.cancel', 'Cancel')}
           </button>
           <button
             type="submit"

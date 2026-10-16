@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type JSX } from 'react'
+import { t } from '../i18n'
 
 interface LockScreenProps {
   /** True when a non-empty password is stored, so a field is needed. */
@@ -52,11 +53,11 @@ export function LockScreen({ hasPassword, onUnlock }: LockScreenProps): JSX.Elem
   }
 
   return (
-    <div className="td-lock" data-testid="lock-screen" role="dialog" aria-label="TermDeck is locked">
+    <div className="td-lock" data-testid="lock-screen" role="dialog" aria-label={t('lockscreen.termdeck_is_locked', 'TermDeck is locked')}>
       <div className="td-lock-inner">
         <div className="td-lock-brand">
           <span className="td-brand-mark">◈</span>
-          <span className="td-brand-name">TermDeck</span>
+          <span className="td-brand-name">{t('lockscreen.termdeck', 'TermDeck')}</span>
         </div>
 
         <div className="td-lock-clock">{now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
@@ -71,7 +72,7 @@ export function LockScreen({ hasPassword, onUnlock }: LockScreenProps): JSX.Elem
               className="td-lock-input"
               type="password"
               aria-label="lock-password"
-              placeholder="Password"
+              placeholder={t('lockscreen.password', 'Password')}
               autoComplete="off"
               value={password}
               disabled={busy}

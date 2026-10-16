@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type JSX } from 'react'
 import type { SharePreview } from '@shared/types'
 import { ModalShell } from './ModalShell'
+import { t } from '../i18n'
 
 /** Kept in step with `MIN_PASSPHRASE` in the main process. */
 const MIN_PASSPHRASE = 8
@@ -132,7 +133,7 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
     <ModalShell onDismiss={onClose} testId="share-dialog">
       <div className="td-modal-head">
         <h2>{mode === 'export' ? 'Export saved hosts' : 'Import saved hosts'}</h2>
-        <button className="td-icon-btn" onClick={onClose} title="Cancel">
+        <button className="td-icon-btn" onClick={onClose} title={t('sharedialog.cancel', 'Cancel')}>
           ✕
         </button>
       </div>
@@ -140,12 +141,11 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
       {mode === 'export' ? (
         <form className="td-form" onSubmit={runExport}>
           <p className="td-hint">
-            One file with every group and host, compressed and encrypted with the passphrase
-            below. Send the passphrase by another route — anyone who has both can read it.
+            {t('sharedialog.one_file_with_every_group_an', 'One file with every group and host, compressed and encrypted with the passphrase below. Send the passphrase by another route — anyone who has both can read it.')}
           </p>
 
           <label className="td-field">
-            <span>Passphrase</span>
+            <span>{t('sharedialog.passphrase', 'Passphrase')}</span>
             <input
               ref={firstFieldRef}
               type="password"
@@ -159,7 +159,7 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
           </label>
 
           <label className="td-field">
-            <span>Repeat passphrase</span>
+            <span>{t('sharedialog.repeat_passphrase', 'Repeat passphrase')}</span>
             <input
               type="password"
               aria-label="share-passphrase-repeat"
@@ -186,7 +186,7 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
               checked={includePasswords}
               onChange={(e) => setIncludePasswords(e.target.checked)}
             />
-            <span>Include saved passwords, so the other person can connect straight away</span>
+            <span>{t('sharedialog.include_saved_passwords_so_t', 'Include saved passwords, so the other person can connect straight away')}</span>
           </label>
 
           {error && (
@@ -198,7 +198,7 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
           <div className="td-modal-foot">
             <span className="td-spacer" />
             <button type="button" className="td-btn" onClick={onClose}>
-              Cancel
+              {t('sharedialog.cancel_2', 'Cancel')}
             </button>
             <button
               type="submit"
@@ -213,12 +213,11 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
       ) : (
         <div className="td-form">
           <p className="td-hint">
-            Read a file someone shared with you. Hosts you already have — same username, host
-            and port — are skipped, and an existing group of the same name is reused.
+            {t('sharedialog.read_a_file_someone_shared_w', 'Read a file someone shared with you. Hosts you already have — same username, host and port — are skipped, and an existing group of the same name is reused.')}
           </p>
 
           <div className="td-field">
-            <span>File</span>
+            <span>{t('sharedialog.file', 'File')}</span>
             <div className="td-field-row">
               <button
                 type="button"
@@ -226,7 +225,7 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
                 data-testid="share-choose-file"
                 onClick={() => void chooseFile()}
               >
-                Choose file…
+                {t('sharedialog.choose_file', 'Choose file…')}
               </button>
               <span className="td-hint td-field-grow" data-testid="share-file">
                 {fileName ?? 'No file chosen yet.'}
@@ -235,7 +234,7 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
           </div>
 
           <label className="td-field">
-            <span>Passphrase</span>
+            <span>{t('sharedialog.passphrase_2', 'Passphrase')}</span>
             <input
               ref={firstFieldRef}
               type="password"
@@ -278,13 +277,13 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
                     checked={includePasswords}
                     onChange={(e) => setIncludePasswords(e.target.checked)}
                   />
-                  <span>Keep the passwords that came with it</span>
+                  <span>{t('sharedialog.keep_the_passwords_that_came', 'Keep the passwords that came with it')}</span>
                 </label>
               )}
             </div>
           )}
 
-          {busy && !preview && <p className="td-hint">Reading…</p>}
+          {busy && !preview && <p className="td-hint">{t('sharedialog.reading', 'Reading…')}</p>}
 
           {error && (
             <p className="td-hint td-hint-error" data-testid="share-error">
@@ -295,7 +294,7 @@ export function ShareDialog({ mode, onClose, onMessage }: ShareDialogProps): JSX
           <div className="td-modal-foot">
             <span className="td-spacer" />
             <button type="button" className="td-btn" onClick={onClose}>
-              Cancel
+              {t('sharedialog.cancel_3', 'Cancel')}
             </button>
             <button
               type="button"

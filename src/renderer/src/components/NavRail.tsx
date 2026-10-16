@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 import type { AppInfo, PageId } from '@shared/types'
+import { t } from '../i18n'
 
 // The page set lives in shared types so the persisted layout can reference it.
 export type { PageId }
@@ -11,13 +12,20 @@ interface NavEntry {
   icon: string
 }
 
-const PAGES: NavEntry[] = [
-  { id: 'terminal', label: 'Terminal', icon: '▤' },
-  { id: 'hosts', label: 'Hosts', icon: '☰' },
-  { id: 'known-hosts', label: 'Known Hosts', icon: '⛨' },
-  { id: 'snippets', label: 'Snippets', icon: '⌨' },
-  { id: 'logs', label: 'Logs', icon: '≣' }
-]
+/*
+ * Built on each render rather than once at module load: a `t()` call at module
+ * scope runs before the language is known and is never evaluated again, so the
+ * rail stayed English while everything around it switched.
+ */
+function navEntries(): NavEntry[] {
+  return [
+    { id: 'terminal', label: t('navrail.terminal', 'Terminal'), icon: '▤' },
+    { id: 'hosts', label: t('navrail.hosts', 'Hosts'), icon: '☰' },
+    { id: 'known-hosts', label: t('navrail.known_hosts', 'Known Hosts'), icon: '⛨' },
+    { id: 'snippets', label: t('navrail.snippets', 'Snippets'), icon: '⌨' },
+    { id: 'logs', label: t('navrail.logs', 'Logs'), icon: '≣' }
+  ]
+}
 
 /*
  * `PAGE_ORDER` / `PAGE_CYCLE` / `PAGE_LABELS` used to live here, for `Alt`+digit
@@ -64,15 +72,15 @@ export function NavRail({
   onToggleCollapsed
 }: NavRailProps): ReactElement {
   return (
-    <nav className={`td-rail${collapsed ? ' is-collapsed' : ''}`} aria-label="Sections" data-testid="nav-rail">
-      <div className="td-rail-brand" title="TermDeck">
+    <nav className={`td-rail${collapsed ? ' is-collapsed' : ''}`} aria-label={t('navrail.sections', 'Sections')} data-testid="nav-rail">
+      <div className="td-rail-brand" title={t('navrail.termdeck', 'TermDeck')}>
         <span className="td-brand-mark">▚</span>
-        <span className="td-rail-brand-name">TermDeck</span>
+        <span className="td-rail-brand-name">{t('navrail.termdeck_2', 'TermDeck')}</span>
       </div>
 
       <div className="td-rail-scroll">
         <div className="td-rail-group">
-          {PAGES.map((page) => {
+          {navEntries().map((page) => {
             const badge = badges?.[page.id]
             return (
               <button
@@ -106,13 +114,13 @@ export function NavRail({
             data-testid="rail-settings"
             data-page="settings"
             aria-current={settingsOpen ? 'page' : undefined}
-            title="Settings"
+            title={t('navrail.settings', 'Settings')}
             onClick={() => onSelect('settings')}
           >
             <span className="td-rail-icon" aria-hidden="true">
               ⚙
             </span>
-            <span className="td-rail-label">Settings</span>
+            <span className="td-rail-label">{t('navrail.settings_2', 'Settings')}</span>
           </button>
         </div>
       </div>
@@ -132,15 +140,17 @@ export function NavRail({
             !ready
               ? 'Restoring the saved layout…'
               : collapsed
-                ? 'Expand the sidebar'
-                : 'Shrink to icons only'
+                ? t('navrail.expand_sidebar', 'Expand the sidebar')
+                : t('navrail.shrink_icons', 'Shrink to icons only')
           }
           onClick={onToggleCollapsed}
         >
           <span className="td-rail-toggle-track" aria-hidden="true">
             <span className="td-rail-toggle-knob" />
           </span>
-          <span className="td-rail-label">{collapsed ? 'Expand' : 'Shrink'}</span>
+          <span className="td-rail-label">
+            {collapsed ? t('navrail.expand', 'Expand') : t('navrail.shrink', 'Shrink')}
+          </span>
         </button>
 
         {appInfo && (

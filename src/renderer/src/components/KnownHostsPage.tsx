@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { KnownHostEntry } from '@shared/types'
+import { t } from '../i18n'
 
 const api = window.termdeck
 
@@ -73,16 +74,16 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
           <input
             className="td-page-search"
             aria-label="filter-known-hosts"
-            placeholder="Filter by host or fingerprint"
+            placeholder={t('knownhostspage.filter_by_host_or_fingerprin', 'Filter by host or fingerprint')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
         </div>
         <div className="td-page-bar">
-          <h1 className="td-sr-only">Known Hosts</h1>
+          <h1 className="td-sr-only">{t('knownhostspage.known_hosts', 'Known Hosts')}</h1>
           <div className="td-page-actions">
-            <button className="td-btn" onClick={() => void refresh()} title="Reload from disk">
-              Reload
+            <button className="td-btn" onClick={() => void refresh()} title={t('knownhostspage.reload_from_disk', 'Reload from disk')}>
+              {t('knownhostspage.reload', 'Reload')}
             </button>
           </div>
           <div className="td-page-meta">
@@ -110,9 +111,9 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
           <table className="td-table" data-testid="known-hosts-table">
             <thead>
               <tr>
-                <th>Host</th>
-                <th>Key type</th>
-                <th>Fingerprint</th>
+                <th>{t('knownhostspage.host', 'Host')}</th>
+                <th>{t('knownhostspage.key_type', 'Key type')}</th>
+                <th>{t('knownhostspage.fingerprint', 'Fingerprint')}</th>
                 <th />
               </tr>
             </thead>
@@ -125,8 +126,8 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
                       {entry.host ? (
                         <span className="td-mono">{entry.host}</span>
                       ) : (
-                        <span className="td-hint" title="OpenSSH hashed this entry; the name cannot be recovered">
-                          (hashed entry)
+                        <span className="td-hint" title={t('knownhostspage.openssh_hashed_this_entry_th', 'OpenSSH hashed this entry; the name cannot be recovered')}>
+                          {t('knownhostspage.hashed_entry', '(hashed entry)')}
                         </span>
                       )}
                       {entry.marker && <span className="td-pill td-pill-warn">{entry.marker}</span>}
@@ -147,17 +148,17 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
                             {busy === id ? 'Removing…' : 'Remove'}
                           </button>
                           <button className="td-btn td-btn-sm" onClick={() => setConfirming(null)}>
-                            Cancel
+                            {t('knownhostspage.cancel', 'Cancel')}
                           </button>
                         </span>
                       ) : (
                         <button
                           className="td-btn td-btn-sm"
                           data-testid="remove-entry"
-                          title="Forget this key; the next connection will ask again"
+                          title={t('knownhostspage.forget_this_key_the_next_con', 'Forget this key; the next connection will ask again')}
                           onClick={() => setConfirming(id)}
                         >
-                          Forget
+                          {t('knownhostspage.forget', 'Forget')}
                         </button>
                       )}
                     </td>
