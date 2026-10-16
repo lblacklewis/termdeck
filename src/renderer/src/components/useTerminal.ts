@@ -5,10 +5,12 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 
 import type { ClipboardSettings, TerminalSettings, Theme } from '@shared/types'
-import { buildTerminalOptions, terminalThemeFor } from './terminalTheme'
+import { buildTerminalOptions, terminalThemeFor, xtermCursorStyle } from './terminalTheme'
 import {
   LineTimestamps,
   applyCursorBlink,
+  applyCursorInk,
+  applyCursorShape,
   fitsArePaused,
   registerRefit,
   registerStamps,
@@ -87,6 +89,10 @@ export function useTerminal(
     term.loadAddon(fit)
     term.loadAddon(new WebLinksAddon())
     term.open(container)
+    // The cursor's shape and ink are ours to draw (see the hollow cursor rules in
+    // the stylesheet), so they are set here rather than left to xterm's defaults.
+    applyCursorShape(container, optionsRef.current.terminal.cursorStyle)
+    applyCursorInk(container, terminalThemeFor(optionsRef.current.theme).foreground)
 
     /*
      * Re-measure once the chosen face is really available.
@@ -294,13 +300,14 @@ export function useTerminal(
         term.options.fontFamily = settings.fontFamily
         term.options.fontSize = settings.fontSize
         term.options.lineHeight = settings.lineHeight
-        term.options.cursorStyle = settings.cursorStyle
+        term.options.cursorStyle = xtermCursorStyle(settings.cursorStyle)
         // Cursor blinking is driven by our own CSS (see applyCursorBlink): xterm
-        // animates that class on no fixed cadence and its built-in tick is far
-        // too fast. Leaving xterm's option off keeps the cursor steady and lets
-        // the chosen rate apply.
+        // only toggles its blink class while its own option is on, and its built-in
+        // tick is far too fast. Leaving the option off keeps the cursor steady at
+        // the xterm level and lets the chosen rate apply.
         term.options.cursorBlink = false
         applyCursorBlink(container, settings.cursorBlink, settings.cursorBlinkMs)
+        applyCursorShape(container, settings.cursorStyle)
         term.options.scrollback = settings.scrollback
         scheduleFit()
         // Switching to a bundled face has the same race as opening with one: the
@@ -311,7 +318,9 @@ export function useTerminal(
       },
       applyTheme: (theme: Theme) => {
         // xterm repaints on the next frame with the new palette.
-        term.options.theme = terminalThemeFor(theme)
+        const palette = terminalThemeFor(theme)
+        term.options.theme = palette
+        applyCursorInk(container, palette.foreground)
       }
     }
 

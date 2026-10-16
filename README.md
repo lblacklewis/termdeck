@@ -182,10 +182,31 @@ subset, ~50-90 KB total, SIL OFL 1.1 with the licences beside them). A bundled
 face is loaded before xterm measures a character cell — measuring the fallback
 would leave every pane at the wrong width until something else refitted it.
 
-**Cursor.** The blink rate is selectable (or off). This is ours rather than
-xterm's because xterm toggles its blink class on an internal tick and ships no
-CSS for it, which reads as a flicker; the pane animates it from the setting
-instead. `prefers-reduced-motion` turns blinking off entirely.
+**Cursor.** Four shapes: outline (the default), block, bar, underline. The default
+is the hollow box — transparent inside, outlined in the terminal's text colour, so
+it is a black frame on a light palette and a white one on a dark palette — because
+a filled block covers the character under it, which is the one the user is about to
+overtype.
+
+xterm has no *active* outline cursor: `cursorStyle` takes block, bar and underline,
+and the hollow box it can draw is the one it shows while the terminal is unfocused.
+So "outline" is handed to xterm as a block and our stylesheet draws it hollow. Two
+consequences worth knowing before touching that CSS:
+
+- xterm injects its cursor colours as a stylesheet **generated at runtime** and
+  appended to `<head>` after ours, and its rule for a steady block carries
+  `!important`. Only specificity beats it, so the hollow rule needs one more class
+  than `… .xterm-cursor.xterm-cursor-block:not(.xterm-cursor-blink)`.
+- the character under the cursor is drawn inside the cursor element and xterm
+  colours it with `cursorAccent` (the background colour) to keep it readable on a
+  filled block. Hollow, that would make the character invisible, so it is repainted
+  in the text colour (`--td-term-fg`, published by the pane from the palette).
+
+The blink rate is selectable (or off). This is ours rather than xterm's because
+xterm only adds its blink class while *its* blink option is on, and we keep that
+off so our cadence owns the rate — which also means the animation must target the
+cursor element rather than xterm's class. `prefers-reduced-motion` turns blinking
+off entirely.
 
 ## Broadcast input
 
@@ -541,6 +562,21 @@ testing and resolved CSS variables rather than painted pixel values.
 These each cost real debugging time; they are recorded so they are not
 rediscovered.
 
+- **A selector that waits for a class the library only adds under an option you
+  disabled never matches — and nothing complains.** Cursor blinking was animated on
+  xterm's `xterm-cursor-blink` class, but xterm only adds that class while *its*
+  blink option is on, and the app keeps that option off so its own cadence owns the
+  rate. So the animation rule existed, the attribute that feeds it was set, the
+  probe that checked both passed — and the cursor never blinked. Target the element
+  you control (`.xterm-cursor`) and let your own flag switch it on.
+- **xterm injects its cursor colours at runtime, after your stylesheet.** Its rules
+  are generated per terminal and appended to `<head>`, and the one for a steady block
+  cursor carries `!important`. Source order therefore favours xterm, so the only
+  lever is specificity: `.td-terminal-host[data-cursor-style='outline'] .xterm
+  .xterm-rows .xterm-cursor.xterm-cursor-block` (six) beats
+  `… .xterm-rows .xterm-cursor.xterm-cursor-block:not(.xterm-cursor-blink)` (five).
+  Anything with fewer classes silently loses, which is why the smoke probe *measures*
+  the computed `background-color` and `box-shadow` instead of trusting the rule.
 - **`.td-form input { width: 100% }` also matches checkboxes.** It looks like it is
   about text fields, but an `input[type=checkbox]` inside a form got the sunken
   background, the border and the full width — and Chromium draws the box centred

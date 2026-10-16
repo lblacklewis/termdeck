@@ -207,6 +207,56 @@ async function main() {
         await wait(900)
       }
 
+      // ---- 2b. the hollow cursor ------------------------------------------
+      /*
+       * A hollow box: transparent inside, outlined in the terminal's text colour.
+       * Measured, not eyeballed — xterm injects its cursor colours with an
+       * important-flagged rule from a stylesheet appended *after* ours, so "it still
+       * looks hollow" is a claim that can quietly stop being true when either side
+       * changes. The colour check is self-consistent on purpose: our rule paints
+       * the outline and the character under the cursor with the same variable, so
+       * the two computed colours must match.
+       */
+      {
+        const host = paneHosts()[0]
+        const cursor = host ? host.querySelector('.xterm-cursor') : null
+        const cs = cursor ? getComputedStyle(cursor) : null
+        const shadow = cs ? cs.boxShadow : ''
+        const shadowColor = (shadow.match(/rgba?[(][^)]*[)]/) || [])[0] || ''
+
+        push('the cursor is an outlined box rather than a filled block',
+          !!cs && cs.backgroundColor === 'rgba(0, 0, 0, 0)' && /inset/.test(shadow),
+          JSON.stringify({ background: cs && cs.backgroundColor, shadow }))
+        push('the outline is the text colour, so the character under it stays legible',
+          !!cs && shadowColor !== '' && shadowColor === cs.color,
+          shadowColor + ' vs text ' + (cs ? cs.color : '?'))
+        push('the pane is told which cursor shape to draw',
+          !!host && host.getAttribute('data-cursor-style') === 'outline',
+          host ? 'style=' + host.getAttribute('data-cursor-style') : 'no host')
+        push('an outlined cursor is the default',
+          saved.terminal.cursorStyle === 'outline', String(saved.terminal.cursorStyle))
+      }
+
+      // Choosing another shape must actually change it. "Outline" reaches xterm as a
+      // block, so this is also what proves that mapping is wired both ways.
+      {
+        const s = await api.loadSettings()
+        await api.saveSettings({ ...s, terminal: { ...s.terminal, cursorStyle: 'bar' } })
+        await wait(1200)
+        const cursor = (paneHosts()[0] || document).querySelector('.xterm-cursor')
+        push('switching to the bar cursor is honoured',
+          !!cursor && cursor.className.includes('xterm-cursor-bar') &&
+            !cursor.className.includes('xterm-cursor-block'),
+          cursor ? cursor.className : 'no cursor')
+        await api.saveSettings({ ...s, terminal: { ...s.terminal, cursorStyle: 'outline' } })
+        await wait(1200)
+        const back = (paneHosts()[0] || document).querySelector('.xterm-cursor')
+        push('and switching back restores the hollow box',
+          !!back && back.className.includes('xterm-cursor-block') &&
+            getComputedStyle(back).backgroundColor === 'rgba(0, 0, 0, 0)',
+          back ? back.className : 'no cursor')
+      }
+
       const ids = window.__tdDockApi.panels.map((p) => p.id)
       const textFor = (id) => {
         const entry = window.__tdTerminals ? window.__tdTerminals[id] : null

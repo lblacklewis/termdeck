@@ -410,7 +410,7 @@ export interface TerminalSettings {
   fontFamily: string
   fontSize: number
   lineHeight: number
-  cursorStyle: 'block' | 'underline' | 'bar'
+  cursorStyle: 'block' | 'underline' | 'bar' | 'outline'
   cursorBlink: boolean
   /**
    * Blink period in milliseconds.
@@ -754,7 +754,14 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
     '"Cascadia Mono", "JetBrains Mono", "Fira Code", Consolas, "DejaVu Sans Mono", monospace',
   fontSize: 14,
   lineHeight: 1.2,
-  cursorStyle: 'bar',
+  /**
+   * A hollow box: transparent inside, outlined in the terminal's text colour.
+   *
+   * The default because it is the shape that hides the least — a filled block
+   * covers the character under it, which is exactly the one the user is about to
+   * overtype.
+   */
+  cursorStyle: 'outline',
   cursorBlink: true,
   // Deliberately slower than xterm's own ~0.5s cadence, which reads as a flicker.
   cursorBlinkMs: 900,

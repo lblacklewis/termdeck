@@ -3883,17 +3883,46 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
 }
 
 /*
+ * The hollow cursor.
+ *
+ * xterm only knows how to *fill* the active cursor cell, and the hollow box it can
+ * draw on its own is the one it shows while the terminal is unfocused — so the
+ * "outline" style is sent to xterm as a block and drawn here instead: transparent
+ * inside, outlined in the terminal's text colour, which is a black frame on a light
+ * palette and a white one on a dark palette.
+ *
+ * Two things make this awkward enough to be worth spelling out:
+ *
+ *  - xterm injects its cursor colours as a stylesheet **generated at runtime** and
+ *    appended to <head> after ours, and its rule for a steady block carries
+ *    `!important`. Specificity is therefore the only lever, and our selector needs
+ *    one more class than `… .xterm-cursor.xterm-cursor-block:not(…-blink)`.
+ *  - the character under the cursor is drawn inside the cursor element, and xterm
+ *    colours it with `cursorAccent` (the background colour) so it stays legible on
+ *    a filled block. With the block hollow that would make the character invisible,
+ *    so it is repainted in the text colour.
+ */
+.td-terminal-host[data-cursor-style='outline'] .xterm .xterm-rows .xterm-cursor.xterm-cursor-block {
+  background-color: transparent !important;
+  color: var(--td-term-fg) !important;
+  box-shadow: inset 0 0 0 var(--td-cursor-outline-width, 1.5px) var(--td-term-fg);
+}
+
+/*
  * Cursor blink.
  *
- * xterm toggles its `xterm-cursor-blink` class on an internal tick but ships no
- * CSS for it, so out of the box the cursor flickers quickly. The duration comes
- * from the pane (`--td-cursor-blink-duration`, set from the Cursor blink
- * setting), which is what makes the rate adjustable.
+ * The duration comes from the pane (`--td-cursor-blink-duration`, set from the
+ * Cursor blink setting), which is what makes the rate adjustable.
+ *
+ * The selector targets the cursor element itself rather than xterm's
+ * `xterm-cursor-blink` class: xterm only adds that class while its own blink
+ * option is on, and we keep that off so our cadence owns it — so a selector
+ * waiting for the class never matched and the setting did nothing.
  *
  * Only `scale` is animated: xterm uses inline styles for the cursor's position
  * and its hidden states, and `visibility`/`opacity` here would fight those.
  */
-.td-terminal-host[data-cursor-blink='on'] .xterm-cursor-blink {
+.td-terminal-host[data-cursor-blink='on'] .xterm-cursor {
   animation: td-cursor-blink var(--td-cursor-blink-duration, 900ms) steps(1, end) infinite;
 }
 
@@ -3909,7 +3938,7 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .td-terminal-host[data-cursor-blink='on'] .xterm-cursor-blink {
+  .td-terminal-host[data-cursor-blink='on'] .xterm-cursor {
     animation: none;
   }
 }

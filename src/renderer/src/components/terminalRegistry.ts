@@ -9,6 +9,7 @@
  * `localStorage.tdDebug`; these features must work in a normal run.
  */
 import type { Terminal } from '@xterm/xterm'
+import type { TerminalSettings } from '@shared/types'
 
 const terminals = new Map<string, Terminal>()
 const refitters = new Map<string, () => void>()
@@ -96,10 +97,12 @@ export function readScrollback(sessionId: string): string | null {
 /**
  * Cursor blink rate.
  *
- * xterm adds its `xterm-cursor-blink` class on its own internal tick but ships
- * **no CSS for that class**, so the class is toggled far faster than a comfortable
- * cadence and the cursor reads as a flicker. The app animates it here instead,
- * which makes the rate ours and configurable.
+ * xterm toggles its own `xterm-cursor-blink` class only while *its* blink option
+ * is on, and we keep that off (our CSS owns the cadence). So the class is normally
+ * absent — the app's animation therefore targets the cursor element itself, and
+ * this attribute is what switches it on. Leaving `xterm-cursor-blink` out of the
+ * selector is the whole point: a selector that waits for xterm's class never
+ * matches, and the setting silently does nothing.
  *
  * `scale` is animated rather than `visibility` or `opacity`: the latter two are
  * also used for the "cursor is hidden" states, and overriding them would make a
@@ -114,6 +117,34 @@ export function applyCursorBlink(container: HTMLElement, blink: boolean, periodM
   }
   style.setProperty('--td-cursor-blink-duration', `${Math.max(120, periodMs)}ms`)
   container.setAttribute('data-cursor-blink', 'on')
+}
+
+/**
+ * Publish the configured cursor shape as `data-cursor-style`.
+ *
+ * xterm can only be asked for block, bar or underline, so "outline" reaches the
+ * DOM as a block; this attribute is how the stylesheet tells the two apart and
+ * draws the hollow box.
+ */
+export function applyCursorShape(
+  container: HTMLElement,
+  cursorStyle: TerminalSettings['cursorStyle']
+): void {
+  container.setAttribute('data-cursor-style', cursorStyle)
+}
+
+/**
+ * Publish the terminal's text colour as `--td-term-fg`.
+ *
+ * The hollow cursor is outlined in the *text* colour — that is what makes it a
+ * black frame on a light palette and a white one on a dark palette — and the
+ * colour lives in the palette, not in the stylesheet.
+ */
+export function applyCursorInk(container: HTMLElement, foreground: string | undefined): void {
+  // Every palette defines a foreground; if one ever did not, leaving the property
+  // unset keeps xterm's own filled cursor rather than an invisible outline.
+  if (!foreground) return
+  container.style.setProperty('--td-term-fg', foreground)
 }
 
 // ---- per-line timestamps -------------------------------------------------

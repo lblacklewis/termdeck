@@ -754,6 +754,7 @@ function TerminalTab({
               onChange({ cursorStyle: e.target.value as TerminalSettings['cursorStyle'] })
             }
           >
+            <option value="outline">Outline (hollow box)</option>
             <option value="bar">Bar</option>
             <option value="block">Block</option>
             <option value="underline">Underline</option>
