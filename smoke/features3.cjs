@@ -439,6 +439,69 @@ async function main() {
             ' reached=' + visible.filter((id) => textFor(id).includes(hiddenMarker)).length)
       }
 
+      // ---- Ctrl+D closes a finished session, and only a finished one ------
+      /*
+       * Ctrl+D is EOF in a live shell, so the binding has to *decline* the key
+       * while there is a shell behind the pane (the dispatcher then leaves the
+       * event alone) and act only once the session has ended. Both halves are
+       * checked: a handler that closes whatever is focused would be worse than no
+       * binding at all.
+       */
+      {
+        const ctrlD = () =>
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true })
+          )
+        const activeId = () => (window.__tdDockApi.activePanel || {}).id
+        const panelsNow = () => window.__tdDockApi.panels.length
+
+        const before = panelsNow()
+        const id = activeId()
+        ctrlD()
+        await wait(600)
+        push('Ctrl+D on a live shell leaves the pane open',
+          panelsNow() === before && !!window.__tdDockApi.getPanel(id),
+          'panels ' + before + ' -> ' + panelsNow())
+
+        // End the session for real: type exit in the shell it is running.
+        window.termdeck.writeSession(id, 'exit' + String.fromCharCode(13))
+        let banner = false
+        for (let i = 0; i < 30; i++) {
+          await wait(300)
+          if (document.querySelector('.td-terminal-banner')) { banner = true; break }
+        }
+        push('the pane says the session ended', banner,
+          'banner=' + banner + ' panels=' + panelsNow())
+
+        ctrlD()
+        await wait(800)
+        push('Ctrl+D now closes that pane', panelsNow() === before - 1,
+          'panels ' + before + ' -> ' + panelsNow())
+      }
+
+      // ---- a toast dismisses itself ---------------------------------------
+      /*
+       * It used to stay until clicked, so a message from ten minutes ago sat at the
+       * bottom of the window looking like the current state of things. The zoom
+       * bindings are used because they toast on every step; the second one puts the
+       * scale back where it started.
+       */
+      {
+        const press = (key, shift) =>
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', { key, ctrlKey: true, shiftKey: !!shift, bubbles: true })
+          )
+        press('=', true)
+        await wait(600)
+        const toast = document.querySelector('.td-toast')
+        push('an action raises a toast', !!toast, toast ? toast.textContent : 'no toast')
+        await wait(2600)
+        push('and it goes away on its own', !document.querySelector('.td-toast'),
+          document.querySelector('.td-toast') ? 'still there' : 'dismissed')
+        press('-', false)
+        await wait(500)
+      }
+
       return out
     })()
   `

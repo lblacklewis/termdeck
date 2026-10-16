@@ -165,6 +165,29 @@ async function main() {
   const gone = await page(`!document.querySelector('[data-testid="welcome-screen"]')`)
   push('the welcome closes once it is done', gone)
 
+  /*
+   * What the user is left looking at. The rail is the strip on the left of the
+   * window; the drawer is the wide column beside it on the terminal page. Both are
+   * asserted because "the left side is hidden" is what a collapsed rail looks like.
+   */
+  const shell = await page(`(() => {
+    const rail = document.querySelector('.td-rail')
+    const drawer = document.querySelector('.td-sidebar')
+    return {
+      rail: !!rail,
+      collapsed: rail ? rail.className.includes('is-collapsed') : null,
+      drawer: !!drawer,
+      scrollW: document.documentElement.scrollWidth
+    }
+  })()`)
+  push('the shell comes up with the rail expanded, not hidden',
+    shell.rail && shell.collapsed === false, JSON.stringify(shell))
+  push('and the drawer is showing beside it', shell.drawer, JSON.stringify(shell))
+
+  const storedLayout = await page('window.termdeck.loadLayout()')
+  push('the saved arrangement agrees', storedLayout.railCollapsed === false,
+    'railCollapsed=' + storedLayout.railCollapsed)
+
   win.webContents.reload()
   await sleep(3200)
   const afterReload = await page(`!document.querySelector('[data-testid="welcome-screen"]')`)

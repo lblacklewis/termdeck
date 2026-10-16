@@ -731,6 +731,14 @@ export interface DataDirectoryResult {
 export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { id: 'newConnection', label: 'New connection', keys: 'Ctrl+T', builtin: true },
   { id: 'closeSession', label: 'Close active session', keys: 'Ctrl+W', builtin: true },
+  /*
+   * `Ctrl+D` closes a pane whose session has already ended — and only then.
+   *
+   * In a live shell `Ctrl+D` is EOF: swallowing it would break logging out and
+   * every REPL that reads it, so the binding does nothing at all while the pane
+   * still has something to send it to.
+   */
+  { id: 'closeDeadPane', label: 'Close a finished session', keys: 'Ctrl+D', builtin: true },
   { id: 'openSettings', label: 'Open settings', keys: 'Ctrl+,', builtin: true },
   { id: 'toggleSidebar', label: 'Toggle sidebar', keys: 'Ctrl+B', builtin: true },
   { id: 'openConnections', label: 'Open connections window', keys: 'Ctrl+Shift+E', builtin: true },

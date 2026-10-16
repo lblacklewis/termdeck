@@ -76,6 +76,14 @@ import { onLanguageChange, setLanguage, t } from './i18n'
 const api = window.termdeck
 
 /**
+ * How long a toast stays before it dismisses itself.
+ *
+ * Long enough to read a short sentence, short enough that it is gone before the
+ * next action — the state it reports is usually visible in the window anyway.
+ */
+const TOAST_MS = 1200
+
+/**
  * What the wellness bar is saying.
  *
  * `reminder` is the plain nudge; `break` and `work` are the two halves of a
@@ -298,6 +306,20 @@ export function App(): JSX.Element {
     { kind: 'delete-folder'; id: string; name: string; hosts: number; groups: number } | null
   >(null)
   const [toast, setToast] = useState<string | null>(null)
+
+  /*
+   * A toast is a glance, not a panel: it goes away on its own.
+   *
+   * It used to stay until clicked, which meant a message from ten minutes ago sat
+   * at the bottom of the window looking like the current state of things. Clicking
+   * still dismisses it early, and a new message restarts the timer because the
+   * effect is keyed on the text.
+   */
+  useEffect(() => {
+    if (!toast) return
+    const timer = window.setTimeout(() => setToast(null), TOAST_MS)
+    return () => window.clearTimeout(timer)
+  }, [toast])
   /** Error from a toast-style connection attempt (no dialog on screen). */
   const [alert, setAlert] = useState<{ message: string; code?: string; sessionId?: string } | null>(
     null
@@ -437,6 +459,15 @@ export function App(): JSX.Element {
   const endedRef = useRef(removeSessionState)
   endedRef.current = removeSessionState
 
+  /**
+   * Sessions whose process has ended, by session id.
+   *
+   * Keyed on the session rather than the pane on purpose: a pane that reconnects
+   * gets a *new* session id, so the flag clears itself and `Ctrl+D` starts meaning
+   * EOF again the moment there is a shell to send it to.
+   */
+  const endedSessionsRef = useRef(new Set<string>())
+
   // The dockview factory and connect helpers are registered once, so they read
   // the current tree through a ref rather than a captured value.
   const treeRef = useRef<Tree>(EMPTY_TREE)
@@ -564,6 +595,8 @@ export function App(): JSX.Element {
       const panel = dockApiRef.current?.getPanel(panelId)
       if (panel) dockApiRef.current?.removePanel(panel)
       liveSessionRef.current.delete(panelId)
+      endedSessionsRef.current.delete(live)
+      endedSessionsRef.current.delete(panelId)
       removeSessionState(live)
       removeSessionState(panelId)
     },
@@ -621,7 +654,10 @@ export function App(): JSX.Element {
                 savedSessionId={panelParams.savedSessionId}
                 disconnected={panelParams.disconnected}
                 onReconnect={(id, name) => reconnectRef.current(options.id, id, name)}
-                onSessionEnded={(id) => endedRef.current(id)}
+                onSessionEnded={(id) => {
+                  endedSessionsRef.current.add(id)
+                  endedRef.current(id)
+                }}
               />
             )
           })
@@ -2690,6 +2726,17 @@ export function App(): JSX.Element {
       const active = dockApiRef.current?.activePanel
       if (active && active.id !== 'welcome') closeSession(active.id)
     },
+    /*
+     * `Ctrl+D` on a pane whose session has ended closes it — and on a live pane it
+     * returns `false` so the dispatcher leaves the event alone for the shell, where
+     * the key means EOF.
+     */
+    closeDeadPane: () => {
+      const active = dockApiRef.current?.activePanel
+      if (!active || active.id === 'welcome') return false
+      if (!endedSessionsRef.current.has(liveIdFor(active.id))) return false
+      closeSession(active.id)
+    },
     openSettings: () => setSettingsOpen(true),
     toggleSidebar: () => setRailCollapsed((v) => !v),
     openConnections: () => setConnectionsOpen(true),
@@ -3539,7 +3586,20 @@ export function App(): JSX.Element {
         start-up path. It covers the window, and the only thing behind it that could
         be seen is the default arrangement.
       */}
-      {!settings.onboarded && <WelcomeScreen settings={settings} onDone={setSettings} />}
+      {!settings.onboarded && (
+        <WelcomeScreen
+          settings={settings}
+          onDone={(next) => {
+            /*
+             * The shell is left with its rail expanded. A profile carried over from
+             * an older install can have it collapsed to icons, and the first thing
+             * the user sees after this screen should be the whole window.
+             */
+            setRailCollapsed(false)
+            setSettings(next)
+          }}
+        />
+      )}
     </div>
   )
 }

@@ -90,7 +90,16 @@ export function isValidBinding(binding: string): boolean {
   return parseBinding(binding) !== null
 }
 
-export type ShortcutHandlers = Record<string, (() => void) | undefined>
+/**
+ * A handler may return `false` to decline the key.
+ *
+ * That is what makes a conditional binding possible: `Ctrl+D` closes a pane whose
+ * session has ended, but in a live shell the same key is EOF and must reach the
+ * terminal untouched. Without this the dispatcher would consume it either way, and
+ * the difference between "closes the pane" and "logs you out" would depend on
+ * listener order rather than on an explicit decision.
+ */
+export type ShortcutHandlers = Record<string, (() => void | boolean) | undefined>
 
 /**
  * Global shortcut dispatcher. Handlers are looked up by binding id, so changing
@@ -111,9 +120,10 @@ export function useShortcuts(keybindings: Keybinding[], handlers: ShortcutHandle
         const handler = handlersRef.current[binding.id]
         if (!handler) continue
 
+        if (handler() === false) continue
+
         event.preventDefault()
         event.stopPropagation()
-        handler()
         return
       }
     }

@@ -882,6 +882,7 @@ Defaults; all are re-bindable in Settings → Shortcuts.
 | --- | --- |
 | `Ctrl`/`Cmd` + `T` | New connection |
 | `Ctrl`/`Cmd` + `W` | Close the active session |
+| `Ctrl`/`Cmd` + `D` | Close a pane whose session has **already ended** |
 | `Ctrl`/`Cmd` + `,` | Open settings (drawer) |
 | `Ctrl`/`Cmd` + `B` | Toggle the sidebar |
 | `Ctrl` + `Shift` + `E` | Open the connections drawer |
@@ -898,6 +899,20 @@ Defaults; all are re-bindable in Settings → Shortcuts.
 | Drag a session onto a folder | Move it into that folder |
 | Drag a session onto empty tree space | Move it back to the top level |
 | Right-click a pane | Paste the clipboard |
+
+`Ctrl+D` is the interesting one, because in a live shell it means EOF. A handler may
+return `false` to **decline** the key, and this binding does exactly that while the
+pane still has a session behind it — so the key reaches the shell untouched and the
+dispatcher never swallows it. Once the process has ended (the pane shows *Session
+ended*), the same key closes the pane instead: there is no shell left for EOF to
+reach, and closing it is the only thing left to do with it. The ended state is
+tracked per *session* rather than per pane, so reconnecting a pane gives it a new id
+and `Ctrl+D` becomes EOF again immediately.
+
+Notifications at the bottom of the window dismiss themselves after `TOAST_MS`
+(1.2 s in `App.tsx`); clicking one dismisses it early, and a new message restarts
+the timer. They used to stay until clicked, which turned a message from ten minutes
+ago into what looked like the current state of things.
 
 ## Licence
 

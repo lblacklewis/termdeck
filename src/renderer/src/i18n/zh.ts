@@ -315,6 +315,7 @@ export const zh: Catalog = {
   'settingstab.credentials': '凭据',
   'keybinding.newConnection': '新建连接',
   'keybinding.closeSession': '关闭当前会话',
+  'keybinding.closeDeadPane': '关闭已结束的会话',
   'keybinding.openSettings': '打开设置',
   'keybinding.toggleSidebar': '收起/展开抽屉',
   'keybinding.openConnections': '打开连接窗口',
