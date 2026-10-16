@@ -383,12 +383,43 @@ will delete. An *empty* group is still removed straight away — there is nothin
 lose, and a dialog for it would just be a click added to every tidy-up. Both entry
 points are guarded: the Hosts page and the drawer's session tree.
 
+## First run
+
+A fresh install (or a settings file written before this screen existed) opens on a
+welcome sheet with four choices: **language**, **colour scheme**, **terminal
+font**, and **where the app keeps its data**. All four are applied live, so the
+screen is its own preview, and *Get started* writes them and sets
+`settings.onboarded`. Nothing else is a first-run path — the sheet is rendered
+*over* the shell rather than instead of it, so every part of the app is already
+mounted and wired while it is up.
+
+**Where the data lives** is the interesting one. The stores all take a config
+directory at construction, so moving it is a matter of pointing them somewhere
+else *before* they are built — which means the pointer cannot live inside the data
+it describes. It lives in Electron's `userData` as `data-dir.json`:
+
+- read synchronously at start-up (`resolveDataDir`), falling back to `userData` if
+  it is missing, unreadable, or names a directory that is not there;
+- changing it **copies** the app's files (settings, layout, sessions, credentials,
+  history) into the new directory — copy rather than move, so a half-finished
+  attempt cannot lose anything — and then restarts, because a value that changed
+  mid-run would leave some stores on the old path;
+- the welcome screen offers it because that is the only moment nothing has been
+  written yet. It is also in Settings → Credentials afterwards.
+
 ## Sharing saved hosts
 
 Hosts page → **Export** writes the whole tree — groups, hosts, tags, and the saved
 passwords if you leave that box ticked — into one file (`.tdshare`). **Import**
 reads someone else's back. The point is handing a colleague the fleet in one go
 instead of pasting twenty lines into a chat window.
+
+The same pair sits in **Settings → Credentials → Hosts backup**. Both open the same
+dialog: the Hosts toolbar is where you go to get your host list in and out, and the
+credentials tab is where people look for "move my data to another machine", next to
+the thing being moved. `smoke:onboarding` drives the settings entry through the
+*real* save dialog (stubbed in the main process, not bypassed) — the rest of
+`smoke:share` passes a path in, and would not notice if that branch broke.
 
 The file is **gzipped and then encrypted** with a passphrase you choose: compressed
 first, so no plaintext is ever written, and encrypted so it can travel by mail or
@@ -572,6 +603,7 @@ npm run smoke:tabmenu   # pane-tab menu actions
 npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick connect
 npm run smoke:share    # encrypted host export/import
 npm run smoke:i18n     # language switch, persistence, revert
+npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input
 npm run smoke:scale     # interface scale: applies, previsualises, persists, reverts
 npm run smoke:batch     # adding hosts in bulk: ranges, shared credentials, what is skipped

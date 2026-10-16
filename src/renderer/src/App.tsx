@@ -55,6 +55,7 @@ import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
 import { NamePrompt } from './components/NamePrompt'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { WelcomeScreen } from './components/WelcomeScreen'
 import { ShareDialog } from './components/ShareDialog'
 import { NavRail, type PageId } from './components/NavRail'
 import { getTerminal, readScrollback, setFitsPaused } from './components/terminalRegistry'
@@ -3307,6 +3308,14 @@ export function App(): JSX.Element {
             void refreshCredentials()
           }}
           onSaved={setSettings}
+          onExportShare={() => {
+            setSettingsOpen(false)
+            setShareMode('export')
+          }}
+          onImportShare={() => {
+            setSettingsOpen(false)
+            setShareMode('import')
+          }}
           onCredentialChanged={(status) => {
             setCredentialStatus(status)
             void refreshCredentials()
@@ -3522,6 +3531,15 @@ export function App(): JSX.Element {
           {toast}
         </div>
       )}
+
+      {/*
+        First run. Rendered *over* the shell rather than instead of it, so every ref
+        the rest of this component depends on still exists while it is up — the
+        welcome is about settings the shell has not needed yet, not about a second
+        start-up path. It covers the window, and the only thing behind it that could
+        be seen is the default arrangement.
+      */}
+      {!settings.onboarded && <WelcomeScreen settings={settings} onDone={setSettings} />}
     </div>
   )
 }

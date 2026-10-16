@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron'
+import { mkdirSync } from 'node:fs'
 import { access, constants, readFile, writeFile } from 'node:fs/promises'
 import { timingSafeEqual } from 'node:crypto'
 
@@ -12,6 +13,7 @@ import {
   summariseImport,
   unpackShare
 } from './share'
+import { copyData, resolveDataDir, writePointer } from './dataDir'
 import {
   SshShellBackend,
   HostKeyRequiredError,
@@ -38,6 +40,9 @@ import type {
   SessionTree,
   ShareExportRequest,
   ShareExportResult,
+  DataDirectoryRequest,
+  DataDirectoryResult,
+  DataDirectoryStatus,
   ShareImportRequest,
   ShareImportResult,
   SharePeekResult,
@@ -149,7 +154,24 @@ const knownHosts = process.env['TERMDECK_KNOWN_HOSTS']
   : new KnownHosts()
 
 function configDir(): string {
-  return app.getPath('userData')
+  return resolveDataDirOnce()
+}
+
+/**
+ * Where the stores read and write.
+ *
+ * Resolved once, because every store is built around a directory and a value that
+ * changed mid-run would leave some stores on the old path. Changing it writes the
+ * pointer and restarts, which is also why the welcome page offers it before
+ * anything has been created.
+ */
+let dataDirRef: string | null = null
+
+function resolveDataDirOnce(): string {
+  if (dataDirRef === null) {
+    dataDirRef = resolveDataDir(app.getPath('userData'))
+  }
+  return dataDirRef
 }
 
 function getCredentials(): CredentialStore {
@@ -827,6 +849,72 @@ export function registerIpc(): void {
       }
     }
   )
+
+  // ---- data directory ----------------------------------------------------
+
+  /**
+   * Where the app keeps its data, and how to move it.
+   *
+   * The welcome page asks before anything has been created, which is the cheap
+   * moment to move: there is nothing to migrate, and no session is holding a file
+   * open. Changing it restarts the app, because every store is constructed around
+   * the directory at start-up.
+   */
+  ipcMain.handle('data:directory', (): DataDirectoryStatus => {
+    const defaultDir = app.getPath('userData')
+    const current = configDir()
+    return { current, default: defaultDir, moved: current !== defaultDir }
+  })
+
+  ipcMain.handle(
+    'data:pickDirectory',
+    async (event): Promise<string | null> => {
+      // A fresh window rather than a parent: this can run before the shell has
+      // finished showing, and a modal with no parent is still a modal.
+      const win = BrowserWindow.fromWebContents(event.sender)
+      const { canceled, filePaths } = await dialog.showOpenDialog(win ?? undefined!, {
+        title: 'Choose where TermDeck keeps its data',
+        properties: ['openDirectory', 'createDirectory']
+      })
+      if (canceled || filePaths.length === 0) return null
+      return filePaths[0]
+    }
+  )
+
+  ipcMain.handle(
+    'data:setDirectory',
+    (_e, request: DataDirectoryRequest): DataDirectoryResult => {
+      try {
+        const defaultDir = app.getPath('userData')
+        const target = request.dir?.trim() ?? ''
+        if (!target) {
+          // Back to the default, keeping whatever is already there.
+          writePointer(defaultDir, null)
+          return { ok: true, directory: defaultDir, moved: [], restartRequired: true }
+        }
+        // Creating it here turns "the folder does not exist / is not writable"
+        // into an error the dialog can show, instead of a store that fails later.
+        mkdirSync(target, { recursive: true })
+        const result = request.move ? copyData(configDir(), target) : { copied: [], missing: [] }
+        writePointer(defaultDir, target)
+        return { ok: true, directory: target, moved: result.copied, restartRequired: true }
+      } catch (err) {
+        return {
+          ok: false,
+          directory: configDir(),
+          moved: [],
+          restartRequired: false,
+          message: err instanceof Error ? err.message : String(err)
+        }
+      }
+    }
+  )
+
+  /** Relaunch, for a change that can only take effect at start-up. */
+  ipcMain.handle('data:restart', () => {
+    app.relaunch()
+    app.exit(0)
+  })
 
   // ---- files -------------------------------------------------------------
 

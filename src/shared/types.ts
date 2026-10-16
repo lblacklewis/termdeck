@@ -701,6 +701,32 @@ export interface AppSettings {
 /** Languages with a catalog. `en` is the source text and needs no catalog. */
 export type Language = 'en' | 'zh-CN'
 
+/** Where the app is currently keeping its data. */
+export interface DataDirectoryStatus {
+  current: string
+  /** Electron's userData, i.e. where it looks when nothing overrides it. */
+  default: string
+  /** True when a pointer file has moved it somewhere else. */
+  moved: boolean
+}
+
+export interface DataDirectoryRequest {
+  /** Absolute path, or empty to go back to the default location. */
+  dir: string | null
+  /** Copy the existing settings, sessions and credentials across first. */
+  move?: boolean
+}
+
+export interface DataDirectoryResult {
+  ok: boolean
+  directory: string
+  /** Names of the files that were copied, when moving. */
+  moved: string[]
+  /** True when the app has to restart for the change to take effect. */
+  restartRequired: boolean
+  message?: string
+}
+
 /** Defaults live in the main process so they have a single source of truth. */
 export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { id: 'newConnection', label: 'New connection', keys: 'Ctrl+T', builtin: true },
@@ -842,6 +868,13 @@ export interface TermDeckApi {
   pickShareFile(): Promise<SharePickResult>
   peekShare(filePath: string, passphrase: string): Promise<SharePeekResult>
   importShare(request: ShareImportRequest): Promise<ShareImportResult>
+
+  // where the app keeps its data (settings, sessions, credentials)
+  dataDirectory(): Promise<DataDirectoryStatus>
+  pickDataDirectory(): Promise<string | null>
+  setDataDirectory(request: DataDirectoryRequest): Promise<DataDirectoryResult>
+  /** Relaunch, for a data-directory change to take effect. */
+  restartApp(): Promise<void>
 
   // focus mode / full screen
   /** Enter or leave full screen; resolves with the state that was applied. */

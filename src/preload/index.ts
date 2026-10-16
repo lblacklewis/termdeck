@@ -22,6 +22,9 @@ import type {
   SessionTree,
   ShareExportRequest,
   ShareExportResult,
+  DataDirectoryRequest,
+  DataDirectoryResult,
+  DataDirectoryStatus,
   ShareImportRequest,
   ShareImportResult,
   SharePeekResult,
@@ -119,6 +122,12 @@ const api = {
     ipcRenderer.invoke('share:peek', { filePath, passphrase }),
   importShare: (request: ShareImportRequest): Promise<ShareImportResult> =>
     ipcRenderer.invoke('share:import', request),
+
+  dataDirectory: (): Promise<DataDirectoryStatus> => ipcRenderer.invoke('data:directory'),
+  pickDataDirectory: (): Promise<string | null> => ipcRenderer.invoke('data:pickDirectory'),
+  setDataDirectory: (request: DataDirectoryRequest): Promise<DataDirectoryResult> =>
+    ipcRenderer.invoke('data:setDirectory', request),
+  restartApp: (): Promise<void> => ipcRenderer.invoke('data:restart'),
 
   // ---- fonts ------------------------------------------------------------
   listFonts: (): Promise<FontChoices> => ipcRenderer.invoke('fonts:list'),

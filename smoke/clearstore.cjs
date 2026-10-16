@@ -17,7 +17,7 @@
  * put the old contents straight back.
  */
 const { app } = require('electron')
-const { existsSync, rmSync } = require('node:fs')
+const { existsSync, rmSync, mkdirSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 const FILES = {
@@ -56,15 +56,34 @@ function resetStores(names) {
  */
 function wipeProfile() {
   const dir = app.getPath('userData')
+  let wiped = dir
   try {
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 })
-    return dir
   } catch {
     // A file still held open by a previous run: fall back to the per-file
     // reset, which is enough when the stores have not been constructed yet.
-    return null
+    wiped = null
   }
+  markOnboarded()
+  return wiped
 }
 
-module.exports = { resetStores, wipeProfile }
+/**
+ * Mark the first-run welcome as already dealt with.
+ *
+ * Wiping the profile is what a fresh install looks like, and a fresh install now
+ * opens on the welcome sheet — which would cover the app in every probe. Pointer
+ * events are dispatched straight at the elements, so most suites would pass anyway
+ * and keep measuring a screen the user is not looking at; the suites that read the
+ * DOM for text (`smoke:contrast` in particular) would silently audit the sheet
+ * instead of the page. `wipeProfile` therefore leaves an onboarded settings file
+ * behind, and `smoke:onboarding` is the one suite that clears the flag again.
+ */
+function markOnboarded() {
+  const dir = app.getPath('userData')
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'settings.json'), JSON.stringify({ onboarded: true }, null, 2) + '\n', 'utf8')
+}
+
+module.exports = { resetStores, wipeProfile, markOnboarded }
 

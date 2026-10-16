@@ -427,6 +427,24 @@ export const zh: Catalog = {
   'settingsdialog.minutes_per_break': '每次休息时长（分钟）',
   'settingsdialog.passwords_are_saved_and_encr': '密码自动保存并加密',
   'settingsdialog.protection': '保护方式',
+  'settingsdialog.hosts_backup': '主机备份',
+  'settingsdialog.hosts_backup_hint':
+    '把所有分组和主机导出一个加密文件（可选包含密码），或者读取别人分享给你的文件。',
+  'settingsdialog.export_hosts': '导出主机…',
+  'settingsdialog.import_hosts': '导入主机…',
+  'settingsdialog.saved': '已保存',
+
+  // ---- first run -----------------------------------------------------------
+  'welcome.title': '欢迎使用 TermDeck',
+  'welcome.lead': '先做四个选择，之后都能在设置里改。',
+  'welcome.theme': '配色',
+  'welcome.font_hint': '终端字体；界面固定使用 Inter。',
+  'welcome.data_dir': '设置与主机的保存位置',
+  'welcome.change_dir': '选择文件夹…',
+  'welcome.reset_dir': '用默认位置',
+  'welcome.move_data': '把已有的设置和主机复制过去',
+  'welcome.start': '开始使用',
+  'welcome.saving': '正在准备…',
   'settingsdialog.refuse_to_connect': '拒绝连接',
   'settingsdialog.remind_me_to_take_a_break': '提醒我休息',
   'settingsdialog.s_of_silence_in_every_sessio':

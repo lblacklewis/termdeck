@@ -47,6 +47,9 @@ interface SettingsDialogProps {
   onLockChanged: (status: LockStatus) => void
   /** Show the break reminder immediately, for "Try it now". */
   onPreviewBreak: () => void
+  /** Open the host share dialog in the given mode. */
+  onExportShare: () => void
+  onImportShare: () => void
 }
 
 export function SettingsDialog({
@@ -58,7 +61,9 @@ export function SettingsDialog({
   onCredentialChanged,
   lockStatus,
   onLockChanged,
-  onPreviewBreak
+  onPreviewBreak,
+  onExportShare,
+  onImportShare
 }: SettingsDialogProps): JSX.Element {
   const [tab, setTab] = useState<Tab>('appearance')
   const [draft, setDraft] = useState<AppSettings>(settings)
@@ -454,7 +459,12 @@ export function SettingsDialog({
             )}
 
             {tab === 'credentials' && (
-              <CredentialsTab status={credentialStatus} onChanged={onCredentialChanged} />
+              <CredentialsTab
+                status={credentialStatus}
+                onChanged={onCredentialChanged}
+                onExportShare={onExportShare}
+                onImportShare={onImportShare}
+              />
             )}
           </div>
         </div>
@@ -472,7 +482,9 @@ export function SettingsDialog({
           disabled={!dirty}
           onClick={() => void save()}
         >
-          {dirty ? 'Save settings' : 'Saved'}
+          {dirty
+            ? t('settingsdialog.save_settings', 'Save settings')
+            : t('settingsdialog.saved', 'Saved')}
         </button>
       </div>
 
@@ -612,7 +624,17 @@ function ThemeTab({
 }
 
 /** Read-only view of how credentials are protected on this machine. */
-function CredentialsTab({ status }: { status: CredentialStatus; onChanged: (s: CredentialStatus) => void }): JSX.Element {
+function CredentialsTab({
+  status,
+  onExportShare,
+  onImportShare
+}: {
+  status: CredentialStatus
+  onChanged: (s: CredentialStatus) => void
+  /** Open the host share dialog, which lives in the shell beside this drawer. */
+  onExportShare: () => void
+  onImportShare: () => void
+}): JSX.Element {
   return (
     <div className="td-field-stack" data-testid="credentials-tab">
       <div className="td-cred-badge">
@@ -637,6 +659,41 @@ function CredentialsTab({ status }: { status: CredentialStatus; onChanged: (s: C
           {t('settingsdialog.this_system_exposes_no_os_ke', 'This system exposes no OS keychain to the app, so the encryption key lives in a file next to the data with owner-only permissions. That protects against casual reading, not against someone who can already read your user profile.')}
         </p>
       )}
+
+      {/*
+        Host import/export sits here as well as on the Hosts page.
+
+        This is where people look for "move my data to another machine" — next to
+        the thing being moved — and the Hosts page toolbar is where they look for
+        "get my host list in and out". Both open the same dialog.
+      */}
+      <div className="td-field" data-testid="credentials-share">
+        <span>{t('settingsdialog.hosts_backup', 'Hosts backup')}</span>
+        <p className="td-hint">
+          {t(
+            'settingsdialog.hosts_backup_hint',
+            'Export every group and host into one encrypted file (passwords included, if you want), or read a file someone shared with you.'
+          )}
+        </p>
+        <div className="td-row-actions">
+          <button
+            type="button"
+            className="td-btn"
+            data-testid="credentials-export"
+            onClick={onExportShare}
+          >
+            {t('settingsdialog.export_hosts', 'Export hosts…')}
+          </button>
+          <button
+            type="button"
+            className="td-btn"
+            data-testid="credentials-import"
+            onClick={onImportShare}
+          >
+            {t('settingsdialog.import_hosts', 'Import hosts…')}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
