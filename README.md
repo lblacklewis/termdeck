@@ -464,44 +464,51 @@ A release is a tagged snapshot plus files people can download.
 2. **Make sure the version is right.** `release` uses the `version` field in
    `package.json`; bump it first if this is a new release, and commit that.
 
-3. **Push your commits and a tag:**
+3. **Cut a release branch, then push commits and a tag:**
 
    ```bash
-   git add -A
-   git commit -m "发布: v0.1.0"
-   git tag v0.1.0
+   git switch -c release/v0.2.0     # from the commit you are releasing
+   git push -u origin release/v0.2.0
+   git tag v0.2.0
    git push origin master
-   git push origin v0.1.0
+   git push origin v0.2.0
    ```
 
-   The tag is what a release hangs off. `v0.1.0` matches the version, which is
+   The tag is what a release hangs off. `v0.2.0` matches the version, which is
    the convention GitHub expects.
+
+   The branch is what the release *is*: `master` keeps moving, and
+   `release/v<version>` stays at the commit that was built, so a bug report
+   against a download can be checked out exactly. Fixes for a shipped release go
+   on the branch and are merged back to `master` afterwards; a new version means a
+   new branch, never a force-push of an old one.
 
 4. **Create the release** in the browser:
 
-   - Go to `https://github.com/<you>/termdeck/releases`
-   - Click **Draft a new release**
-   - **Choose a tag** → pick the `v0.1.0` you just pushed (or create it there)
-   - **Release title**: e.g. `TermDeck v0.1.0`
+   - Go to
+     `https://github.com/<you>/termdeck/releases/new?tag=v<version>` — the tag is
+     pre-filled, and it is the target of the release, not the branch
+   - **Release title**: e.g. `TermDeck v0.2.0`
    - **Describe this release** — the notes shown on the release page. Keep them in
      `docs/发行说明-v<version>.md` and paste from there, so the release page and the
      repository say the same thing.
    - **Attach binaries** by dragging files into the box, or click
      *Attach binaries by dropping them here*. Add:
-     - `release/TermDeck-Setup-0.1.0.exe`
-     - `release/TermDeck-0.1.0-x64.exe` (portable)
-     - `release/TermDeck-0.1.0-win-x64-portable.zip`
+     - `release/TermDeck-Setup-<version>.exe`
+     - `release/TermDeck-<version>-x64.exe` (portable)
+     - `release/TermDeck-<version>-win-x64-portable.zip`
    - Click **Publish release**
 
    The download URLs then look like
-   `https://github.com/<you>/termdeck/releases/download/v0.1.0/TermDeck-Setup-0.1.0.exe`.
+   `https://github.com/<you>/termdeck/releases/download/v0.2.0/TermDeck-Setup-0.2.0.exe`.
 
    Note that GitHub rejects individual assets over 2 GB; these are ~114 MB, so
    that is a non-issue here.
 
-5. **Later releases** are the same: bump the version, build, commit, tag, push
-   the tag, draft a release, attach the files. Tag push does not create a release
-   by itself — uploading assets is a separate step.
+5. **Later releases** are the same: bump the version, build, commit, cut
+   `release/v<version>`, tag it, push master + branch + tag, draft a release,
+   attach the files. Tag push does not create a release by itself — uploading
+   assets is a separate step.
 
 A Windows SmartScreen warning is expected on first launch for an unsigned build:
 the binary has no code-signing certificate, so Windows cannot vouch for the
