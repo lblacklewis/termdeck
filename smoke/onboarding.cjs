@@ -110,6 +110,46 @@ async function main() {
   push('choosing a theme previews it on the document', previewed.includes('--td-bg') || previewed.length > 0,
     previewed.slice(0, 60))
 
+  /*
+   * One chip, not several.
+   *
+   * The stack a chip builds always carries the bundled faces as fallbacks, so
+   * "does the stack contain this name" marked Roboto Mono and JetBrains Mono as
+   * chosen at the same time and picking a font never appeared to unpick the last.
+   * The check is the *first* family, and this is the assertion that keeps it that
+   * way: pick one, count the marked chips, pick another, count again.
+   */
+  const activeChips = () =>
+    page(`(() => [...document.querySelectorAll('[data-testid="welcome-fonts"] .td-font-chip')]
+      .filter((c) => c.className.includes('is-active'))
+      .map((c) => c.getAttribute('data-font')))()`)
+
+  const firstPick = await activeChips()
+  push('exactly one font chip is marked as chosen', firstPick.length === 1, JSON.stringify(firstPick))
+
+  const second = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const chips = [...document.querySelectorAll('[data-testid="welcome-fonts"] .td-font-chip')]
+    const other = chips.find((c) => !c.className.includes('is-active'))
+    other.click()
+    await wait(400)
+    return other.getAttribute('data-font')
+  })()`)
+  const secondPick = await activeChips()
+  push('picking another font unpicks the previous one',
+    secondPick.length === 1 && secondPick[0] === second,
+    'now=' + JSON.stringify(secondPick) + ' was=' + JSON.stringify(firstPick))
+
+  // Back to the first chip for the rest of the run, so the saved-font assertion
+  // below keeps testing a known value.
+  await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const chips = [...document.querySelectorAll('[data-testid="welcome-fonts"] .td-font-chip')]
+    chips.find((c) => c.getAttribute('data-font') === 'Roboto Mono').click()
+    await wait(400)
+    return true
+  })()`)
+
   await page(`document.querySelector('[data-testid="welcome-start"]').click()`)
   await sleep(1200)
 

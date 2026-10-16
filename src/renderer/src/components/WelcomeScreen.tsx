@@ -96,6 +96,16 @@ export function WelcomeScreen({ settings, onDone }: WelcomeScreenProps): JSX.Ele
 
   const chips = fonts ? [...fonts.bundled, ...fonts.monospace].slice(0, 12) : []
 
+  /*
+   * Which chip is the chosen one: the *first* family in the stack.
+   *
+   * Testing "does the stack contain this name" lights up every bundled face at
+   * once, because the fallbacks ("Roboto Mono", "JetBrains Mono") are in every
+   * stack this screen builds — picking a font never appeared to unpick the last.
+   * The settings dialog derives it the same way.
+   */
+  const primaryFamily = font.split(',')[0].trim().replace(/^["']|["']$/g, '')
+
   return (
     <div className="td-welcome" data-testid="welcome-screen">
       <div className="td-welcome-panel">
@@ -164,7 +174,7 @@ export function WelcomeScreen({ settings, onDone }: WelcomeScreenProps): JSX.Ele
                 <button
                   key={name}
                   type="button"
-                  className={`td-font-chip${font.includes(`"${name}"`) ? ' is-active' : ''}`}
+                  className={`td-font-chip${primaryFamily === name ? ' is-active' : ''}`}
                   data-font={name}
                   style={{ fontFamily: `"${name}", monospace` }}
                   onClick={() => setFont(stackFor(name))}
