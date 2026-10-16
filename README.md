@@ -483,7 +483,9 @@ A release is a tagged snapshot plus files people can download.
    - Click **Draft a new release**
    - **Choose a tag** → pick the `v0.1.0` you just pushed (or create it there)
    - **Release title**: e.g. `TermDeck v0.1.0`
-   - **Describe this release** — the notes shown on the release page
+   - **Describe this release** — the notes shown on the release page. Keep them in
+     `docs/发行说明-v<version>.md` and paste from there, so the release page and the
+     repository say the same thing.
    - **Attach binaries** by dragging files into the box, or click
      *Attach binaries by dropping them here*. Add:
      - `release/TermDeck-Setup-0.1.0.exe`
