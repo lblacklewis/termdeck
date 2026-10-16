@@ -244,7 +244,8 @@ async function main() {
       push('many themes are offered', themeIds.length >= 8, themeIds.join(','))
       push('theme list has no duplicates',
         new Set(themeIds).size === themeIds.length, themeIds.length + ' ids')
-      push('the pink theme is offered', themeIds.indexOf('blossom') >= 0, themeIds.join(','))
+      push('the added light themes are offered',
+        ['blossom', 'lavender'].every((id) => themeIds.indexOf(id) >= 0), themeIds.join(','))
 
       /*
        * The preview strip is the only way to tell the cards apart before picking

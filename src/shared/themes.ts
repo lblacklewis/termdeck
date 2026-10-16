@@ -570,19 +570,79 @@ const BLOSSOM: Theme = {
   }
 }
 
+/**
+ * A purple light theme: lavender-tinted chrome, white panes and a violet accent.
+ *
+ * The light counterpart to Catppuccin/Dracula rather than another grey: the greys
+ * themselves carry the hue (a violet-leaning `textFaint` is what keeps hints from
+ * looking like faded charcoal), and the accent is dark enough that white ink on it
+ * clears contrast on its own.
+ */
+const LAVENDER: Theme = {
+  id: 'lavender',
+  name: 'Lavender',
+  scheme: 'light',
+  preview: ['#ffffff', '#ede7fa', '#6d4ad6'],
+  ui: {
+    bg: '#ede7fa',
+    bgRaised: '#ffffff',
+    bgSunken: '#e2d7f6',
+    border: '#d5c8f0',
+    borderStrong: '#b9a8e0',
+    text: '#291f3f',
+    textDim: '#56487b',
+    textFaint: '#6f6295',
+    accent: '#6d4ad6',
+    accentHover: '#5a39bd',
+    danger: '#c62f4a',
+    green: '#1f8a5b',
+    orange: '#b06a12',
+    overlay: 'rgba(109, 74, 214, 0.06)'
+  },
+  terminal: {
+    background: '#fbfaff',
+    foreground: '#2c2440',
+    cursor: '#6d4ad6',
+    cursorAccent: '#fbfaff',
+    selectionBackground: '#ddd3f7',
+    black: '#2c2440',
+    red: '#c62f4a',
+    green: '#1f8a5b',
+    yellow: '#8a6a12',
+    blue: '#3f5fd0',
+    magenta: '#9a3fb0',
+    cyan: '#0f7d8c',
+    white: '#ece7f7',
+    brightBlack: '#8d81a8',
+    brightRed: '#d94a63',
+    brightGreen: '#2ba06d',
+    brightYellow: '#a07f1f',
+    brightBlue: '#5b79e0',
+    brightMagenta: '#b25cc6',
+    brightCyan: '#1f97a6',
+    brightWhite: '#ffffff'
+  }
+}
+
+/**
+ * Ordered for the picker: the light palettes first, so the ones that share a
+ * scheme sit together and the newest additions are not the last row past the fold.
+ * Nothing depends on this order — a theme is chosen by id.
+ */
 export const THEMES: Theme[] = [
   TERMIUS_DARK,
   TERMIUS_LIGHT,
   SLATE_LIGHT,
+  PAPER,
+  BLOSSOM,
+  LAVENDER,
   MIDNIGHT,
   CARBON,
   ONE_DARK,
   DRACULA,
   NORD,
   GRUVBOX,
-  CATPPUCCIN,
-  PAPER,
-  BLOSSOM
+  CATPPUCCIN
 ]
 
 export const DEFAULT_THEME_ID = TERMIUS_DARK.id

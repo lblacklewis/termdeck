@@ -23,7 +23,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Docking | ✅ drag to edge = split, drag to centre = tab group, floating groups |
 | Host key verification | ✅ `known_hosts`, hashed entries, change/mismatch warning |
 | Credentials | ✅ saved per session, AES-256-GCM at rest, prompt with "remember" on connect |
-| Appearance | ✅ 12 themes (incl. the pink Blossom) with live preview, 80–150% interface scale, audited contrast |
+| Appearance | ✅ 13 themes (incl. the light Blossom and Lavender) with live preview, 80–150% interface scale, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
 | Known Hosts | ✅ browse every stored key and forget one |
 | Saved sessions | ✅ multi-level folders, tags, filtering, drag-to-move, per-session auth |
@@ -319,6 +319,11 @@ Two things are derived rather than authored:
 
 Picking a theme previews it immediately; closing the dialog without saving puts
 the stored theme back.
+
+The picker lists the light palettes first, then the dark ones: they are the ones
+that share a scheme, and a theme added at the end of the array used to land in the
+last row, past the fold of the drawer. Nothing depends on the order — a theme is
+stored and found by id.
 
 Contrast is verified rather than eyeballed: `npm run smoke:contrast` switches
 through every theme and fails if any non-decorative text falls below 3:1 against
