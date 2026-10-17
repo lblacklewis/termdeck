@@ -9,8 +9,9 @@
  *   3. the choice survives a reload, including Electron's zoom reset
  *   4. closing the drawer without saving puts the old value back, by *every*
  *      route — the Close button, the header X and the backdrop
- *   5. `Ctrl`+`=` / `Ctrl`+`-` step the same ladder the picker offers, and the
- *      step is written to settings rather than living only in this window
+ *   5. `Ctrl`+`Shift`+`=` / `Ctrl`+`Shift`+`-` step the same ladder the picker
+ *      offers, and the step is written to settings rather than living only in this
+ *      window — while the plain pair is left to the terminal font size
  */
 const path = require('node:path')
 const fs = require('node:fs')
@@ -524,19 +525,31 @@ async function main() {
     }
   ])
 
+  // Plain `Ctrl`+`=` / `Ctrl`+`-` are the terminal font now, so the interface must
+  // not move at all when they are pressed.
   await pressKey(win, '-', { ctrlKey: true })
+  await pressKey(win, '=', { ctrlKey: true })
   report([
     {
-      name: 'Ctrl+- steps one size down the ladder, and writes it to settings',
+      name: 'plain Ctrl+= / Ctrl+- leave the interface scale where it is',
+      ok: at(1.25),
+      detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.25)'
+    }
+  ])
+
+  await pressKey(win, '-', { ctrlKey: true, shiftKey: true })
+  report([
+    {
+      name: 'Ctrl+Shift+- steps one size down the ladder, and writes it to settings',
       ok: at(1.1),
       detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.1)'
     }
   ])
 
-  await pressKey(win, '=', { ctrlKey: true })
+  await pressKey(win, '=', { ctrlKey: true, shiftKey: true })
   report([
     {
-      name: 'Ctrl+= steps back up to the size it came from',
+      name: 'Ctrl+Shift+= steps back up to the size it came from',
       ok: at(1.25),
       detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.25)'
     }
@@ -545,7 +558,7 @@ async function main() {
   await pressKey(win, '+', { ctrlKey: true, shiftKey: true })
   report([
     {
-      name: 'Ctrl+Shift+= works too, since that is how a + is typed',
+      name: 'Ctrl+Shift++ works too, since that is how a + is typed',
       ok: at(1.5),
       detail: 'stored=' + storedScale() + ' zoom=' + zoom(win) + ' (expected 1.5)'
     }
@@ -562,7 +575,7 @@ async function main() {
   ])
 
   // The ladder ends. Three more steps up from 150% reach the top and stay there.
-  for (let i = 0; i < 4; i++) await pressKey(win, '=', { ctrlKey: true })
+  for (let i = 0; i < 4; i++) await pressKey(win, '=', { ctrlKey: true, shiftKey: true })
   report([
     {
       name: 'stepping past the top of the ladder stops at the last size',
@@ -581,7 +594,6 @@ async function main() {
 
   // Leave the machine's settings file back at 100% for later probes.
   mod.storeAccess().settings.save({ ...mod.storeAccess().settings.load(), uiScale: 1 })
-
   const failed = all.filter((c) => !c.ok)
   console.log(`\n${all.length - failed.length}/${all.length} checks passed`)
   app.exit(failed.length === 0 ? 0 : 1)

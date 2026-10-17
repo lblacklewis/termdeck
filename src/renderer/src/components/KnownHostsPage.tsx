@@ -22,6 +22,17 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<string | null>(null)
+  /*
+   * Multi-select, for the case this page exists for: a batch of hosts was rebuilt
+   * and every stored key is stale. Cleaning them up one confirmation at a time was
+   * the slow part.
+   *
+   * The set is pruned to what the filter shows, so "3 selected" always means three
+   * rows you can see — a selection that survives a filter change would let the
+   * button remove entries the user is no longer looking at.
+   */
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [confirmBatch, setConfirmBatch] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -63,6 +74,48 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
     }
   }
 
+  /** Forget everything selected, in one call. */
+  const removeSelected = async (): Promise<void> => {
+    const targets = visible.filter((entry) => selected.has(key(entry)))
+    if (targets.length === 0) return
+    setBusy('batch')
+    try {
+      setEntries(
+        await api.removeKnownHostEntries(targets.map((e) => ({ file: e.file, line: e.line })))
+      )
+      setSelected(new Set())
+      setConfirmBatch(false)
+      setError(null)
+      onChanged?.()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const toggle = (id: string): void => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const selectedCount = visible.filter((entry) => selected.has(key(entry))).length
+  const allSelected = visible.length > 0 && selectedCount === visible.length
+
+  // Keep the selection honest when the filter narrows the list.
+  useEffect(() => {
+    setSelected((prev) => {
+      const allowed = new Set(visible.map(key))
+      const next = new Set([...prev].filter((id) => allowed.has(id)))
+      return next.size === prev.size ? prev : next
+    })
+    setConfirmBatch(false)
+  }, [visible])
+
   const hashedCount = entries.filter((e) => e.hashed).length
   const revokedCount = entries.filter((e) => e.marker === '@revoked').length
 
@@ -82,6 +135,42 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
         <div className="td-page-bar">
           <h1 className="td-sr-only">{t('knownhostspage.known_hosts', 'Known Hosts')}</h1>
           <div className="td-page-actions">
+            {selectedCount > 0 &&
+              (confirmBatch ? (
+                <span className="td-inline-confirm" data-testid="confirm-remove-selected">
+                  <button
+                    className="td-btn td-btn-danger"
+                    data-testid="confirm-remove-selected-yes"
+                    disabled={busy === 'batch'}
+                    onClick={() => void removeSelected()}
+                  >
+                    {busy === 'batch'
+                      ? t('knownhostspage.removing', 'Removing…')
+                      : t('knownhostspage.remove_n_keys', 'Remove {count} keys', { count: selectedCount })}
+                  </button>
+                  <button className="td-btn" onClick={() => setConfirmBatch(false)}>
+                    {t('knownhostspage.cancel', 'Cancel')}
+                  </button>
+                </span>
+              ) : (
+                <>
+                  <button
+                    className="td-btn td-btn-danger"
+                    data-testid="forget-selected"
+                    disabled={busy !== null}
+                    onClick={() => setConfirmBatch(true)}
+                  >
+                    {t('knownhostspage.forget_selected_n', 'Forget selected ({count})', { count: selectedCount })}
+                  </button>
+                  <button
+                    className="td-btn"
+                    data-testid="clear-selection"
+                    onClick={() => setSelected(new Set())}
+                  >
+                    {t('knownhostspage.clear_selection', 'Clear selection')}
+                  </button>
+                </>
+              ))}
             <button className="td-btn" onClick={() => void refresh()} title={t('knownhostspage.reload_from_disk', 'Reload from disk')}>
               {t('knownhostspage.reload', 'Reload')}
             </button>
@@ -111,6 +200,17 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
           <table className="td-table" data-testid="known-hosts-table">
             <thead>
               <tr>
+                <th className="td-cell-check">
+                  <input
+                    type="checkbox"
+                    aria-label={t('knownhostspage.select_all', 'Select all')}
+                    data-testid="select-all-entries"
+                    checked={allSelected}
+                    onChange={() =>
+                      setSelected(allSelected ? new Set() : new Set(visible.map(key)))
+                    }
+                  />
+                </th>
                 <th>{t('knownhostspage.host', 'Host')}</th>
                 <th>{t('knownhostspage.key_type', 'Key type')}</th>
                 <th>{t('knownhostspage.fingerprint', 'Fingerprint')}</th>
@@ -121,7 +221,17 @@ export function KnownHostsPage({ onChanged }: KnownHostsPageProps): JSX.Element 
               {visible.map((entry) => {
                 const id = key(entry)
                 return (
-                  <tr key={id} data-entry-key={id}>
+                  <tr key={id} data-entry-key={id} className={selected.has(id) ? 'is-selected' : undefined}>
+                    <td className="td-cell-check">
+                      <input
+                        type="checkbox"
+                        aria-label={t('knownhostspage.select_entry', 'Select')}
+                        data-testid="select-entry"
+                        data-entry-key={id}
+                        checked={selected.has(id)}
+                        onChange={() => toggle(id)}
+                      />
+                    </td>
                     <td>
                       {entry.host ? (
                         <span className="td-mono">{entry.host}</span>

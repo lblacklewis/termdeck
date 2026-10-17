@@ -577,6 +577,18 @@ export function registerIpc(): void {
     return knownHosts.list()
   })
 
+  /**
+   * Remove several entries in one pass.
+   *
+   * Batch rather than a loop of `removeAt` from the renderer: line numbers are
+   * positions, so removing them one at a time deletes the wrong keys unless the
+   * caller works from the bottom up — and it would rewrite the file once per entry.
+   */
+  ipcMain.handle('hostkey:removeMany', (_e, entries: { file: string; line: number }[]) => {
+    knownHosts.removeMany(Array.isArray(entries) ? entries : [])
+    return knownHosts.list()
+  })
+
   // ---- saved sessions ----------------------------------------------------
 
   /**

@@ -83,6 +83,10 @@ const api = window.termdeck
  */
 const TOAST_MS = 1200
 
+/** Terminal font size, matching the range the settings control offers. */
+const FONT_SIZE_MIN = 8
+const FONT_SIZE_MAX = 32
+
 /**
  * What the wellness bar is saying.
  *
@@ -2694,7 +2698,34 @@ export function App(): JSX.Element {
   }, [jumpToSession])
 
   /**
-   * Interface zoom: `Ctrl`+`=` / `Ctrl`+`-`, plus the aliases every keyboard has.
+   * Terminal font size, one step at a time — `Ctrl`+`=` / `Ctrl`+`-`.
+   *
+   * Only the text inside the sessions: it writes `terminal.fontSize`, which every
+   * pane applies live, and touches nothing else. The interface scale is a separate
+   * gesture (`Ctrl`+`Shift`+`=` / `-`) because scaling the *window* is a different
+   * intent from making a shell's output readable, and doing both at once meant the
+   * tab bar, drawer and dialogs shrank whenever you wanted bigger terminal text.
+   */
+  const nudgeTerminalFont = useCallback((direction: 1 | -1) => {
+    const current = settingsRef.current.terminal.fontSize
+    const next = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, current + direction))
+    if (next === current) {
+      setToast(
+        t('app.terminal_font_at_limit', 'Terminal font is already {size}px.', { size: current })
+      )
+      return
+    }
+    void api
+      .saveSettings({ ...settingsRef.current, terminal: { ...settingsRef.current.terminal, fontSize: next } })
+      .then(setSettings)
+      .catch(() => {
+        /* keeping the current size is the safe outcome */
+      })
+    setToast(t('app.terminal_font_size', 'Terminal font {size}px', { size: next }))
+  }, [])
+
+  /**
+   * Interface zoom: `Ctrl`+`Shift`+`=` / `-`, plus the aliases every keyboard has.
    *
    * The configured bindings are consulted first and skipped here, so a press that
    * the shortcut table already handled cannot be counted twice. What is left is
@@ -2707,10 +2738,12 @@ export function App(): JSX.Element {
 
       const bindings = settingsRef.current.keybindings
       const bound = (id: string): string => bindings.find((b) => b.id === id)?.keys ?? ''
-      const zoomIn = bound('zoomIn')
-      const zoomOut = bound('zoomOut')
-      if (zoomIn && matchesBinding(event, zoomIn)) return
-      if (zoomOut && matchesBinding(event, zoomOut)) return
+      // Any configured binding wins: the terminal-font pair first, then the scale
+      // pair, so neither the text size nor the window is changed twice per press.
+      for (const id of ['zoomIn', 'zoomOut', 'scaleUp', 'scaleDown']) {
+        const keys = bound(id)
+        if (keys && matchesBinding(event, keys)) return
+      }
 
       const key = event.key
       if (key === '+' || key === '=' || key === 'Add') {
@@ -2765,8 +2798,10 @@ export function App(): JSX.Element {
     prevTab: () => cycleTab(-1),
     prevPage: () => stepSession(-1),
     nextPage: () => stepSession(1),
-    zoomIn: () => zoomBy(1),
-    zoomOut: () => zoomBy(-1),
+    zoomIn: () => nudgeTerminalFont(1),
+    zoomOut: () => nudgeTerminalFont(-1),
+    scaleUp: () => zoomBy(1),
+    scaleDown: () => zoomBy(-1),
     toggleFocus,
     lockApp: lockNow,
     quitApp: requestQuit

@@ -217,8 +217,43 @@ export class KnownHosts {
     return true
   }
 
-  /** Entries that match this host, ignoring key type. */
-  find(host: string, port: number): HostKeyRecord[] {
+  /**
+   * Delete several entries at once.
+   *
+   * `removeAt` addresses entries by line number, so calling it in a loop from the
+   * top would delete the wrong keys: every removal shifts the lines below it. This
+   * sorts each file's lines **descending**, so the entries still to be removed keep
+   * the numbers they were listed with, and writes each file once instead of once
+   * per entry.
+   */
+  removeMany(entries: { file: string; line: number }[]): number {
+    const byFile = new Map<string, number[]>()
+    for (const entry of entries) {
+      const numbers = byFile.get(entry.file)
+      if (numbers) numbers.push(entry.line)
+      else byFile.set(entry.file, [entry.line])
+    }
+
+    let removed = 0
+    for (const [path, numbers] of byFile) {
+      if (!existsSync(path)) continue
+      const lines = readFileSync(path, 'utf8').split(/\r?\n/)
+      let touched = false
+      for (const number of [...numbers].sort((a, b) => b - a)) {
+        const index = number - 1
+        if (index < 0 || index >= lines.length) continue
+        const trimmed = lines[index].trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        lines.splice(index, 1)
+        removed += 1
+        touched = true
+      }
+      if (touched) writeFileSync(path, lines.join('\n'), { mode: 0o600 })
+    }
+    return removed
+  }
+
+  /** Entries that match this host, ignoring key type. */  find(host: string, port: number): HostKeyRecord[] {
     return this.read().filter((r) => patternMatches(r.hostsField, host, port))
   }
 

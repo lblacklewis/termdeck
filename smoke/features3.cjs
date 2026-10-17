@@ -502,6 +502,54 @@ async function main() {
         await wait(500)
       }
 
+      // ---- Ctrl+= resizes the terminal text, not the interface ------------
+      /*
+       * Asked for after the fact: Ctrl + / - used to zoom the whole window, so
+       * making the shell's output readable also shrank the tab bar, the drawer and
+       * the dialogs. The check is therefore in two halves — the font grew *and*
+       * nothing else moved, then the interface scale did respond to its own chord.
+       */
+      {
+        const press = (key, shift) =>
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', { key, ctrlKey: true, shiftKey: !!shift, bubbles: true })
+          )
+        const firstTerm = () => Object.values(window.__tdTerminals || {})[0]
+        const before = await window.termdeck.loadSettings()
+        const dprBefore = window.devicePixelRatio
+
+        press('=', false)
+        await wait(900)
+        const grown = await window.termdeck.loadSettings()
+        push('Ctrl+= makes the terminal text bigger',
+          grown.terminal.fontSize === before.terminal.fontSize + 1,
+          before.terminal.fontSize + ' -> ' + grown.terminal.fontSize)
+        push('the terminal itself picked the new size up',
+          firstTerm() && firstTerm().term.options.fontSize === grown.terminal.fontSize,
+          'xterm fontSize=' + (firstTerm() ? firstTerm().term.options.fontSize : 'none'))
+        push('and the interface scale did not move',
+          grown.uiScale === before.uiScale && window.devicePixelRatio === dprBefore,
+          'uiScale=' + grown.uiScale + ' dpr=' + window.devicePixelRatio)
+
+        press('-', false)
+        await wait(700)
+        const restored = await window.termdeck.loadSettings()
+        push('Ctrl+- goes back down',
+          restored.terminal.fontSize === before.terminal.fontSize,
+          String(restored.terminal.fontSize))
+
+        // The interface keeps its own chord, so the old behaviour is one Shift away.
+        press('=', true)
+        await wait(900)
+        const scaled = await window.termdeck.loadSettings()
+        push('Ctrl+Shift+= scales the interface instead',
+          scaled.uiScale !== before.uiScale && scaled.terminal.fontSize === before.terminal.fontSize,
+          'uiScale ' + before.uiScale + ' -> ' + scaled.uiScale +
+            ' font=' + scaled.terminal.fontSize)
+        press('-', true)
+        await wait(700)
+      }
+
       return out
     })()
   `

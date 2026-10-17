@@ -1157,6 +1157,30 @@ kbd {
 }
 
 /*
+ * The checkbox column on list pages (Known Hosts' batch selection).
+ *
+ * Narrow and unselectable: it is a control, not content, so dragging a row's text
+ * should not start on it.
+ */
+.td-cell-check {
+  width: 30px;
+  padding-right: 0;
+  text-align: center;
+  user-select: none;
+}
+
+.td-cell-check input {
+  accent-color: var(--td-accent);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+/* A selected row reads as selected even when it is not hovered. */
+.td-table tr.is-selected td {
+  background: var(--td-overlay-strong, var(--td-bg-sunken));
+}
+
+/*
  * First run.
  *
  * A sheet over the whole window rather than a page of its own: it appears once,

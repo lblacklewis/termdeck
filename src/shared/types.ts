@@ -776,8 +776,16 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
    * are handled in the renderer, because a single chord string cannot express
    * "either of these".
    */
-  { id: 'zoomIn', label: 'Larger interface', keys: 'Ctrl+=', builtin: true },
-  { id: 'zoomOut', label: 'Smaller interface', keys: 'Ctrl+-', builtin: true }
+  { id: 'zoomIn', label: 'Larger terminal font', keys: 'Ctrl+=', builtin: true },
+  { id: 'zoomOut', label: 'Smaller terminal font', keys: 'Ctrl+-', builtin: true },
+  /*
+   * The interface scale lives on its own chord now. `Ctrl`+`+`/`-` used to zoom the
+   * whole window (Electron's `setZoomFactor`), which also shrank the terminal
+   * chrome — so the one control people reach for to make *text* readable also
+   * changed the size of everything around it.
+   */
+  { id: 'scaleUp', label: 'Larger interface', keys: 'Ctrl+Shift+=', builtin: true },
+  { id: 'scaleDown', label: 'Smaller interface', keys: 'Ctrl+Shift+-', builtin: true }
 ]
 
 /**
@@ -917,6 +925,8 @@ export interface TermDeckApi {
   listKnownHosts(): Promise<KnownHostEntry[]>
   /** Remove one entry by its file and line number. */
   removeKnownHostEntry(file: string, line: number): Promise<KnownHostEntry[]>
+  /** Remove several entries in one write (see the handler for why it is batched). */
+  removeKnownHostEntries(entries: { file: string; line: number }[]): Promise<KnownHostEntry[]>
 
   // saved sessions + folders
   loadSessionTree(): Promise<SessionTree>

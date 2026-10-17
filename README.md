@@ -25,7 +25,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Credentials | ✅ saved per session, AES-256-GCM at rest, prompt with "remember" on connect |
 | Appearance | ✅ 13 themes (incl. the light Blossom and Lavender) with live preview, 80–150% interface scale, English + 简体中文, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
-| Known Hosts | ✅ browse every stored key and forget one |
+| Known Hosts | ✅ browse every stored key with its fingerprint, filter, multi-select and batch-forget |
 | Saved sessions | ✅ multi-level folders, tags, filtering, drag-to-move, per-session auth |
 | Settings page | ✅ appearance, terminal, clipboard, shortcuts, host keys, credentials |
 | Clipboard | ✅ copy-on-select, right-click / middle-click paste, multi-line paste guard |
@@ -105,6 +105,18 @@ host no longer matches, and the only way forward used to be editing
 `~/.ssh/known_hosts` by hand. Hashed entries are listed as such, because the
 hostname genuinely cannot be recovered from them.
 
+Rows have checkboxes, so a batch of stale keys goes in one pass: select, *Forget
+selected (n)*, confirm. Removing several entries at once is a separate call
+(`hostkey:removeMany`) rather than a loop in the renderer, because entries are
+addressed by **line number** — removing them one at a time from the top shifts
+every line below it and deletes the wrong keys. The batch sorts each file's lines
+descending and writes the file once. `smoke:knownhosts` removes two *non-adjacent*
+rows and checks the survivors by name, both in the table and on disk.
+
+The selection is pruned to whatever the filter shows, so "3 selected" always means
+three rows you can see; a selection that survived a filter change would let the
+button remove entries that are no longer on screen.
+
 ## Layout persistence
 
 The window reopens the way you left it: pane splits and tab groups, which rail
@@ -139,11 +151,20 @@ second one beside it.
 ## Appearance
 
 **Interface scale.** Settings → Appearance → *Interface scale* offers 80% to
-150%. It is applied with `webContents.setZoomFactor`, so the rail, sidebar,
-dialogs, spacing and the terminal font all grow together instead of only the
-text. Picking one previews it immediately and the hint says it is a preview;
-closing the drawer by **any** route (Close, the header ✕, the backdrop, Escape)
-puts the stored value back, and only *Save settings* keeps it.
+150%, and `Ctrl`+`Shift`+`=` / `-` steps it. It is applied with
+`webContents.setZoomFactor`, so the rail, sidebar, dialogs, spacing and the
+terminal font all grow together instead of only the text. Picking one previews it
+immediately and the hint says it is a preview; closing the drawer by **any** route
+(Close, the header ✕, the backdrop, Escape) puts the stored value back, and only
+*Save settings* keeps it.
+
+**Terminal font size** is the plain `Ctrl`+`=` / `-`, and it changes only the text
+inside the sessions (`terminal.fontSize`, 8–32px, applied live to every pane). The
+two used to be the same gesture — the window zoom — which meant that making a
+shell's output readable also shrank the tab bar, the drawer and the dialogs. Scaling
+the window is a different intent from enlarging terminal text, so it now has its own
+chord; `smoke:features3` asserts both halves (the font moved, `devicePixelRatio`
+did not; then the scale moved and the font did not).
 
 Electron resets the zoom on every reload, so the value is stored in
 `settings.json` and applied by the **main process** before the window is first
@@ -609,6 +630,7 @@ npm run smoke:tabmenu   # pane-tab menu actions
 npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick connect
 npm run smoke:share    # encrypted host export/import
 npm run smoke:i18n     # language switch, persistence, revert
+npm run smoke:knownhosts # known hosts page: selection, batch forget, filter pruning
 npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input
 npm run smoke:scale     # interface scale: applies, previsualises, persists, reverts
@@ -888,6 +910,8 @@ Defaults; all are re-bindable in Settings → Shortcuts.
 | --- | --- |
 | `Ctrl`/`Cmd` + `T` | New connection |
 | `Ctrl`/`Cmd` + `W` | Close the active session |
+| `Ctrl`+`=` / `-` | Larger / smaller terminal font |
+| `Ctrl`+`Shift`+`=` / `-` | Larger / smaller interface |
 | `Ctrl`/`Cmd` + `D` | Close a pane whose session has **already ended** |
 | `Ctrl`/`Cmd` + `,` | Open settings (drawer) |
 | `Ctrl`/`Cmd` + `B` | Toggle the sidebar |

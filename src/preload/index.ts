@@ -79,6 +79,9 @@ const api = {
 
   removeKnownHostEntry: (file: string, line: number): Promise<KnownHostEntry[]> =>
     ipcRenderer.invoke('hostkey:removeAt', file, line),
+  removeKnownHostEntries: (
+    entries: { file: string; line: number }[]
+  ): Promise<KnownHostEntry[]> => ipcRenderer.invoke('hostkey:removeMany', entries),
 
   // ---- saved sessions ---------------------------------------------------
   loadSessionTree: (): Promise<SessionTree> => ipcRenderer.invoke('tree:load'),
