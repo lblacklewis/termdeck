@@ -617,6 +617,16 @@ the binary has no code-signing certificate, so Windows cannot vouch for the
 publisher. "More info → Run anyway" proceeds. Buying a certificate and setting
 `CSC_LINK` / `CSC_KEY_PASSWORD` removes the warning.
 
+The prompt is driven by **Mark-of-the-Web** (the `Zone.Identifier` Windows attaches
+to anything downloaded), so it can also be avoided rather than clicked through:
+right-click → Properties → **Unblock**, or `Unblock-File .\TermDeck-<version>-x64.exe`.
+Unblocking the *zip* before extracting is the tidiest version of that, because
+Windows propagates the mark to the extracted files. The single-file portable build
+triggers it most often — it unpacks to a temp directory on every launch — so prefer
+the zip or the installer when handing a build to someone. The whole picture,
+including what a certificate costs and how to verify a signature, is in
+`docs/安装与信任.md`. Each release also ships a `SHA256SUMS-<version>.txt`.
+
 ### If the installer step fails
 
 `electron-builder` may report `Can't open output file` and leave a ~0.2 MB
