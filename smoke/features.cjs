@@ -509,7 +509,7 @@ async function main() {
       push('appInfo reports configDir', typeof info.configDir === 'string', info.configDir)
 
       // --- settings dialog: clipboard toggles round-trip ------------------
-      const gear = document.querySelector('[data-testid="open-settings"]')
+      const gear = document.querySelector('[data-testid="rail-settings"]')
       push('settings button present', !!gear)
       gear.click()
       await new Promise((r) => setTimeout(r, 500))
@@ -544,6 +544,7 @@ async function main() {
         push('save enabled after picking a theme', !!saveBtn && !saveBtn.disabled)
         saveBtn.click()
         await new Promise((r) => setTimeout(r, 800))
+        push('saving closes the settings drawer', !document.querySelector('.td-settings'))
 
         const after = await api.loadSettings()
         push('theme persisted', after.theme === 'dracula', after.theme)
@@ -553,6 +554,10 @@ async function main() {
         const bg = getComputedStyle(document.documentElement).getPropertyValue('--td-bg').trim()
         push('theme variables written', bg.length > 0, '--td-bg=' + bg)
       }
+
+      // Saving closed the drawer, so the tabs below need it opened again.
+      gear.click()
+      await new Promise((r) => setTimeout(r, 700))
 
       const clipTab = [...document.querySelectorAll('.td-settings-tab')]
         .find((t) => /Clipboard/i.test(t.textContent))

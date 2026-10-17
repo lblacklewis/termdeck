@@ -429,7 +429,7 @@ async function main() {
       const push = (n, ok, d) => out.push({ name: n, ok, detail: d || '' })
       const api = window.termdeck
 
-      document.querySelector('[data-testid="open-settings"]').click()
+      document.querySelector('[data-testid="rail-settings"]').click()
       await new Promise((r) => setTimeout(r, 600))
       const cards = [...document.querySelectorAll('[data-testid="theme-grid"] .td-theme-card')]
       const ids = cards.map((c) => c.getAttribute('data-theme-id'))
@@ -437,6 +437,12 @@ async function main() {
       push('slate-light theme exists', ids.includes('slate-light'))
 
       const apply = async (id) => {
+        // Saving closes the drawer, and this runs more than once.
+        if (!document.querySelector('.td-settings')) {
+          const opener = document.querySelector('[data-testid="rail-settings"]')
+          if (opener) opener.click()
+          await new Promise((r) => setTimeout(r, 600))
+        }
         document.querySelector('[data-testid="theme-grid"] [data-theme-id="' + id + '"]').click()
         await new Promise((r) => setTimeout(r, 400))
         const save = [...document.querySelectorAll('.td-drawer-actions button')]

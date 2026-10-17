@@ -275,6 +275,12 @@ export function SettingsDialog({
       const saved = await api.saveSettings(draft)
       onSaved(saved)
       setError(null)
+      /*
+       * Close once the settings are in. Saving used to leave the drawer open with
+       * "Saved" showing, which reads as nothing happened and keeps a modal in front of
+       * the terminals; the state is already stored, so closing is the confirmation.
+       */
+      onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }

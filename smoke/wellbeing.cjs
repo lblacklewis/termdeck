@@ -102,7 +102,7 @@ async function main() {
         return false
       }
       const openSettings = async (tab) => {
-        const btn = document.querySelector('[data-testid="open-settings"]')
+        const btn = document.querySelector('[data-testid="rail-settings"]')
         if (!btn) return false
         btn.click()
         await wait(500)

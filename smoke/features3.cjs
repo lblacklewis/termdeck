@@ -101,7 +101,7 @@ async function main() {
         Math.abs(advance('"Roboto Mono"') - advance('monospace')) > 0.5,
         'monospace ' + advance('monospace') + 'px')
 
-      document.querySelector('[data-testid="open-settings"]').click()
+      document.querySelector('[data-testid="rail-settings"]').click()
       await waitFor(() => document.querySelector('[data-testid="settings-drawer"]'))
       await wait(500)
       ;[...document.querySelectorAll('.td-settings-tab')]

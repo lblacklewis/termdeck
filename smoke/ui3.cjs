@@ -282,8 +282,18 @@ async function main() {
         }
       }
 
+      /*
+       * Idempotent: the footer's Save closes the drawer now, so a helper that always
+       * clicked the opener would leave a later call *closing* it. The rail button is
+       * preferred because the sidebar's own one is unmounted while the column is
+       * collapsed.
+       */
       const openSettings = async () => {
-        document.querySelector('[data-testid="open-settings"]').click()
+        if (document.querySelector('.td-settings')) return
+        const opener =
+          document.querySelector('[data-testid="rail-settings"]') ||
+          document.querySelector('[data-testid="open-settings"]')
+        if (opener) opener.click()
         await new Promise((r) => setTimeout(r, 600))
       }
       const closeSettings = async () => {
@@ -297,6 +307,9 @@ async function main() {
           .find((b) => /Save settings/i.test(b.textContent || ''))
         save.click()
         await new Promise((r) => setTimeout(r, 900))
+        // Saving closes the drawer, so reopen it to keep this section's promise of
+        // leaving the dialog up for the next theme.
+        await openSettings()
       }
 
       /** Preview a theme and save it, leaving the dialog open. */
@@ -477,6 +490,8 @@ async function main() {
 
       save.click()
       await new Promise((r) => setTimeout(r, 900))
+      // Saving now closes the drawer; the section below opens it again itself.
+      push('saving closes the settings drawer', !document.querySelector('.td-settings'))
 
       const stored = await api.loadSettings()
       const storedIds = stored.keybindings.map((b) => b.id)
@@ -510,7 +525,9 @@ async function main() {
       push('a frosted-glass token exists', /blur/.test(blur), blur)
 
       // The modal must actually be rounded and blurred, not just declared.
-      document.querySelector('[data-testid="open-settings"]').click()
+      const settingsOpener = document.querySelector('[data-testid="rail-settings"]') ||
+        document.querySelector('[data-testid="open-settings"]')
+      if (settingsOpener) settingsOpener.click()
       await new Promise((r) => setTimeout(r, 600))
       const modal = document.querySelector('[data-testid="settings-drawer"]')
       const modalStyle = getComputedStyle(modal)

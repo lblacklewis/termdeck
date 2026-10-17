@@ -785,7 +785,8 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
    * changed the size of everything around it.
    */
   { id: 'scaleUp', label: 'Larger interface', keys: 'Ctrl+Shift+=', builtin: true },
-  { id: 'scaleDown', label: 'Smaller interface', keys: 'Ctrl+Shift+-', builtin: true }
+  { id: 'scaleDown', label: 'Smaller interface', keys: 'Ctrl+Shift+-', builtin: true },
+  { id: 'tilePanes', label: 'Arrange panes', keys: 'Ctrl+Shift+T', builtin: true }
 ]
 
 /**

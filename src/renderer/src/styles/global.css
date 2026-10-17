@@ -1157,6 +1157,64 @@ kbd {
 }
 
 /*
+ * "Arrange panes": the pane list and the layout cards.
+ *
+ * The cards are radio buttons styled as blocks so the three arrangements can be
+ * compared at a glance rather than read as a list of radio labels.
+ */
+.td-tile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 190px;
+  overflow: auto;
+  padding: 6px 8px;
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius);
+}
+
+.td-tile-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.td-tile-mode {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius);
+  cursor: pointer;
+}
+
+.td-tile-mode:hover {
+  background: var(--td-overlay, var(--td-bg-sunken));
+}
+
+.td-tile-mode.is-active {
+  border-color: var(--td-accent);
+  background: color-mix(in srgb, var(--td-accent) 10%, transparent);
+}
+
+.td-tile-mode input {
+  margin-top: 2px;
+  accent-color: var(--td-accent);
+}
+
+.td-tile-mode span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.td-tile-mode em {
+  font-style: normal;
+}
+
+/*
  * The checkbox column on list pages (Known Hosts' batch selection).
  *
  * Narrow and unselectable: it is a control, not content, so dragging a row's text

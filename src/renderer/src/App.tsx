@@ -55,6 +55,8 @@ import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
 import { NamePrompt } from './components/NamePrompt'
 import { ConfirmDialog } from './components/ConfirmDialog'
+import { TileDialog } from './components/TileDialog'
+import { tilePanels, type TileMode } from './components/tile'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ShareDialog } from './components/ShareDialog'
 import { NavRail, type PageId } from './components/NavRail'
@@ -343,6 +345,14 @@ export function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** Right-click on a pane tab, which has its own item set. */
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
+
+  /**
+   * "Arrange panes": which panes, and in what shape.
+   *
+   * `tilePanes` holds the panes as they stood when the dialog opened, so a pane that
+   * closes while it is up cannot be arranged after the fact.
+   */
+  const [tilePanes, setTilePanes] = useState<{ id: string; title: string }[] | null>(null)
   const [selectedSavedId, setSelectedSavedId] = useState<string | null>(null)
   /**
    * Set when a saved session cannot authenticate: connection failures for a
@@ -2507,6 +2517,12 @@ export function App(): JSX.Element {
 
     return [
       {
+        id: 'tilePanes',
+        label: t('app.arrange_panes', 'Arrange panes…'),
+        hint: t('app.tile_every_window', 'tile / split every window'),
+        separatorBefore: true
+      },
+      {
         id: 'duplicateConnection',
         label: t('app.duplicate_connection', 'Duplicate connection'),
         hint: t('app.same_host_new_tab', 'same host, new tab'),
@@ -2540,6 +2556,34 @@ export function App(): JSX.Element {
     ]
   }, [tabMenu, settings.terminal.showTimestamps])
 
+  /**
+   * Open the "arrange panes" dialog, with the panes as they are right now.
+   *
+   * Read from the dock rather than from React state: the order of `api.panels` is
+   * the order they appear in the layout, which is the order the user sees, and that
+   * is the order the arrangement should preserve.
+   */
+  const openTileDialog = useCallback(() => {
+    const dockApi = dockApiRef.current
+    if (!dockApi) return
+    setTilePanes(dockApi.panels.map((panel) => ({ id: panel.id, title: panel.title || panel.id })))
+  }, [])
+
+  /** Apply the chosen arrangement, then close the dialog. */
+  const applyTile = useCallback((ids: string[], mode: TileMode) => {
+    const dockApi = dockApiRef.current
+    setTilePanes(null)
+    if (!dockApi) return
+    tilePanels(dockApi, ids, mode, dockRef.current)
+    setToast(
+      mode === 'grid'
+        ? t('app.tiled_grid', 'Tiled {count} panes', { count: ids.length })
+        : mode === 'columns'
+          ? t('app.tiled_columns', 'Split into {count} columns', { count: ids.length })
+          : t('app.tiled_rows', 'Split into {count} rows', { count: ids.length })
+    )
+  }, [])
+
   const runTabAction = useCallback(
     (actionId: string) => {
       if (!tabMenu) return
@@ -2549,6 +2593,10 @@ export function App(): JSX.Element {
       const panels = group ? group.panels : []
       const index = panels.findIndex((p) => p.id === tabMenu.panelId)
 
+      if (actionId === 'tilePanes') {
+        openTileDialog()
+        return
+      }
       if (actionId === 'duplicateConnection') {
         duplicateConnection(tabMenu.panelId)
         return
@@ -2715,24 +2763,23 @@ export function App(): JSX.Element {
       }
       setSettingsOpen(false)
       /*
-       * Clicking the page you are already on reveals the column if it is collapsed
-       * to icons — and otherwise leaves it exactly as it is.
+       * Clicking the page you are already on toggles the column, like the rail
+       * switch and `Ctrl`+`B`.
        *
-       * It used to *toggle* it, which is a real pattern (VS Code's activity bar
-       * does it) but a bad first impression: after the welcome screen the app is on
-       * the Terminal page, so clicking "Terminal" to get your bearings made the
-       * sidebar vanish under the pointer, which reads as "the left side is gone".
-       * Hiding it is still one deliberate gesture away: the chevron on the rail,
-       * Ctrl+B, or the Settings page button.
+       * It was made "reveal only" for a while, after a fresh install looked like it
+       * had lost its sidebar — clicking "Terminal" while already on Terminal
+       * collapsed it. The real problem was that the first run *started* collapsed;
+       * that is fixed where the welcome screen finishes, so the gesture can do what
+       * people expect again.
        */
       if (next === page) {
-        if (railCollapsed) setRailCollapsed(false)
+        setRailCollapsed((collapsed) => !collapsed)
         return
       }
       setPage(next)
       setRailCollapsed(false)
     },
-    [page, railCollapsed]
+    [page]
   )
 
   /**
@@ -2833,6 +2880,7 @@ export function App(): JSX.Element {
     openConnections: () => setConnectionsOpen(true),
     toggleSnippets: () => setSnippetBarVisible((v) => !v),
     toggleBroadcast: () => setBroadcasting(toggleBroadcasting()),
+    tilePanes: () => openTileDialog(),
     copy: () => {
       const active = dockApiRef.current?.activePanel
       if (!active) return
@@ -3641,6 +3689,14 @@ export function App(): JSX.Element {
           busy={promptBusy}
           onCancel={() => setPasswordPrompt(null)}
           onSubmit={({ password, remember }) => void submitPassword(password, remember)}
+        />
+      )}
+
+      {tilePanes && (
+        <TileDialog
+          panes={tilePanes}
+          onCancel={() => setTilePanes(null)}
+          onApply={applyTile}
         />
       )}
 

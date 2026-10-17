@@ -143,6 +143,15 @@ report as `ESC [ I`, and arrows as their own sequences. The first working versio
 kept the paste markers, so the mirrored prefix was `"[IGet-"` and matched nothing —
 which is why `smoke:suggest` types through the same path the keyboard does.
 
+**Arrange panes** (`Ctrl`+`Shift`+`T`, or the tab menu) tiles the open panes into a
+grid, columns or rows. It is built on `panel.api.moveTo` rather than on rebuilding the
+layout: a panel that is removed takes its terminal and session with it, so a "tile
+everything" that re-added panels would close every connection it was arranging. Sizes
+are equalised afterwards with `group.api.setSize`, because splitting in a chain gives
+the first pane half the window, the next a quarter, and so on — a tiling in a data
+structure that looks nothing like one on screen, and one that measures 276px against
+296px for the pane that takes the remainder.
+
 ## Layout persistence
 
 The window reopens the way you left it: pane splits and tab groups, which rail
@@ -954,6 +963,7 @@ Defaults; all are re-bindable in Settings → Shortcuts.
 | `Ctrl` + `Shift` + `E` | Open the connections drawer |
 | `Ctrl` + `Shift` + `S` | Toggle the snippet bar |
 | `Ctrl` + `Shift` + `B` | Broadcast input to every pane |
+| `Ctrl` + `Shift` + `T` | Arrange panes (tile / columns / rows) |
 | `Ctrl` + `Shift` + `C` / `V` | Copy / paste |
 | `Ctrl` + `Tab` / `Ctrl` + `Shift` + `Tab` | Next / previous tab |
 | `Esc` | Close an open drawer |
