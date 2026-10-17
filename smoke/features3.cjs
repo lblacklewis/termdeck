@@ -456,12 +456,29 @@ async function main() {
         const panelsNow = () => window.__tdDockApi.panels.length
 
         const before = panelsNow()
-        const id = activeId()
+        /*
+         * Aim at a pane that is genuinely alive.
+         *
+         * The terminal registry keeps an entry for a pane whose session has ended,
+         * so "the last registered terminal" is not the same as "a live shell" — and
+         * "whatever is active" is not either, because this suite restores
+         * placeholders from earlier runs and those *are* dead panes now. Ask the app
+         * which panes it considers live and use one of those.
+         */
+        const alive = Object.keys(window.__tdTerminals || {}).filter(
+          (panelId) => window.__tdPaneLiveness && !window.__tdPaneLiveness(panelId).dead
+        )
+        const id = alive[alive.length - 1]
+        if (id && window.__tdDockApi.getPanel(id)) {
+          window.__tdDockApi.getPanel(id).api.setActive()
+          await wait(400)
+        }
         ctrlD()
         await wait(600)
         push('Ctrl+D on a live shell leaves the pane open',
           panelsNow() === before && !!window.__tdDockApi.getPanel(id),
-          'panels ' + before + ' -> ' + panelsNow())
+          'panels ' + before + ' -> ' + panelsNow() +
+            ' liveness=' + JSON.stringify(window.__tdPaneLiveness ? window.__tdPaneLiveness(id) : null))
 
         // End the session for real: type exit in the shell it is running.
         window.termdeck.writeSession(id, 'exit' + String.fromCharCode(13))
@@ -558,6 +575,38 @@ async function main() {
     report(await win.webContents.executeJavaScript(probe))
   } catch (err) {
     report([{ name: 'appearance probe', ok: false, detail: String((err && err.message) || err) }])
+  }
+
+  /*
+   * A pane with nothing behind it at all.
+   *
+   * After a reload every terminal comes back as a placeholder with no session, so
+   * "did a session end in front of me" answers no — but the user is looking at a
+   * dead pane, and `Ctrl`+`D` is the key that closes dead panes. Driven from here
+   * because the reload has to outlive the page script above.
+   */
+  try {
+    win.webContents.reload()
+    await sleep(3200)
+    report([
+      await win.webContents.executeJavaScript(`(async () => {
+        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+        const panels = () => window.__tdDockApi.panels.length
+        const before = panels()
+        const restored = document.querySelectorAll('[data-testid="restored-pane"]').length
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true })
+        )
+        await wait(900)
+        return {
+          name: 'Ctrl+D closes a restored pane that has no session at all',
+          ok: restored > 0 && panels() === before - 1,
+          detail: 'restored=' + restored + ' panels ' + before + ' -> ' + panels()
+        }
+      })()`)
+    ])
+  } catch (err) {
+    report([{ name: 'restored-pane Ctrl+D', ok: false, detail: String((err && err.message) || err) }])
   }
 
   const failed = all.filter((c) => !c.ok)

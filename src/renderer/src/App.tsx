@@ -471,6 +471,9 @@ export function App(): JSX.Element {
    * EOF again the moment there is a shell to send it to.
    */
   const endedSessionsRef = useRef(new Set<string>())
+  /** Latest session list, for callbacks created once (see `isPaneDead`). */
+  const sessionsRef = useRef<SessionInfo[]>([])
+  sessionsRef.current = sessions
 
   // The dockview factory and connect helpers are registered once, so they read
   // the current tree through a ref rather than a captured value.
@@ -591,6 +594,25 @@ export function App(): JSX.Element {
     []
   )
 
+  /**
+   * Is there nothing running behind this pane?
+   *
+   * `Ctrl`+`D` asks this before it closes anything, and the honest answer is "no
+   * live session", not "a session ended in front of me": a dropped SSH link, a
+   * restored placeholder from the last layout and a shell exited a minute ago all
+   * leave a pane with nothing behind it, and only the middle one used to be
+   * recognised. The marked set stays as a fast path for the pane that just saw its
+   * process exit.
+   */
+  const isPaneDead = useCallback(
+    (panelId: string): boolean => {
+      const live = liveIdFor(panelId)
+      if (endedSessionsRef.current.has(live) || endedSessionsRef.current.has(panelId)) return true
+      return !sessionsRef.current.some((s) => s.id === live)
+    },
+    [liveIdFor]
+  )
+
   const closeSession = useCallback(
     (sessionId: string) => {
       const panelId = resolvePanelId(sessionId)
@@ -701,6 +723,17 @@ export function App(): JSX.Element {
 
     if (window.localStorage.getItem('tdDebug') === '1') {
       ;(window as unknown as Record<string, unknown>)['__tdDockApi'] = dock.api
+      /*
+       * Why `Ctrl`+`D` does or does not consider a pane dead. "It closed the wrong
+       * pane" and "it refused to close a dead one" look identical from outside, and
+       * the inputs to that decision are three different pieces of state.
+       */
+      ;(window as unknown as Record<string, unknown>)['__tdPaneLiveness'] = (id: string) => ({
+        live: liveIdFor(id),
+        marked: endedSessionsRef.current.has(liveIdFor(id)),
+        sessions: sessionsRef.current.map((s) => s.id),
+        dead: isPaneDead(id)
+      })
       // The component itself: `api.layout` is not the same function as
       // `dock.layout`, and probes need the latter.
       ;(window as unknown as Record<string, unknown>)['__tdDock'] = dock
@@ -2302,8 +2335,13 @@ export function App(): JSX.Element {
       }
 
       if (!previous) {
+        if (saved) {
+          setToast(`Reconnecting “${title}”…`)
+          void connectSavedRef.current(saved)
+          return
+        }
         setAlert({
-          message: `“${title}” has no live connection to reload. Use its Reconnect button.`
+          message: `“${title}” has no live connection to reload, and no saved host to reconnect to. Open it again from the sidebar.`
         })
         return
       }
@@ -2311,6 +2349,20 @@ export function App(): JSX.Element {
       setToast(`Reloading “${title}”…`)
       void api.duplicateSession(previous).then((result) => {
         if (!result.ok) {
+          /*
+           * Nothing left to duplicate.
+           *
+           * A dropped link, an exited shell and a session the main process has
+           * already forgotten all land here — and this is exactly where people
+           * press "Reconnect" on a dead pane. The old code showed the backend's
+           * error and stopped, which read as "reconnect failed" with no way
+           * forward. Falling back to the saved host is what the click meant.
+           */
+          if (saved) {
+            setToast(`Reconnecting “${title}”…`)
+            void connectSavedRef.current(saved)
+            return
+          }
           setAlert({ message: result.error.message })
           return
         }
@@ -2325,7 +2377,13 @@ export function App(): JSX.Element {
         panel.api.updateParameters({
           session: next,
           disconnected: false,
-          savedSessionId: undefined,
+          /*
+           * `savedSessionId` deliberately survives a reload. Clearing it here was
+           * how a reconnected pane lost the one thing that could reconnect it
+           * again: after the next drop there was no saved host left to fall back
+           * on, and "Reconnect" could only fail.
+           */
+          savedSessionId,
           title: next.title
         })
         refreshPanelParams(panel.id)
@@ -2764,15 +2822,10 @@ export function App(): JSX.Element {
       const active = dockApiRef.current?.activePanel
       if (active && active.id !== 'welcome') closeSession(active.id)
     },
-    /*
-     * `Ctrl+D` on a pane whose session has ended closes it — and on a live pane it
-     * returns `false` so the dispatcher leaves the event alone for the shell, where
-     * the key means EOF.
-     */
     closeDeadPane: () => {
       const active = dockApiRef.current?.activePanel
       if (!active || active.id === 'welcome') return false
-      if (!endedSessionsRef.current.has(liveIdFor(active.id))) return false
+      if (!isPaneDead(active.id)) return false
       closeSession(active.id)
     },
     openSettings: () => setSettingsOpen(true),

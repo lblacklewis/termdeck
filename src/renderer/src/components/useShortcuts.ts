@@ -128,7 +128,18 @@ export function useShortcuts(keybindings: Keybinding[], handlers: ShortcutHandle
       }
     }
 
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    /*
+     * Capture, not bubble.
+     *
+     * xterm claims keys at its own textarea and stops the event for the ones it
+     * handles, so a window listener in the bubble phase never sees them: `Ctrl`+`W`
+     * reached the shell as "delete word" and never closed the pane, and `Ctrl`+`D`
+     * was EOF — fine — but *any* bound chord that xterm also knows was silently
+     * unreachable. Capturing runs before the terminal's own handler, which is what
+     * "the app's binding wins" has to mean. A handler that returns `false` still
+     * lets the event through to the shell untouched.
+     */
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [])
 }
