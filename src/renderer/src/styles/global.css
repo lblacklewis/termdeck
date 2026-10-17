@@ -1181,6 +1181,55 @@ kbd {
 }
 
 /*
+ * Inline command suggestions.
+ *
+ * Absolutely positioned inside the terminal pane, anchored at the cursor by
+ * `commandSuggest.ts`. It sits above the text (z-index) but must not take the
+ * pointer: the user is typing, and a popup that swallows a click would make the
+ * terminal feel broken.
+ */
+.td-suggest {
+  position: absolute;
+  z-index: 5;
+  min-width: 180px;
+  max-width: min(560px, 80%);
+  max-height: 210px;
+  overflow: hidden auto;
+  padding: 4px;
+  background: var(--td-bg-raised);
+  border: 1px solid var(--td-border-strong);
+  border-radius: 8px;
+  box-shadow: var(--td-shadow-md);
+  font-family: var(--td-font-mono, monospace);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.td-suggest-item {
+  padding: 3px 8px;
+  border-radius: 5px;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--td-text);
+}
+
+.td-suggest-item.is-active {
+  background: var(--td-accent);
+  color: var(--td-accent-ink, #fff);
+}
+
+/* The part already typed, dimmed so the addition reads as the suggestion. */
+.td-suggest-typed {
+  color: var(--td-text-dim);
+}
+
+.td-suggest-item.is-active .td-suggest-typed {
+  color: inherit;
+  opacity: 0.75;
+}
+
+/*
  * First run.
  *
  * A sheet over the whole window rather than a page of its own: it appears once,

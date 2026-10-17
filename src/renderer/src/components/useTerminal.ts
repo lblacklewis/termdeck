@@ -20,6 +20,7 @@ import {
   unregisterTerminal
 } from './terminalRegistry'
 import { registerSink, routeInput, unregisterSink } from './broadcast'
+import { attachSuggestions } from './commandSuggest'
 
 export interface TerminalHandle {
   /** Re-measure the terminal against its container and notify the backend. */
@@ -360,6 +361,18 @@ export function useTerminal(
     scheduleFit()
     term.focus()
 
+    /*
+     * Inline suggestions, attached to this pane's own container so the popup is
+     * positioned against the cursor and its keys are captured before xterm turns
+     * them into escape sequences. Created before the input subscription below,
+     * which feeds it.
+     */
+    const suggest = attachSuggestions({
+      container,
+      term,
+      write: (data) => api.writeSession(sessionId, data)
+    })
+
     const dataSub = term.onData((data) => {
       /*
        * Fan out to the other panes, then always write to this one. `routeInput`
@@ -368,6 +381,9 @@ export function useTerminal(
        */
       routeInput(sessionId, data)
       api.writeSession(sessionId, data)
+      // Mirror the keystroke into the line the suggestions filter on. Fed after the
+      // write so the popup only ever completes text the shell already has.
+      suggest.feed(data)
     })
 
     // How a keystroke typed in another pane reaches this one.
@@ -452,6 +468,7 @@ export function useTerminal(
       }
       observer.disconnect()
       window.removeEventListener('termdeck:panel-shown', onShown)
+      suggest.dispose()
       dataSub.dispose()
       selectionSub.dispose()
       writeParsedSub.dispose()

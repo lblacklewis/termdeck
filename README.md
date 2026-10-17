@@ -117,6 +117,28 @@ The selection is pruned to whatever the filter shows, so "3 selected" always mea
 three rows you can see; a selection that survived a filter change would let the
 button remove entries that are no longer on screen.
 
+**Command history** is kept per session for the History panel (7 days) *and* in one
+shared list (`commands.json`) that inline suggestions read. The shared list is what
+makes completion useful — the command you want is very often one you ran in another
+pane — and it is also what makes the storage rules matter: a line that **starts with
+a space** is never stored (the shell convention for "do not keep this", and the
+easiest way for a mistyped password to stay out of a plain-text file), nor are empty
+lines, immediate repeats, or anything over 240 characters. The list is capped at 400,
+newest first, de-duplicated by promotion.
+
+**Inline suggestions** appear as you type: the shared history filtered by what is on
+the line. `↑`/`↓` walk the candidates, `Enter` (or `Tab`) brings one into the line
+**without running it**, `Escape` dismisses. While the popup is closed those keys are
+untouched, so the shell keeps its own history navigation. Completion writes only the
+*remainder* — typing `git sta` and picking `git status --short` sends `tus --short` —
+because erasing and retyping the line would churn the scrollback.
+
+The mirror of the current line is fed from `term.onData`, i.e. the keystrokes, and it
+has to strip escape sequences: a paste arrives wrapped in `ESC [ 200 ~`, a focus
+report as `ESC [ I`, and arrows as their own sequences. The first working version
+kept the paste markers, so the mirrored prefix was `"[IGet-"` and matched nothing —
+which is why `smoke:suggest` types through the same path the keyboard does.
+
 ## Layout persistence
 
 The window reopens the way you left it: pane splits and tab groups, which rail

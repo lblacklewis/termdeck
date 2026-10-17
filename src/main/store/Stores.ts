@@ -626,6 +626,9 @@ export class HistoryStore {
   private readonly dir: string
   /** Parsed files, keyed by session id. Loaded lazily. */
   private readonly cache = new Map<string, HistoryEntry[]>()
+  /** The shared suggestion list (see `remember`), loaded once per run. */
+  private globalCache: string[] | null = null
+  private readonly globalPath: string
 
   /** Newest first, and never more per session than this. */
   static readonly LIMIT = 200
@@ -633,10 +636,15 @@ export class HistoryStore {
   static readonly MAX_COMMAND = 500
   /** Files whose newest command is older than this are removed. */
   static readonly RETENTION_MS = HISTORY_RETENTION_DAYS * 24 * 60 * 60 * 1000
+  /** How many commands the shared suggestion list keeps. */
+  static readonly SUGGEST_LIMIT = 400
+  /** Longer than this and a line is almost certainly not a command. */
+  static readonly SUGGEST_MAX = 240
 
   constructor(configDir: string) {
     this.dir = join(configDir, 'history')
     mkdirSync(this.dir, { recursive: true })
+    this.globalPath = join(configDir, 'commands.json')
     this.prune()
   }
 
@@ -723,6 +731,50 @@ export class HistoryStore {
       .slice(0, HistoryStore.LIMIT)
     this.cache.set(sessionId, next)
     return this.persist(sessionId)
+  }
+
+  /**
+   * The one list every session shares, for the inline suggestions.
+   *
+   * Per-session files are the right shape for the History panel ("what did I run on
+   * this box") but the wrong shape for completing what is being typed: the command
+   * you want is very often one you ran in another pane. So the same command is
+   * appended here as well, in a single small file, newest first.
+   *
+   * What is *not* stored matters more than what is. A line that starts with a space
+   * is skipped — that is the shell convention for "do not keep this" and the easiest
+   * way for a password typed by mistake to stay out of a plain-text file. Empty
+   * lines, absurdly long ones and the immediate repeat of the previous command are
+   * skipped for the same reason a history file is normally trimmed: they are noise
+   * in a popup.
+   */
+  remember(command: string, at = Date.now()): void {
+    const text = command.replace(/\s+$/, '')
+    if (!text || text.length > HistoryStore.MAX_COMMAND) return
+    if (text.startsWith(' ')) return
+    if (text.length > HistoryStore.SUGGEST_MAX) return
+
+    const current = this.globalCommands()
+    if (current[0] === text) return
+    const next = [text, ...current.filter((c) => c !== text)].slice(0, HistoryStore.SUGGEST_LIMIT)
+    this.globalCache = next
+    try {
+      writeJsonAtomic(this.globalPath, next)
+    } catch {
+      /* the suggestion list is a convenience; losing it must not break a session */
+    }
+    void at
+  }
+
+  /** Newest first. */
+  globalCommands(): string[] {
+    if (this.globalCache) return this.globalCache
+    const stored = readJson<unknown>(this.globalPath)
+    const list = Array.isArray(stored)
+      ? stored.filter((c): c is string => typeof c === 'string' && c.length > 0)
+      : []
+    this.globalCache = list.slice(0, HistoryStore.SUGGEST_LIMIT)
+    return this.globalCache
   }
 
   remove(sessionId: string, id: string): HistoryEntry[] {

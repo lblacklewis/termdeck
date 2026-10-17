@@ -76,6 +76,7 @@ const api = {
     ipcRenderer.invoke('hostkey:forget', host, port),
 
   listKnownHosts: (): Promise<KnownHostEntry[]> => ipcRenderer.invoke('hostkey:list'),
+  globalCommandHistory: (): Promise<string[]> => ipcRenderer.invoke('history:commands'),
 
   removeKnownHostEntry: (file: string, line: number): Promise<KnownHostEntry[]> =>
     ipcRenderer.invoke('hostkey:removeAt', file, line),

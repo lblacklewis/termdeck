@@ -134,6 +134,9 @@ function recordCommand(sessionId: string, command: string): void {
   const before = store.list(sessionId).length
   const title = sessionManager.list().find((s) => s.id === sessionId)?.title ?? 'session'
   const entries = store.add(sessionId, title, command)
+  // The same line feeds the shared suggestion list (see `HistoryStore.remember`),
+  // which is what inline completion reads — one command often wanted in another pane.
+  store.remember(command)
   if (entries.length !== before) broadcast('history:changed', { sessionId, entries })
 }
 
@@ -492,6 +495,8 @@ export function registerIpc(): void {
   // dropped a week after its last command.
 
   ipcMain.handle('history:list', (_e, sessionId: string) => getHistoryStore().list(sessionId))
+  /** Every session's commands, newest first, for the inline suggestions. */
+  ipcMain.handle('history:commands', () => getHistoryStore().globalCommands())
   ipcMain.handle('history:sessions', () => getHistoryStore().sessions())
   ipcMain.handle('history:delete', (_e, sessionId: string, id: string) =>
     getHistoryStore().remove(sessionId, id)

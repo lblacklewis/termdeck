@@ -923,6 +923,8 @@ export interface TermDeckApi {
   forgetHostKey(host: string, port: number): Promise<number>
   /** Every entry across the configured known_hosts files. */
   listKnownHosts(): Promise<KnownHostEntry[]>
+  /** Every session's command history, newest first, for inline suggestions. */
+  globalCommandHistory(): Promise<string[]>
   /** Remove one entry by its file and line number. */
   removeKnownHostEntry(file: string, line: number): Promise<KnownHostEntry[]>
   /** Remove several entries in one write (see the handler for why it is batched). */
