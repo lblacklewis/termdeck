@@ -2653,17 +2653,22 @@ export function App(): JSX.Element {
       }
       setSettingsOpen(false)
       /*
-       * The rail and its list are one column, so the same icon shows and hides the
-       * list. Measured on whether the drawer is *showing*, not on whether the rail
-       * is nominally expanded — the drawer only exists on the Terminal page, so a
-       * collapsed flag alone would make the first click there do nothing.
+       * Clicking the page you are already on reveals the column if it is collapsed
+       * to icons — and otherwise leaves it exactly as it is.
+       *
+       * It used to *toggle* it, which is a real pattern (VS Code's activity bar
+       * does it) but a bad first impression: after the welcome screen the app is on
+       * the Terminal page, so clicking "Terminal" to get your bearings made the
+       * sidebar vanish under the pointer, which reads as "the left side is gone".
+       * Hiding it is still one deliberate gesture away: the chevron on the rail,
+       * Ctrl+B, or the Settings page button.
        */
-      const drawerShowing = !railCollapsed && page === 'terminal'
-      if (next === page) setRailCollapsed(drawerShowing)
-      else {
-        setPage(next)
-        setRailCollapsed(false)
+      if (next === page) {
+        if (railCollapsed) setRailCollapsed(false)
+        return
       }
+      setPage(next)
+      setRailCollapsed(false)
     },
     [page, railCollapsed]
   )

@@ -79,11 +79,17 @@ The rail switches what the drawer shows: **Terminal** (the dockview workspace),
 **Hosts**, **Known Hosts**, **Snippets** and **Logs**. Settings is a drawer rather
 than a page, since it has no list of its own.
 
-**Clicking the section you are already on toggles the drawer**, and so does the
-small switch at the rail's bottom-left: the drawer collapses away entirely and
-the rail keeps its icons, so the same control both hides and shows the list.
-`Ctrl+B` does the same thing, and the state is remembered. Picking a *different*
-section always brings the drawer back, because that is what was asked for.
+The switch at the rail's bottom-left collapses the drawer: the list goes away and
+the rail keeps its icons, so the same control both hides and shows it. `Ctrl+B`
+does the same thing, and the state is remembered. Picking a *different* section
+always brings the drawer back, because that is what was asked for.
+
+**Clicking the section you are already on only ever opens it.** It used to toggle,
+which is a real pattern (VS Code's activity bar), but the first thing a new user
+does after the welcome screen is click "Terminal" to get their bearings — and with
+the app already on that page, the column vanished under the pointer and read as
+"the left side is gone". Hiding it is still one deliberate gesture away: the
+switch, `Ctrl+B`.
 
 Editing flows open as **drawers** sliding in from the right — the session
 editor, quick connect, snippet editor, settings and the connections window — so

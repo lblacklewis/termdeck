@@ -188,6 +188,23 @@ async function main() {
   push('the saved arrangement agrees', storedLayout.railCollapsed === false,
     'railCollapsed=' + storedLayout.railCollapsed)
 
+  /*
+   * And it stays that way when the first thing the user does is click the page they
+   * are already on — which is what a new user does to get their bearings, and what
+   * used to collapse the column under the pointer.
+   */
+  const afterClick = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const active = [...document.querySelectorAll('.td-rail button')]
+      .find((b) => b.getAttribute('aria-current') === 'page' || b.className.includes('is-active'))
+    if (active) active.click()
+    await wait(600)
+    const rail = document.querySelector('.td-rail')
+    return { clicked: !!active, collapsed: rail ? rail.className.includes('is-collapsed') : null }
+  })()`)
+  push('clicking the page you are already on leaves the column alone',
+    afterClick.collapsed === false, JSON.stringify(afterClick))
+
   win.webContents.reload()
   await sleep(3200)
   const afterReload = await page(`!document.querySelector('[data-testid="welcome-screen"]')`)
