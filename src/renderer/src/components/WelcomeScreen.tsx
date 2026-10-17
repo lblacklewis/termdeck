@@ -107,10 +107,10 @@ export function WelcomeScreen({ settings, onDone }: WelcomeScreenProps): JSX.Ele
   const primaryFamily = font.split(',')[0].trim().replace(/^["']|["']$/g, '')
 
   return (
-    <div className="td-welcome" data-testid="welcome-screen">
-      <div className="td-welcome-panel">
-        <header className="td-welcome-head">
-          <span className="td-welcome-mark" aria-hidden="true">
+    <div className="td-onboard" data-testid="welcome-screen">
+      <div className="td-onboard-panel">
+        <header className="td-onboard-head">
+          <span className="td-onboard-mark" aria-hidden="true">
             ▚
           </span>
           <div>
@@ -124,7 +124,7 @@ export function WelcomeScreen({ settings, onDone }: WelcomeScreenProps): JSX.Ele
           </div>
         </header>
 
-        <div className="td-welcome-body">
+        <div className="td-onboard-body">
           <label className="td-field">
             <span>{t('settingsdialog.language', 'Language')}</span>
             <select
@@ -225,10 +225,10 @@ export function WelcomeScreen({ settings, onDone }: WelcomeScreenProps): JSX.Ele
           </div>
         )}
 
-        <footer className="td-welcome-foot">
+        <footer className="td-onboard-foot">
           <button
             type="button"
-            className="td-btn td-btn-primary td-welcome-start"
+            className="td-btn td-btn-primary td-onboard-start"
             data-testid="welcome-start"
             disabled={busy}
             onClick={() => void finish()}

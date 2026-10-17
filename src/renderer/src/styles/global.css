@@ -1164,7 +1164,7 @@ kbd {
  * so every ref it depends on exists (see the comment in App.tsx). It scrolls as a
  * whole, because the theme grid is taller than a short window.
  */
-.td-welcome {
+.td-onboard {
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -1176,7 +1176,7 @@ kbd {
   background: var(--td-bg);
 }
 
-.td-welcome-panel {
+.td-onboard-panel {
   display: flex;
   flex-direction: column;
   width: min(680px, 100%);
@@ -1188,25 +1188,25 @@ kbd {
   box-shadow: var(--td-shadow-lg);
 }
 
-.td-welcome-head {
+.td-onboard-head {
   display: flex;
   gap: 14px;
   align-items: flex-start;
   padding: 22px 24px 2px;
 }
 
-.td-welcome-mark {
+.td-onboard-mark {
   font-size: 30px;
   line-height: 1.1;
   color: var(--td-accent);
 }
 
-.td-welcome-head h1 {
+.td-onboard-head h1 {
   margin: 0 0 6px;
   font-size: 20px;
 }
 
-.td-welcome-body {
+.td-onboard-body {
   display: flex;
   flex-direction: column;
   gap: 16px;
@@ -1218,20 +1218,20 @@ kbd {
 }
 
 /* Denser than the settings grid, so thirteen themes and the button still fit. */
-.td-welcome .td-theme-grid {
+.td-onboard .td-theme-grid {
   grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   gap: 8px;
 }
 
-.td-welcome .td-theme-card {
+.td-onboard .td-theme-card {
   padding: 7px;
 }
 
-.td-welcome .td-theme-swatch {
+.td-onboard .td-theme-swatch {
   height: 26px;
 }
 
-.td-welcome-foot {
+.td-onboard-foot {
   display: flex;
   justify-content: flex-end;
   flex: none;
@@ -1241,7 +1241,7 @@ kbd {
   border-radius: 0 0 var(--td-radius-lg) var(--td-radius-lg);
 }
 
-.td-welcome-start {
+.td-onboard-start {
   padding: 8px 18px;
   font-size: 15px;
 }
@@ -3075,6 +3075,15 @@ body {
   font-size: 12px;
   font-weight: 600;
   color: var(--td-text);
+  /*
+   * The brand row is centred, and "▚ TermDeck" is wider than the 64px the rail has
+   * to give. Centring something wider than its box overflows at *both* ends, so the
+   * mark was clipped at the window's left edge — hence the ellipsis: the name gives
+   * way instead of the mark being cut in half.
+   */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Hidden in icon-only mode; the rail keeps its glyphs and the drawer carries no

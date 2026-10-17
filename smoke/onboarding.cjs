@@ -189,6 +189,31 @@ async function main() {
     'railCollapsed=' + storedLayout.railCollapsed)
 
   /*
+   * Occlusion, not just state.
+   *
+   * The rail can exist, sit at the right coordinates and still be invisible: the
+   * onboarding sheet was styled with the shell's own welcome-card class
+   * (a full-window sheet, since it is `position: fixed; inset: 0`), which covered
+   * the rail and the drawer. Every `getBoundingClientRect` above said the shell was
+   * fine. Asking the document what is painted *at* the rail is what catches it.
+   */
+  const painted = await page(`(() => {
+    const inside = (el, root) => !!el && !!root && (root === el || root.contains(el))
+    const at = (sel, dy) => {
+      const root = document.querySelector(sel)
+      if (!root) return { sel: sel, top: 'no element', ok: false }
+      const r = root.getBoundingClientRect()
+      const el = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + dy))
+      return { sel: sel, top: el ? el.className || el.tagName : 'none', ok: inside(el, root) }
+    }
+    return { rail: at('.td-rail', 240), drawer: at('.td-sidebar', 240) }
+  })()`)
+  push('the rail is what is painted on the left, not covered by anything',
+    painted.rail.ok, JSON.stringify(painted.rail))
+  push('and the drawer is painted where its box says it is',
+    painted.drawer.ok, JSON.stringify(painted.drawer))
+
+  /*
    * And it stays that way when the first thing the user does is click the page they
    * are already on — which is what a new user does to get their bearings, and what
    * used to collapse the column under the pointer.
