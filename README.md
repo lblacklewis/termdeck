@@ -10,6 +10,10 @@ public repository is only *partially* open source — its window, session and
 layout layers were never released — so the docking behaviour had to be built
 rather than patched into it.
 
+> User-facing guide (Chinese): **`docs/使用手册.md`** — 面向使用者的功能手册，
+> 按「你会怎么用它」组织：连接、终端、命令补全、SFTP、片段、已知主机、搬移配置、
+> 外观、快捷键、常见问题。本 README 讲的是实现与取舍。
+
 ## Status
 
 Working end-to-end: SSH (password / private key / agent), local shells, xterm
