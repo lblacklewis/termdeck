@@ -38,6 +38,8 @@ export interface SuggestOptions {
   }
   /** Write to the session, exactly like typing. */
   write: (data: string) => void
+  /** Off means the popup never appears; the history itself is still recorded. */
+  enabled?: boolean
   /** Hand the finished command line to the history store. */
   report: (command: string) => void
 }
@@ -52,7 +54,13 @@ const MAX_ITEMS = 8
 /** Longer prefixes are past the point of helping — the list is already short. */
 const MIN_CHARS = 1
 
-export function attachSuggestions({ container, term, write, report }: SuggestOptions): SuggestHandle {
+export function attachSuggestions({
+  container,
+  term,
+  write,
+  report,
+  enabled = true
+}: SuggestOptions): SuggestHandle {
   let line = ''
   let items: string[] = []
   let active = -1
@@ -240,6 +248,7 @@ export function attachSuggestions({ container, term, write, report }: SuggestOpt
   container.addEventListener('keydown', onKeyDown, true)
 
   const feed = (data: string): void => {
+    if (!enabled) return
     feeds += 1
     /*
      * Escape sequences are not text.

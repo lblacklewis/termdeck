@@ -220,7 +220,11 @@ async function main() {
   // ---- one window -------------------------------------------------------------
   const merged = await page(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    document.querySelector('[data-testid="merge-panes"]').click()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'T', ctrlKey: true, shiftKey: true, bubbles: true }))
+    await wait(700)
+    document.querySelector('[data-testid="tile-mode-stack"]').click()
+    await wait(300)
+    document.querySelector('[data-testid="tile-apply"]').click()
     await wait(1500)
     return {
       groups: document.querySelectorAll('.dv-groupview').length,

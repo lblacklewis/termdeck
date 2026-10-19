@@ -900,6 +900,17 @@ function TerminalTab({
       <label className="td-check">
         <input
           type="checkbox"
+          aria-label="suggest-commands"
+          checked={settings.suggestions}
+          onChange={(e) => onChange({ suggestions: e.target.checked })}
+        />
+        <span>
+          {t('settingsdialog.suggest_commands', 'Suggest commands from history while typing. Up and Down pick one, Enter puts it on the line without running it.')}
+        </span>
+      </label>
+      <label className="td-check">
+        <input
+          type="checkbox"
           aria-label="show-timestamps"
           checked={settings.showTimestamps}
           onChange={(e) => onChange({ showTimestamps: e.target.checked })}

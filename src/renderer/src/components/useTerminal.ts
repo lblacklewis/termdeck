@@ -371,6 +371,7 @@ export function useTerminal(
       container,
       term,
       write: (data) => api.writeSession(sessionId, data),
+      enabled: optionsRef.current.terminal.suggestions !== false,
       // History stores what the shell is about to run, not the keys typed.
       report: (command) => void api.recordCommand(sessionId, command)
     })

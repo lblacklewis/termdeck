@@ -428,6 +428,8 @@ export interface TerminalSettings {
    * at once, and the column is only wanted while actively reading output.
    */
   showTimestamps: boolean
+  /** Inline suggestions from command history while typing. */
+  suggestions: boolean
 }
 
 export interface ClipboardSettings {
@@ -827,7 +829,8 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
    * is what the reference client (WindTerm) shows; it can be turned off in
    * Settings → Terminal.
    */
-  showTimestamps: false
+  showTimestamps: false,
+  suggestions: true
 }
 
 export const DEFAULT_CLIPBOARD_SETTINGS: ClipboardSettings = {

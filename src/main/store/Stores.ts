@@ -752,6 +752,8 @@ export class HistoryStore {
     const text = command.replace(/\s+$/, '')
     if (!text || text.length > HistoryStore.MAX_COMMAND) return
     if (text.startsWith(' ')) return
+    // An older build recorded the prompt with the command; do not keep that shape.
+    if (/^[A-Za-z]:\\/i.test(text) || /^[\w.@-]+[>$#%]\s/.test(text)) return
     if (text.length > HistoryStore.SUGGEST_MAX) return
 
     const current = this.globalCommands()
@@ -773,7 +775,9 @@ export class HistoryStore {
     const list = Array.isArray(stored)
       ? stored.filter((c): c is string => typeof c === 'string' && c.length > 0)
       : []
-    this.globalCache = list.slice(0, HistoryStore.SUGGEST_LIMIT)
+    this.globalCache = list
+      .filter((c) => !/^[A-Za-z]:\\/i.test(c) && !/^[\w.@-]+[>$#%]\s/.test(c))
+      .slice(0, HistoryStore.SUGGEST_LIMIT)
     return this.globalCache
   }
 
