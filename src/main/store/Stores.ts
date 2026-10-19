@@ -19,7 +19,6 @@ import {
 import { dirname, join } from 'node:path'
 import {
   DEFAULT_BREAK_SETTINGS,
-  DEFAULT_BREAK_STATS,
   DEFAULT_SETTINGS,
   DEFAULT_SIDEBAR_SECTIONS,
   DEFAULT_SIDEBAR_WIDTH,
@@ -748,7 +747,7 @@ export class HistoryStore {
    * skipped for the same reason a history file is normally trimmed: they are noise
    * in a popup.
    */
-  remember(command: string, at = Date.now()): void {
+  remember(command: string): void {
     const text = command.replace(/\s+$/, '')
     if (!text || text.length > HistoryStore.MAX_COMMAND) return
     if (text.startsWith(' ')) return
@@ -765,7 +764,6 @@ export class HistoryStore {
     } catch {
       /* the suggestion list is a convenience; losing it must not break a session */
     }
-    void at
   }
 
   /** Newest first. */

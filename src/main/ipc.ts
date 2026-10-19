@@ -79,55 +79,6 @@ type SessionBlueprint =
 
 const blueprints = new Map<string, SessionBlueprint>()
 
-/**
- * What is being typed into each session, so history records commands.
- *
- * The pty sees a keystroke stream, not lines: arrow keys arrive as escape
- * sequences, backspace as a control byte, and a terminal reply can land in the
- * middle of it. This assembles the line the user actually ran and drops
- * everything else, rather than logging whatever happened to reach the shell.
- */
-const typing = new Map<string, { line: string; escape: boolean }>()
-
-/** Commands are recorded on Enter; this is what "Enter" means in a raw stream. */
-function noteTypedInput(sessionId: string, data: string): void {
-  const state = typing.get(sessionId) ?? { line: '', escape: false }
-
-  for (const ch of data) {
-    if (state.escape) {
-      // Skip a whole CSI/SS3 sequence: the final byte is a letter or `~`.
-      if (/[A-Za-z~]/.test(ch)) state.escape = false
-      continue
-    }
-    if (ch === '\u001b') {
-      state.escape = true
-      continue
-    }
-    if (ch === '\r' || ch === '\n') {
-      const line = state.line
-      state.line = ''
-      void line // the renderer now reports the real line, see history:record
-      continue
-    }
-    if (ch === '\u007f' || ch === '\b') {
-      state.line = state.line.slice(0, -1)
-      continue
-    }
-    // Ctrl+C abandons the line, Ctrl+U clears it; other control bytes are keys
-    // (Tab completion, Ctrl+R, …) rather than text.
-    if (ch === '\u0003' || ch === '\u0015') {
-      state.line = ''
-      continue
-    }
-    if (ch < ' ') continue
-    state.line += ch
-  }
-
-  // A pasted wall of text must not grow the buffer without bound.
-  if (state.line.length > 4000) state.line = state.line.slice(-4000)
-  typing.set(sessionId, state)
-}
-
 /** Store one command and tell the UI, unless it was a no-op repeat. */
 function recordCommand(sessionId: string, command: string): void {
   const store = getHistoryStore()
@@ -333,7 +284,6 @@ export function registerIpc(): void {
     // duplicated pane can never reconnect with options belonging to a dead one,
     // and release the SFTP session that was riding on the same connection.
     blueprints.delete(id)
-    typing.delete(id)
     closeSftp(id)
     broadcast('session:exit', id, { code, signal })
   })
@@ -474,7 +424,6 @@ export function registerIpc(): void {
   })
 
   ipcMain.on('session:write', (_e, id: string, data: string) => {
-    noteTypedInput(id, data)
     sessionManager.write(id, data)
   })
   ipcMain.on('session:resize', (_e, id: string, cols: number, rows: number) =>
@@ -482,7 +431,6 @@ export function registerIpc(): void {
   )
   ipcMain.on('session:close', (_e, id: string) => {
     blueprints.delete(id)
-    typing.delete(id)
     closeSftp(id)
     sessionManager.close(id)
   })

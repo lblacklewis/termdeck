@@ -148,9 +148,6 @@ export function useTerminal(
     let rafId = 0
     let lastCols = 0
     let lastRows = 0
-    /** The container box the last fit was computed against. */
-    let lastFitW = -1
-    let lastFitH = -1
 
     const api = window.termdeck
 
@@ -205,8 +202,6 @@ export function useTerminal(
         return
       }
       noteFit(`fit ${w}x${h} -> ${term.cols}x${term.rows}`)
-      lastFitW = w
-      lastFitH = h
       if (term.cols !== lastCols || term.rows !== lastRows) {
         lastCols = term.cols
         lastRows = term.rows

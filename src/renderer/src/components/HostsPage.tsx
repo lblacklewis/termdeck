@@ -180,10 +180,7 @@ export function HostsPage({
   const total = tree.sessions.length
   const groupCount = tree.folders.length
 
-  const folderOf = (id: string | null): string =>
-    (id && tree.folders.find((f) => f.id === id)?.name) || t('hostspage.unfiled', 'Unfiled')
-
-  const hostMenu = (session: SavedSession): MenuItem[] => [
+  const hostMenu = (): MenuItem[] => [
     { id: 'connect', label: t('hostspage.connect', 'Connect') },
     { id: 'edit', label: t('hostspage.edit', 'Edit…') },
     { id: 'duplicate', label: t('hostspage.duplicate', 'Duplicate') },
@@ -214,7 +211,7 @@ export function HostsPage({
     setMenu({
       x: event.clientX,
       y: event.clientY,
-      items: hostMenu(session),
+      items: hostMenu(),
       run: (id) => {
         if (id === 'connect') onConnect(session)
         else if (id === 'edit') onEdit(session)

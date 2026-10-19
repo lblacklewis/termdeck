@@ -21,11 +21,9 @@ import {
   type HistorySessionSummary,
   type HostKeyPrompt,
   type HostsView,
-  type LayoutState,
   type LockStatus,
   type QuitRequest,
   type SavedSession,
-  type SessionFolder,
   type SessionInfo,
   type SessionTree as Tree,
   type SidebarSectionId,
@@ -937,11 +935,6 @@ export function App(): JSX.Element {
      */
     let settleFrame = 0
 
-    const gridSize = (): { w: number; h: number } | null => {
-      const grid = document.querySelector('.dv-grid-view') as HTMLElement | null
-      return grid ? { w: grid.clientWidth, h: grid.clientHeight } : null
-    }
-
     const applyLayout = (): void => {
       const width = host.clientWidth
       const height = host.clientHeight
@@ -1224,7 +1217,7 @@ export function App(): JSX.Element {
    * reconnecting repeatedly does not litter the tree.
    */
   const autoSaveQuickConnect = useCallback(
-    async (session: SessionInfo, payload: SshConnectPayload) => {
+    async (payload: SshConnectPayload) => {
       if (payload.savedSessionId) return
       const already = treeRef.current.sessions.some(
         (s) =>
@@ -1274,7 +1267,7 @@ export function App(): JSX.Element {
 
       if (result.ok) {
         addSession(result.session, payload.savedSessionId)
-        void autoSaveQuickConnect(result.session, payload)
+        void autoSaveQuickConnect(payload)
         setDialogOpen(false)
         setConnectError(null)
         setAlert(null)
@@ -2147,7 +2140,6 @@ export function App(): JSX.Element {
   const contextMenuItems = useCallback(
     (menu: ContextMenuState): MenuItem[] => {
       if (menu.target.kind === 'session') {
-        const { session } = menu.target
         return [
           { id: 'connect', label: t('app.connect', 'Connect') },
           { id: 'edit', label: t('app.edit', 'Edit…') },
@@ -3151,14 +3143,10 @@ export function App(): JSX.Element {
                   availableTags={knownTags}
                   onSelectSession={(s) => setSelectedSavedId(s.id)}
                   onOpenSession={(s) => void connectSaved(s)}
-                  onEditSession={(s) => openEditor(s, s.parentId)}
-                  onDeleteSession={(id) => void api.deleteSession(id)}
-                  onDuplicateSession={(s) => void duplicateSession(s)}
                   onNewSession={() => openEditor(null, null)}
                   onContextMenu={setContextMenu}
                   onCreateFolder={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
                   onRenameFolder={(id) => askFolderName({ kind: 'rename-folder', id })}
-                  onDeleteFolder={(id) => requestDeleteFolder(id)}
                   onToggleFolder={(id, expanded) =>
                     void api.saveFolder({ id, name: folderName(tree, id), expanded })
                   }

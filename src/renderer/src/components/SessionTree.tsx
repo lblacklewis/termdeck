@@ -16,16 +16,12 @@ interface SessionTreeProps {
   tagFilter: string[]
   onSelectSession: (session: SavedSession) => void
   onOpenSession: (session: SavedSession) => void
-  onEditSession: (session: SavedSession) => void
-  onDeleteSession: (id: string) => void
-  onDuplicateSession: (session: SavedSession) => void
   /** Create a session at the root; lives in the Sessions header, not the sidebar. */
   onNewSession: () => void
   onContextMenu: (state: ContextMenuState) => void
   onCreateFolder: (parentId: string | null) => void
   /** Opens the naming prompt; the shell owns the dialog and the save. */
   onRenameFolder: (id: string) => void
-  onDeleteFolder: (id: string) => void
   onToggleFolder: (id: string, expanded: boolean) => void
   onMove: (payload: DragPayload, parentId: string | null) => void
   onToggleTag: (tag: string) => void
@@ -106,14 +102,10 @@ export function SessionTree({
   tagFilter,
   onSelectSession,
   onOpenSession,
-  onEditSession,
-  onDeleteSession,
-  onDuplicateSession,
   onNewSession,
   onContextMenu,
   onCreateFolder,
   onRenameFolder,
-  onDeleteFolder,
   onToggleFolder,
   onMove,
   onToggleTag,

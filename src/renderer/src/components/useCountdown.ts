@@ -1,4 +1,4 @@
-import { useEffect, useState, type JSX } from 'react'
+import { useEffect, useState } from 'react'
 
 /**
  * Counts down to a wall-clock timestamp.
