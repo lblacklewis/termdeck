@@ -12,7 +12,7 @@ interface TileDialogProps {
   /** Every open pane, in the order they are arranged now. */
   panes: TileCandidate[]
   onCancel: () => void
-  onApply: (ids: string[], mode: TileMode) => void
+  onApply: (ids: string[], mode: TileMode, keepIds: string[]) => void
 }
 
 /**
@@ -49,6 +49,11 @@ export function TileDialog({ panes, onCancel, onApply }: TileDialogProps): JSX.E
       id: 'rows',
       label: t('tiledialog.mode_rows', '横屏分割'),
       hint: t('tiledialog.mode_rows_hint', '上下排列，每行占满宽度')
+    },
+    {
+      id: 'stack',
+      label: t('tiledialog.mode_stack', '并成单个窗口'),
+      hint: t('tiledialog.mode_stack_hint', '所有窗格合并成一个窗口的标签页')
     }
   ]
 
@@ -72,9 +77,11 @@ export function TileDialog({ panes, onCancel, onApply }: TileDialogProps): JSX.E
             cols: columns,
             rows: Math.ceil(chosen.length / columns)
           })
-        : mode === 'columns'
-          ? t('tiledialog.preview_columns', '{count} columns', { count: chosen.length })
-          : t('tiledialog.preview_rows', '{count} rows', { count: chosen.length })
+        : mode === 'stack'
+          ? t('tiledialog.preview_stack', '{count} panes in one window', { count: chosen.length })
+          : mode === 'columns'
+            ? t('tiledialog.preview_columns', '{count} columns', { count: chosen.length })
+            : t('tiledialog.preview_rows', '{count} rows', { count: chosen.length })
 
   return (
     <ModalShell onDismiss={onCancel} testId="tile-dialog">
@@ -149,7 +156,13 @@ export function TileDialog({ panes, onCancel, onApply }: TileDialogProps): JSX.E
           className="td-btn td-btn-primary"
           data-testid="tile-apply"
           disabled={chosen.length < 2}
-          onClick={() => onApply(chosen.map((p) => p.id), mode)}
+          onClick={() =>
+            onApply(
+              chosen.map((p) => p.id),
+              mode,
+              panes.filter((p) => !selected.has(p.id)).map((p) => p.id)
+            )
+          }
         >
           {t('tiledialog.apply', 'Arrange {count} panes', { count: chosen.length })}
         </button>

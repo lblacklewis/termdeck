@@ -2570,11 +2570,11 @@ export function App(): JSX.Element {
   }, [])
 
   /** Apply the chosen arrangement, then close the dialog. */
-  const applyTile = useCallback((ids: string[], mode: TileMode) => {
+  const applyTile = useCallback((ids: string[], mode: TileMode, keepIds: string[]) => {
     const dockApi = dockApiRef.current
     setTilePanes(null)
     if (!dockApi) return
-    tilePanels(dockApi, ids, mode, dockRef.current)
+    tilePanels(dockApi, ids, mode, dockRef.current, keepIds)
     setToast(
       mode === 'grid'
         ? t('app.tiled_grid', 'Tiled {count} panes', { count: ids.length })
