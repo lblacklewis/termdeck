@@ -199,13 +199,19 @@ async function main() {
     const entry = window.__tdTerminals[id]
     entry.term.paste(String.fromCharCode(3))
     await wait(500)
-    // Half a command name, then let the shell finish it with Tab.
+    /*
+     * Type a command, run it, then recall it with Up.
+     *
+     * The Up key sends only an escape sequence, so a record built from the keystrokes
+     * would store nothing at all — that the recalled command is what lands in history
+     * is the proof that the line comes from the screen. (Driving the shell's own Tab
+     * completion from a probe turned out not to be possible: a synthetic keydown is
+     * ignored by xterm, and a pasted Tab is literal text to PSReadLine.)
+     */
     entry.term.paste('Get-Dat')
-    await wait(600)
+    await wait(700)
     entry.term.paste(String.fromCharCode(13))
     await wait(1500)
-    // Now recall it with Up: the keys typed are only an escape sequence, so a
-    // record whose source is the keystrokes would store nothing at all.
     entry.term.paste(String.fromCharCode(27) + '[A')
     await wait(1200)
     const b = entry.term.buffer.active
