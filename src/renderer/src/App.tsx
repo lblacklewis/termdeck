@@ -60,6 +60,7 @@ import { NamePrompt } from './components/NamePrompt'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { TileDialog } from './components/TileDialog'
 import { WelcomeScreen } from './components/WelcomeScreen'
+import { PagesLayer } from './components/PagesLayer'
 import { ShareDialog } from './components/ShareDialog'
 import { NavRail, type PageId } from './components/NavRail'
 import { useTabMenu } from './components/useTabMenu'
@@ -82,29 +83,15 @@ import { onLanguageChange, setLanguage, t } from './i18n'
 const api = window.termdeck
 
 /**
- * The parts of the window that are not on screen when it opens.
+ * The SFTP panel, which is not on screen until a session has one to show.
  *
- * Each of these is a page or a drawer body the user has to ask for, so keeping
- * them out of the entry chunk costs a chunk fetch the first time one is opened
- * and saves every startup the parse of code nobody is looking at yet. They are
- * named exports, hence the `.then`: `lazy` wants a default.
+ * It costs a chunk fetch the first time the panel fills in, and saves every
+ * startup the parse of code nobody is looking at yet. A named export, hence the
+ * `.then`: `lazy` wants a default.
  *
- * The fallback is `null` on purpose — the pages own their own layout, so there
- * is nothing to hold the space with, and a spinner that flashes for one frame is
- * worse than the frame of empty space it replaces.
+ * The pages have their own module (`PagesLayer`); this one belongs to the
+ * terminal's drawer rather than to a page, so it stays here.
  */
-const HostsPage = lazy(() =>
-  import('./components/HostsPage').then((m) => ({ default: m.HostsPage }))
-)
-const KnownHostsPage = lazy(() =>
-  import('./components/KnownHostsPage').then((m) => ({ default: m.KnownHostsPage }))
-)
-const SnippetsPage = lazy(() =>
-  import('./components/SnippetsPage').then((m) => ({ default: m.SnippetsPage }))
-)
-const LogsPage = lazy(() =>
-  import('./components/LogsPage').then((m) => ({ default: m.LogsPage }))
-)
 const SftpPanel = lazy(() =>
   import('./components/SftpPanel').then((m) => ({ default: m.SftpPanel }))
 )
@@ -2639,63 +2626,36 @@ export function App(): JSX.Element {
       />
       )}
 
-      {page === 'known-hosts' && (
-        <Suspense fallback={null}>
-          <KnownHostsPage />
-        </Suspense>
-      )}
-
-      {page === 'snippets' && (
-        <Suspense fallback={null}>
-          <SnippetsPage
-            snippets={settings.snippets}
-            canSend={activeTerminalId() !== null}
-            onSend={sendSnippet}
-            onEdit={(snippet) => setSnippetEditor({ snippet, group: snippet.group })}
-            onNew={(group) => setSnippetEditor({ snippet: null, group })}
-            onDelete={(id) => void deleteSnippet(id)}
-            onReorder={(ids) => void api.reorderSnippets(ids).then(setSettings)}
-          />
-        </Suspense>
-      )}
-
-      {page === 'logs' && (
-        <Suspense fallback={null}>
-          <LogsPage entries={logEntries} onClear={() => setLogEntries([])} />
-        </Suspense>
-      )}
-
-      {page === 'hosts' && (
-        <Suspense fallback={null}>
-          <HostsPage
-            tree={tree}
-            sessions={sessions}
-            knownTags={knownTags}
-            view={hostsView}
-            onViewChange={setHostsView}
-            /*
-             * Connecting from Hosts switches to Terminal first. The connection's
-             * pane lives in the workspace, so staying on Hosts would open a session
-             * the user cannot see and has to go looking for.
-             */
-            onConnect={(s) => {
-              setPage('terminal')
-              void connectSaved(s)
-            }}
-            onEdit={(s) => openEditor(s, s.parentId)}
-            onDelete={(id) => void api.deleteSession(id)}
-            onDuplicate={(s) => void duplicateSession(s)}
-            onNewHost={(parentId) => openEditor(null, parentId)}
-            onCreateGroup={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
-            onRenameGroup={(id) => askFolderName({ kind: 'rename-folder', id })}
-            onDeleteGroup={(id) => requestDeleteFolder(id)}
-            onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
-            onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
-            onExportShare={() => setShareMode('export')}
-            onImportShare={() => setShareMode('import')}
-          />
-        </Suspense>
-      )}
+      <PagesLayer
+        page={page}
+        settings={settings}
+        tree={tree}
+        sessions={sessions}
+        knownTags={knownTags}
+        hostsView={hostsView}
+        onHostsViewChange={setHostsView}
+        onShowTerminal={() => setPage('terminal')}
+        onConnect={(session) => void connectSaved(session)}
+        onEditHost={(session) => openEditor(session, session.parentId)}
+        onDeleteHost={(id) => void api.deleteSession(id)}
+        onDuplicateHost={(session) => void duplicateSession(session)}
+        onNewHost={(parentId) => openEditor(null, parentId)}
+        onCreateGroup={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
+        onRenameGroup={(id) => askFolderName({ kind: 'rename-folder', id })}
+        onDeleteGroup={(id) => requestDeleteFolder(id)}
+        onMoveHost={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
+        onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
+        onExportShare={() => setShareMode('export')}
+        onImportShare={() => setShareMode('import')}
+        canSendSnippet={activeTerminalId() !== null}
+        onSendSnippet={sendSnippet}
+        onEditSnippet={(snippet) => setSnippetEditor({ snippet, group: snippet.group })}
+        onNewSnippet={(group) => setSnippetEditor({ snippet: null, group })}
+        onDeleteSnippet={(id) => void deleteSnippet(id)}
+        onReorderSnippets={(ids) => void api.reorderSnippets(ids).then(setSettings)}
+        logEntries={logEntries}
+        onClearLogs={() => setLogEntries([])}
+      />
 
       {/*
         The rail's list drawer. It is part of the same column as the rail rather
