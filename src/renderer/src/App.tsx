@@ -49,9 +49,9 @@ import { ConnectionsWindow } from './components/ConnectionsWindow'
 import { PasswordPrompt } from './components/PasswordPrompt'
 import { QuitConfirmDialog } from './components/QuitConfirmDialog'
 import { BreakBar } from './components/BreakBar'
-import { WellnessChip } from './components/WellnessChip'
 import { LockScreen } from './components/LockScreen'
 import { HistoryPanel, SectionFrame } from './components/DrawerSections'
+import { DrawerFooter } from './components/DrawerFooter'
 import { SnippetBar } from './components/SnippetBar'
 import { SnippetEditor } from './components/SnippetEditor'
 import { Drawer } from './components/Drawer'
@@ -3219,164 +3219,52 @@ export function App(): JSX.Element {
             than scrolling away with the sections. The grip is how the whole drawer
             is moved to the other edge of the window.
           */}
-          <div className="td-sidebar-footer">
-            {/*
-              * Broadcast, timestamps and arrange live down here.
-              *
-              * They were floating over the panes (top-right), where they covered the
-              * first lines of output. The drawer footer is where the other per-session
-              * controls already are, and it is never over the terminal text.
-              */}
-            <button
-              className={`td-icon-btn${broadcasting ? ' is-on' : ''}`}
-              title={
-                broadcasting
-                  ? `Typing goes to all ${panelCount} panes — ${broadcastSummary()}. Click to send to the focused pane only.`
-                  : `Broadcast input: send typing to all ${panelCount} panes at once`
-              }
-              data-testid="toggle-broadcast"
-              aria-pressed={broadcasting}
-              onClick={() => setBroadcasting(toggleBroadcasting())}
-            >
-              ⇶
-            </button>
-            <button
-              className={`td-icon-btn${settings.terminal.showTimestamps ? ' is-on' : ''}`}
-              title={t('app.toggle_timestamps', 'Show a timestamp column in every pane')}
-              data-testid="toggle-timestamps"
-              aria-pressed={settings.terminal.showTimestamps}
-              onClick={() => {
-                const next = !settings.terminal.showTimestamps
-                void api
-                  .saveSettings({
-                    ...settings,
-                    terminal: { ...settings.terminal, showTimestamps: next }
-                  })
-                  .then(setSettings)
-              }}
-            >
-              ⏱
-            </button>
-            <button
-              className="td-icon-btn"
-              title={t('app.arrange_panes_hint2', 'Arrange panes (tile, columns, rows)')}
-              data-testid="arrange-panes"
-              onClick={() => openTileDialog()}
-            >
-              ▦
-            </button>
-            <button
-              className="td-icon-btn"
-              title={t('app.new_connection_ctrl_t', 'New connection (Ctrl+T)')}
-              data-testid="new-connection"
-              onClick={() => setDialogOpen(true)}
-            >
-              ＋
-            </button>
-            <button
-              className="td-icon-btn"
-              title={
-                appMeta && !appMeta.localShellAvailable
-                  ? 'Local shell needs @lydell/node-pty for this platform'
-                  : 'Open a local shell'
-              }
-              data-testid="local-shell"
-              disabled={!appMeta?.localShellAvailable}
-              onClick={() =>
-                void api.createLocalSession({}).then((r) => {
-                  if (r.ok) addSession(r.session)
-                  else setAlert({ message: r.error.message })
+          <DrawerFooter
+            broadcasting={broadcasting}
+            panelCount={panelCount}
+            broadcastSummary={broadcastSummary()}
+            onToggleBroadcast={() => setBroadcasting(toggleBroadcasting())}
+            showTimestamps={settings.terminal.showTimestamps}
+            onToggleTimestamps={() => {
+              const next = !settings.terminal.showTimestamps
+              void api
+                .saveSettings({
+                  ...settings,
+                  terminal: { ...settings.terminal, showTimestamps: next }
                 })
-              }
-            >
-              {t('app.gt', '&gt;_')}
-            </button>
-            <button
-              className="td-icon-btn"
-              title={t('app.connections_window', 'Connections window')}
-              data-testid="open-connections"
-              onClick={() => setConnectionsOpen(true)}
-            >
-              ⧉
-              {sessions.length > 0 && <span className="td-badge">{sessions.length}</span>}
-            </button>
-            <button
-              className="td-icon-btn"
-              title={t('app.snippet_bar', 'Snippet bar')}
-              data-testid="toggle-snippets"
-              onClick={() => setSnippetBarVisible((v) => !v)}
-            >
-              ⌨
-            </button>
-            <button
-              className="td-icon-btn"
-              title={t('app.settings', 'Settings')}
-              data-testid="open-settings"
-              onClick={() => setSettingsOpen(true)}
-            >
-              ⚙
-            </button>
-
-            {/*
-              The pomodoro chip lives here because this is where your eye already
-              is: it shows which half of the cycle is running and how long is left,
-              and it is the only place the cycle is visible without the bar.
-            */}
-            {settings.break.enabled && settings.break.mode === 'pomodoro' && (
-              <WellnessChip
-                phase={wellness.phase}
-                endsAt={wellness.endsAt}
-                round={settings.break.minutes}
-                title={t('app.pomodoro_click_for_the_setti', 'Pomodoro — click for the settings')}
-                onClick={() => setSettingsOpen(true)}
-              />
-            )}
-
-            {/*
-              The grip: drag it onto the other half of the window and the whole
-              drawer moves to that edge.
-            */}
-            <span
-              className="td-drawer-grip"
-              data-testid="drawer-grip"
-              draggable
-              title={t('app.drag_to_the_other_edge_to_mo', 'Drag to the other edge to move the whole drawer · double-click to swap sides')}
-              onDragStart={(e) => {
-                e.dataTransfer.effectAllowed = 'move'
-                e.dataTransfer.setData('text/plain', 'drawer')
-                setDraggingDrawer(true)
-              }}
-              onDragEnd={() => {
-                setDraggingDrawer(false)
-                setDrawerDropHint(null)
-              }}
-              onDoubleClick={flipDrawer}
-            >
-              ⠿
-            </span>
-            <span>{platformLabel}</span>
-          </div>
-
-          {/* Drag the inner edge to set the drawer's width. */}
-          <div
-            className="td-sidebar-resize"
-            data-testid="drawer-resize"
-            title={t('app.drag_to_resize_the_drawer', 'Drag to resize the drawer')}
-            onPointerDown={startDrawerResize}
+                .then(setSettings)
+            }}
+            onArrange={() => openTileDialog()}
+            onNewConnection={() => setDialogOpen(true)}
+            onLocalShell={() =>
+              void api.createLocalSession({}).then((r) => {
+                if (r.ok) addSession(r.session)
+                else setAlert({ message: r.error.message })
+              })
+            }
+            localShellAvailable={appMeta ? appMeta.localShellAvailable : null}
+            sessionCount={sessions.length}
+            onOpenConnections={() => setConnectionsOpen(true)}
+            onToggleSnippets={() => setSnippetBarVisible((v) => !v)}
+            onOpenSettings={() => setSettingsOpen(true)}
+            chip={
+              settings.break.enabled && settings.break.mode === 'pomodoro'
+                ? { phase: wellness.phase, endsAt: wellness.endsAt, round: settings.break.minutes }
+                : null
+            }
+            side={settings.sidebar.side}
+            dropHint={drawerDropHint}
+            draggingDrawer={draggingDrawer}
+            draggingSection={draggingSection !== null}
+            onGripDragStart={() => setDraggingDrawer(true)}
+            onGripDragEnd={() => {
+              setDraggingDrawer(false)
+              setDrawerDropHint(null)
+            }}
+            onFlip={flipDrawer}
+            onResizeStart={startDrawerResize}
+            platformLabel={platformLabel}
           />
-
-          {/*
-            Which edge the drawer would land on, while it is being dragged there.
-            Two lanes rather than a free-floating drop: there are only two places
-            the drawer can be. A section heading can start the same gesture, so
-            either drag shows it.
-          */}
-          {(draggingDrawer || draggingSection !== null) && (
-            <div
-              className={`td-drawer-hint is-${drawerDropHint ?? settings.sidebar.side}`}
-              aria-hidden="true"
-            />
-          )}
         </aside>
       )}
 
