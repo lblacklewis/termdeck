@@ -55,6 +55,7 @@ import { HistoryPanel, SectionFrame } from './components/DrawerSections'
 import { SnippetBar } from './components/SnippetBar'
 import { SnippetEditor } from './components/SnippetEditor'
 import { Drawer } from './components/Drawer'
+import { SettingsDrawer } from './components/SettingsDrawer'
 import { NamePrompt } from './components/NamePrompt'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { TileDialog } from './components/TileDialog'
@@ -103,9 +104,6 @@ const SnippetsPage = lazy(() =>
 )
 const LogsPage = lazy(() =>
   import('./components/LogsPage').then((m) => ({ default: m.LogsPage }))
-)
-const SettingsDialog = lazy(() =>
-  import('./components/SettingsDialog').then((m) => ({ default: m.SettingsDialog }))
 )
 const SftpPanel = lazy(() =>
   import('./components/SftpPanel').then((m) => ({ default: m.SftpPanel }))
@@ -3547,52 +3545,40 @@ export function App(): JSX.Element {
         </Drawer>
       )}
 
-      <Drawer
+      <SettingsDrawer
         open={settingsOpen}
-        size="lg"
-        title={t('app.settings_2', 'Settings')}
-        testId="settings-drawer"
+        settings={settings}
+        credentialStatus={credentialStatus}
+        onApplyScale={applyUiScale}
         onClose={() => {
           setSettingsOpen(false)
           void refreshCredentials()
         }}
-      >
-        <Suspense fallback={null}>
-          <SettingsDialog
-            settings={settings}
-            credentialStatus={credentialStatus}
-            onApplyScale={applyUiScale}
-            onClose={() => {
-              setSettingsOpen(false)
-              void refreshCredentials()
-            }}
-            onSaved={setSettings}
-            onExportShare={() => {
-              setSettingsOpen(false)
-              setShareMode('export')
-            }}
-            onImportShare={() => {
-              setSettingsOpen(false)
-              setShareMode('import')
-            }}
-            onCredentialChanged={(status) => {
-              setCredentialStatus(status)
-              void refreshCredentials()
-            }}
-            lockStatus={lockStatus ?? { hasPassword: false }}
-            onLockChanged={setLockStatus}
-            onPreviewBreak={() => {
-              // Shown straight away, without waiting for the idle gate: this button
-              // exists to see what the nudge looks like, and the settings drawer is
-              // in the way of it.
-              setSettingsOpen(false)
-              breakDueRef.current = true
-              breakBarRef.current = true
-              setBreakBar({ kind: 'reminder', minutes: settings.break.minutes })
-            }}
-          />
-        </Suspense>
-      </Drawer>
+        onSaved={setSettings}
+        onExportShare={() => {
+          setSettingsOpen(false)
+          setShareMode('export')
+        }}
+        onImportShare={() => {
+          setSettingsOpen(false)
+          setShareMode('import')
+        }}
+        onCredentialChanged={(status) => {
+          setCredentialStatus(status)
+          void refreshCredentials()
+        }}
+        lockStatus={lockStatus}
+        onLockChanged={setLockStatus}
+        onPreviewBreak={() => {
+          // Shown straight away, without waiting for the idle gate: this button
+          // exists to see what the nudge looks like, and the settings drawer is
+          // in the way of it.
+          setSettingsOpen(false)
+          breakDueRef.current = true
+          breakBarRef.current = true
+          setBreakBar({ kind: 'reminder', minutes: settings.break.minutes })
+        }}
+      />
 
       {hostKeyRequest && (
         <HostKeyDialog
