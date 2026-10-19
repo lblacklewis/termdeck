@@ -1,4 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type JSX
+} from 'react'
 import { DockviewComponent, type DockviewApi, type GroupPanelPartInitParameters } from 'dockview'
 
 import {
@@ -36,7 +45,6 @@ import {
   type TabMenuState
 } from './components/SessionTree'
 import { SessionEditor } from './components/SessionEditor'
-import { SettingsDialog } from './components/SettingsDialog'
 import { HostKeyDialog } from './components/HostKeyDialog'
 import { ContextMenu, type MenuItem } from './components/ContextMenu'
 import { ConnectionsWindow } from './components/ConnectionsWindow'
@@ -45,13 +53,9 @@ import { QuitConfirmDialog } from './components/QuitConfirmDialog'
 import { BreakBar } from './components/BreakBar'
 import { WellnessChip } from './components/WellnessChip'
 import { LockScreen } from './components/LockScreen'
-import { HistoryPanel, SectionFrame, SftpPanel } from './components/DrawerSections'
+import { HistoryPanel, SectionFrame } from './components/DrawerSections'
 import { SnippetBar } from './components/SnippetBar'
 import { SnippetEditor } from './components/SnippetEditor'
-import { KnownHostsPage } from './components/KnownHostsPage'
-import { SnippetsPage } from './components/SnippetsPage'
-import { LogsPage, type LogEntry } from './components/LogsPage'
-import { HostsPage } from './components/HostsPage'
 import { Drawer } from './components/Drawer'
 import { NamePrompt } from './components/NamePrompt'
 import { ConfirmDialog } from './components/ConfirmDialog'
@@ -60,6 +64,7 @@ import { tilePanels, type TileMode } from './components/tile'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { ShareDialog } from './components/ShareDialog'
 import { NavRail, type PageId } from './components/NavRail'
+import type { LogEntry } from './components/LogsPage'
 import { getTerminal, readScrollback, setFitsPaused } from './components/terminalRegistry'
 import {
   broadcastSummary,
@@ -76,6 +81,37 @@ import { useTheme } from './components/useTheme'
 import { onLanguageChange, setLanguage, t } from './i18n'
 
 const api = window.termdeck
+
+/**
+ * The parts of the window that are not on screen when it opens.
+ *
+ * Each of these is a page or a drawer body the user has to ask for, so keeping
+ * them out of the entry chunk costs a chunk fetch the first time one is opened
+ * and saves every startup the parse of code nobody is looking at yet. They are
+ * named exports, hence the `.then`: `lazy` wants a default.
+ *
+ * The fallback is `null` on purpose — the pages own their own layout, so there
+ * is nothing to hold the space with, and a spinner that flashes for one frame is
+ * worse than the frame of empty space it replaces.
+ */
+const HostsPage = lazy(() =>
+  import('./components/HostsPage').then((m) => ({ default: m.HostsPage }))
+)
+const KnownHostsPage = lazy(() =>
+  import('./components/KnownHostsPage').then((m) => ({ default: m.KnownHostsPage }))
+)
+const SnippetsPage = lazy(() =>
+  import('./components/SnippetsPage').then((m) => ({ default: m.SnippetsPage }))
+)
+const LogsPage = lazy(() =>
+  import('./components/LogsPage').then((m) => ({ default: m.LogsPage }))
+)
+const SettingsDialog = lazy(() =>
+  import('./components/SettingsDialog').then((m) => ({ default: m.SettingsDialog }))
+)
+const SftpPanel = lazy(() =>
+  import('./components/SftpPanel').then((m) => ({ default: m.SftpPanel }))
+)
 
 /**
  * How long a toast stays before it dismisses itself.
@@ -2945,50 +2981,62 @@ export function App(): JSX.Element {
       />
       )}
 
-      {page === 'known-hosts' && <KnownHostsPage />}
-
-      {page === 'snippets' && (
-        <SnippetsPage
-          snippets={settings.snippets}
-          canSend={activeTerminalId() !== null}
-          onSend={sendSnippet}
-          onEdit={(snippet) => setSnippetEditor({ snippet, group: snippet.group })}
-          onNew={(group) => setSnippetEditor({ snippet: null, group })}
-          onDelete={(id) => void deleteSnippet(id)}
-          onReorder={(ids) => void api.reorderSnippets(ids).then(setSettings)}
-        />
+      {page === 'known-hosts' && (
+        <Suspense fallback={null}>
+          <KnownHostsPage />
+        </Suspense>
       )}
 
-      {page === 'logs' && <LogsPage entries={logEntries} onClear={() => setLogEntries([])} />}
+      {page === 'snippets' && (
+        <Suspense fallback={null}>
+          <SnippetsPage
+            snippets={settings.snippets}
+            canSend={activeTerminalId() !== null}
+            onSend={sendSnippet}
+            onEdit={(snippet) => setSnippetEditor({ snippet, group: snippet.group })}
+            onNew={(group) => setSnippetEditor({ snippet: null, group })}
+            onDelete={(id) => void deleteSnippet(id)}
+            onReorder={(ids) => void api.reorderSnippets(ids).then(setSettings)}
+          />
+        </Suspense>
+      )}
+
+      {page === 'logs' && (
+        <Suspense fallback={null}>
+          <LogsPage entries={logEntries} onClear={() => setLogEntries([])} />
+        </Suspense>
+      )}
 
       {page === 'hosts' && (
-        <HostsPage
-          tree={tree}
-          sessions={sessions}
-          knownTags={knownTags}
-          view={hostsView}
-          onViewChange={setHostsView}
-          /*
-           * Connecting from Hosts switches to Terminal first. The connection's
-           * pane lives in the workspace, so staying on Hosts would open a session
-           * the user cannot see and has to go looking for.
-           */
-          onConnect={(s) => {
-            setPage('terminal')
-            void connectSaved(s)
-          }}
-          onEdit={(s) => openEditor(s, s.parentId)}
-          onDelete={(id) => void api.deleteSession(id)}
-          onDuplicate={(s) => void duplicateSession(s)}
-          onNewHost={(parentId) => openEditor(null, parentId)}
-          onCreateGroup={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
-          onRenameGroup={(id) => askFolderName({ kind: 'rename-folder', id })}
-          onDeleteGroup={(id) => requestDeleteFolder(id)}
-          onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
-          onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
-          onExportShare={() => setShareMode('export')}
-          onImportShare={() => setShareMode('import')}
-        />
+        <Suspense fallback={null}>
+          <HostsPage
+            tree={tree}
+            sessions={sessions}
+            knownTags={knownTags}
+            view={hostsView}
+            onViewChange={setHostsView}
+            /*
+             * Connecting from Hosts switches to Terminal first. The connection's
+             * pane lives in the workspace, so staying on Hosts would open a session
+             * the user cannot see and has to go looking for.
+             */
+            onConnect={(s) => {
+              setPage('terminal')
+              void connectSaved(s)
+            }}
+            onEdit={(s) => openEditor(s, s.parentId)}
+            onDelete={(id) => void api.deleteSession(id)}
+            onDuplicate={(s) => void duplicateSession(s)}
+            onNewHost={(parentId) => openEditor(null, parentId)}
+            onCreateGroup={(parentId) => askFolderName({ kind: 'new-folder', parentId })}
+            onRenameGroup={(id) => askFolderName({ kind: 'rename-folder', id })}
+            onDeleteGroup={(id) => requestDeleteFolder(id)}
+            onMove={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
+            onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
+            onExportShare={() => setShareMode('export')}
+            onImportShare={() => setShareMode('import')}
+          />
+        </Suspense>
       )}
 
       {/*
@@ -3168,11 +3216,13 @@ export function App(): JSX.Element {
               )}
 
               {section.id === 'sftp' && (
-                <SftpPanel
-                  sessionId={activeSshSessionId}
-                  onToast={setToast}
-                  onError={(message) => setAlert({ message })}
-                />
+                <Suspense fallback={null}>
+                  <SftpPanel
+                    sessionId={activeSshSessionId}
+                    onToast={setToast}
+                    onError={(message) => setAlert({ message })}
+                  />
+                </Suspense>
               )}
             </SectionFrame>
           ))}
@@ -3519,39 +3569,41 @@ export function App(): JSX.Element {
           void refreshCredentials()
         }}
       >
-        <SettingsDialog
-          settings={settings}
-          credentialStatus={credentialStatus}
-          onApplyScale={applyUiScale}
-          onClose={() => {
-            setSettingsOpen(false)
-            void refreshCredentials()
-          }}
-          onSaved={setSettings}
-          onExportShare={() => {
-            setSettingsOpen(false)
-            setShareMode('export')
-          }}
-          onImportShare={() => {
-            setSettingsOpen(false)
-            setShareMode('import')
-          }}
-          onCredentialChanged={(status) => {
-            setCredentialStatus(status)
-            void refreshCredentials()
-          }}
-          lockStatus={lockStatus ?? { hasPassword: false }}
-          onLockChanged={setLockStatus}
-          onPreviewBreak={() => {
-            // Shown straight away, without waiting for the idle gate: this button
-            // exists to see what the nudge looks like, and the settings drawer is
-            // in the way of it.
-            setSettingsOpen(false)
-            breakDueRef.current = true
-            breakBarRef.current = true
-            setBreakBar({ kind: 'reminder', minutes: settings.break.minutes })
-          }}
-        />
+        <Suspense fallback={null}>
+          <SettingsDialog
+            settings={settings}
+            credentialStatus={credentialStatus}
+            onApplyScale={applyUiScale}
+            onClose={() => {
+              setSettingsOpen(false)
+              void refreshCredentials()
+            }}
+            onSaved={setSettings}
+            onExportShare={() => {
+              setSettingsOpen(false)
+              setShareMode('export')
+            }}
+            onImportShare={() => {
+              setSettingsOpen(false)
+              setShareMode('import')
+            }}
+            onCredentialChanged={(status) => {
+              setCredentialStatus(status)
+              void refreshCredentials()
+            }}
+            lockStatus={lockStatus ?? { hasPassword: false }}
+            onLockChanged={setLockStatus}
+            onPreviewBreak={() => {
+              // Shown straight away, without waiting for the idle gate: this button
+              // exists to see what the nudge looks like, and the settings drawer is
+              // in the way of it.
+              setSettingsOpen(false)
+              breakDueRef.current = true
+              breakBarRef.current = true
+              setBreakBar({ kind: 'reminder', minutes: settings.break.minutes })
+            }}
+          />
+        </Suspense>
       </Drawer>
 
       {hostKeyRequest && (
