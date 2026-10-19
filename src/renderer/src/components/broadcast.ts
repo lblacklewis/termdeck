@@ -62,6 +62,12 @@ export function registerSink(sessionId: string, sink: Sink): void {
 
 export function unregisterSink(sessionId: string): void {
   sinksBySession.delete(sessionId)
+  /*
+   * The counters are diagnostics, but this map outlives every pane: without this
+   * the app kept one entry per session it had ever broadcast to, for as long as
+   * the window stayed open.
+   */
+  writesBySink.delete(sessionId)
 }
 
 /**

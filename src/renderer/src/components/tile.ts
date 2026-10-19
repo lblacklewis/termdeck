@@ -149,9 +149,16 @@ function equalise(
   if (!container) return
   const seen = new Set<DockviewGroupPanel>()
   const apply = (): void => {
+    /*
+     * The second pass runs two frames later, and a pane can be closed in between:
+     * dockview throws when a group that has already been disposed is sized, and a
+     * half-finished tile gesture makes that easy to hit. Only size groups that are
+     * still in the grid.
+     */
+    const live = new Set(api.groups)
     for (const panel of panels) {
       const group = panel.group
-      if (!group || seen.has(group)) continue
+      if (!group || seen.has(group) || !live.has(group)) continue
       seen.add(group)
       group.api.setSize(sizeFor(container, span, share))
     }
@@ -162,5 +169,4 @@ function equalise(
   window.requestAnimationFrame(() => {
     window.requestAnimationFrame(apply)
   })
-  void api
 }
