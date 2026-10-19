@@ -47,6 +47,13 @@ export default defineConfig({
     },
     plugins: [react()],
     build: {
+      /*
+       * electron-vite leaves `build.minify` off, which is a sensible default for
+       * main and preload (readable crash traces) but not for the renderer: the
+       * bundle it produced was ~2 MB of pretty-printed code with names nobody
+       * reads, and every startup paid to parse it. Minified is ~1.05 MB.
+       */
+      minify: true,
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/renderer/index.html') }
       }
