@@ -317,6 +317,8 @@ export const zh: Catalog = {
   'keybinding.closeSession': '关闭当前会话',
   'keybinding.closeDeadPane': '关闭已结束的会话',
   'app.arrange_panes': '排列窗格…',
+  'app.toggle_timestamps': '在每个窗格显示时间戳列',
+  'app.arrange_panes_hint2': '排列窗格（瓷砖 / 竖屏 / 横屏）',
   'app.tile_every_window': '瓷砖 / 分割所有窗格',
   'app.tiled_grid': '已把 {count} 个窗格瓷砖排列',
   'app.tiled_columns': '已分成 {count} 列',

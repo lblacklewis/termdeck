@@ -3184,6 +3184,51 @@ export function App(): JSX.Element {
             is moved to the other edge of the window.
           */}
           <div className="td-sidebar-footer">
+            {/*
+              * Broadcast, timestamps and arrange live down here.
+              *
+              * They were floating over the panes (top-right), where they covered the
+              * first lines of output. The drawer footer is where the other per-session
+              * controls already are, and it is never over the terminal text.
+              */}
+            <button
+              className={`td-icon-btn${broadcasting ? ' is-on' : ''}`}
+              title={
+                broadcasting
+                  ? `Typing goes to all ${panelCount} panes — ${broadcastSummary()}. Click to send to the focused pane only.`
+                  : `Broadcast input: send typing to all ${panelCount} panes at once`
+              }
+              data-testid="toggle-broadcast"
+              aria-pressed={broadcasting}
+              onClick={() => setBroadcasting(toggleBroadcasting())}
+            >
+              ⇶
+            </button>
+            <button
+              className={`td-icon-btn${settings.terminal.showTimestamps ? ' is-on' : ''}`}
+              title={t('app.toggle_timestamps', 'Show a timestamp column in every pane')}
+              data-testid="toggle-timestamps"
+              aria-pressed={settings.terminal.showTimestamps}
+              onClick={() => {
+                const next = !settings.terminal.showTimestamps
+                void api
+                  .saveSettings({
+                    ...settings,
+                    terminal: { ...settings.terminal, showTimestamps: next }
+                  })
+                  .then(setSettings)
+              }}
+            >
+              ⏱
+            </button>
+            <button
+              className="td-icon-btn"
+              title={t('app.arrange_panes_hint2', 'Arrange panes (tile, columns, rows)')}
+              data-testid="arrange-panes"
+              onClick={() => openTileDialog()}
+            >
+              ▦
+            </button>
             <button
               className="td-icon-btn"
               title={t('app.new_connection_ctrl_t', 'New connection (Ctrl+T)')}
@@ -3337,20 +3382,7 @@ export function App(): JSX.Element {
               so "all 3" was telling the reader something the screen already said.
               The number is still in the tooltip, which is where a detail belongs.
             */}
-            <button
-              className={`td-broadcast${broadcasting ? ' is-on' : ''}`}
-              title={
-                broadcasting
-                  ? `Typing goes to all ${panelCount} panes — ${broadcastSummary()}. Click to send to the focused pane only.`
-                  : `Broadcast input: send typing to all ${panelCount} panes at once`
-              }
-              data-testid="toggle-broadcast"
-              aria-pressed={broadcasting}
-              onClick={() => setBroadcasting(toggleBroadcasting())}
-            >
-              <span aria-hidden="true">⇶</span>
-              <span>{broadcasting ? 'Typing to all' : 'Broadcast'}</span>
-            </button>
+            
           </div>
         )}
         <main className="td-main">
