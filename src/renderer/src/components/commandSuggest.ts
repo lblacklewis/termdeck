@@ -45,11 +45,14 @@ const MIN_CHARS = 1
 export function attachSuggestions({ container, term, write }: SuggestOptions): SuggestHandle {
   let line = ''
   let items: string[] = []
-  let active = 0
+  let active = -1
   let open = false
   let cache: string[] = []
   let cacheAt = 0
   let feeds = 0
+  /** Characters typed since the popup opened, and whether it was dismissed by typing. */
+  let typed = 0
+  let muted = false
 
   /** Why the popup is or is not showing, for the probe (see `tdDebug`). */
   const debug = (): void => {
@@ -137,7 +140,9 @@ export function attachSuggestions({ container, term, write }: SuggestOptions): S
       items = all
         .filter((command) => command.toLowerCase().startsWith(needle) && command !== line)
         .slice(0, MAX_ITEMS)
-      active = 0
+      active = -1
+      // A fresh list starts with nothing selected, and the typing budget resets.
+      typed = 0
       open = items.length > 0
       if (!open) {
         box.hidden = true
@@ -185,12 +190,29 @@ export function attachSuggestions({ container, term, write }: SuggestOptions): S
       event.preventDefault()
       event.stopPropagation()
       const step = event.key === 'ArrowDown' ? 1 : -1
-      active = (active + step + items.length) % items.length
+      // Nothing is selected when the popup opens: the arrows make the first move.
+      active =
+        active < 0
+          ? step > 0
+            ? 0
+            : items.length - 1
+          : (active + step + items.length) % items.length
       paint()
       place()
       return
     }
-    if (event.key === 'Enter' || event.key === 'Tab') {
+    /*
+     * Enter accepts, Tab does not.
+     *
+     * Tab belongs to the shell — it is how every shell completes a path or a command,
+     * and taking it over silently replaced that with our own list. Enter without a
+     * selection is left alone too, so it still runs what is on the line.
+     */
+    if (event.key === 'Enter') {
+      if (active < 0) {
+        close()
+        return
+      }
       event.preventDefault()
       event.stopPropagation()
       accept()
@@ -230,16 +252,40 @@ export function attachSuggestions({ container, term, write }: SuggestOptions): S
       const code = char.codePointAt(0) ?? 0
       if (SUBMIT.has(code)) {
         close()
+        muted = false
       } else if (BACKSPACE.has(code)) {
         line = line.slice(0, -1)
-        if (!line) close()
-        else if (open) void refresh()
+        if (!line) {
+          close()
+          muted = false
+        } else if (open) void refresh()
       } else if (code === INTERRUPT) {
         close()
+        muted = false
       } else if (code >= 32 && code !== 127) {
         line += char
-        if (line.length > 240) close()
-        else refresh()
+        if (line.length > 240) {
+          close()
+          return
+        }
+        /*
+         * Typing on past the popup dismisses it.
+         *
+         * A list that keeps filtering while the line grows becomes a banner over the
+         * text the user is already committed to typing. Three more characters without
+         * picking anything means the suggestion is not what they want; the line stays
+         * quiet (no reopening) until it is cleared.
+         */
+        if (muted) continue
+        if (open) {
+          typed += 1
+          if (typed > 3) {
+            close()
+            muted = true
+            continue
+          }
+        }
+        refresh()
       } else {
         // Arrows and other control sequences mean the line may no longer be what we
         // think it is: drop the popup rather than complete the wrong text.

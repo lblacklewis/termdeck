@@ -97,7 +97,7 @@ async function main() {
       box: !!box,
       visible: !!box && !box.hidden,
       items: box ? [...box.querySelectorAll('.td-suggest-item')].map((el) => el.textContent) : [],
-      active: box ? (box.querySelector('.td-suggest-item.is-active') || {}).textContent : null
+      active: box ? ((box.querySelector('.td-suggest-item.is-active') || {}).textContent ?? null) : null
     }
   })()`)
   push('a paste reaches the input stream the popup is fed from',
@@ -106,7 +106,7 @@ async function main() {
   push('it lists the commands starting with what was typed',
     typed.items.length === 2 && typed.items.every((t) => t.startsWith('Get-')),
     JSON.stringify(typed.items))
-  push('the first candidate is highlighted', typed.active === typed.items[0], String(typed.active))
+  push('nothing is selected when the list opens', typed.active === null, String(typed.active))
 
   // ---- ↑/↓ walk the list ------------------------------------------------------
   const walked = await page(`(async () => {
@@ -122,9 +122,9 @@ async function main() {
     const afterUp = (box.querySelector('.td-suggest-item.is-active') || {}).textContent
     return { afterDown, afterUp }
   })()`)
-  push('ArrowDown moves to the next candidate', walked.afterDown !== typed.active,
+  push('ArrowDown selects the first candidate', walked.afterDown === typed.items[0],
     JSON.stringify(walked))
-  push('ArrowUp comes back', walked.afterUp === typed.active, JSON.stringify(walked))
+  push('ArrowUp wraps around the list', walked.afterUp === typed.items[1], JSON.stringify(walked))
 
   // ---- Enter brings it into the line, without running it ----------------------
   const accepted = await page(`(async () => {
@@ -144,7 +144,7 @@ async function main() {
       running: (await window.termdeck.listSessions()).length
     }
   })()`)
-  push('the completion lands in the line', /Get-Date/.test(accepted.row), accepted.row)
+  push('the completion lands in the line', /Get-Process/.test(accepted.row), accepted.row)
   push('the popup closes once it is used', !accepted.suggestOpen)
   push('and the command was not executed', !/\d{1,2}:\d{2}:\d{2}/.test(accepted.row),
     accepted.row)
@@ -170,6 +170,27 @@ async function main() {
     return { opened, closed: !!box && box.hidden }
   })()`)
   push('Escape dismisses the list', escaped.opened && escaped.closed, JSON.stringify(escaped))
+
+  // ---- typing on past the list dismisses it ------------------------------------
+  const typedOn = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const id = Object.keys(window.__tdTerminals || {}).pop()
+    const entry = window.__tdTerminals[id]
+    entry.term.paste(String.fromCharCode(3))
+    await wait(500)
+    for (const ch of 'git ') entry.term.paste(ch)
+    await wait(700)
+    const box = () => document.querySelector('[data-testid="command-suggest"]')
+    const opened = !!box() && !box().hidden
+    // Four more characters, no selection: the list has to get out of the way.
+    for (const ch of 'stas') entry.term.paste(ch)
+    await wait(800)
+    const closed = !!box() && box().hidden
+    const after = [...(box() ? box().querySelectorAll('.td-suggest-item') : [])].length
+    return { opened, closed, after }
+  })()`)
+  push('typing on past the list closes it', typedOn.opened && typedOn.closed,
+    JSON.stringify(typedOn))
 
   const failed = checks.filter((c) => !c.ok)
   for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name} — ${c.detail}`)

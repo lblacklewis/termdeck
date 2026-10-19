@@ -2736,24 +2736,47 @@ kbd {
   scrollbar-color: var(--td-border-strong) transparent;
 }
 
-.td-tree-root::-webkit-scrollbar,
-.td-session-list::-webkit-scrollbar,
-.td-snippet-items::-webkit-scrollbar,
-.td-connections-body::-webkit-scrollbar,
-.td-settings-body::-webkit-scrollbar {
+/*
+ * Scrollbars, everywhere, in the theme's own colours.
+ *
+ * This replaced a list of five containers with a fixed grey thumb: the panes that
+ * were missing from it — SFTP above all — kept Chromium's default light bar, which
+ * is glaring on every dark theme. A tint of the theme's own dim text sits on the
+ * background, and the accent shows on hover so the bar belongs to the palette.
+ */
+*::-webkit-scrollbar {
   width: 9px;
   height: 9px;
 }
 
-.td-tree-root::-webkit-scrollbar-thumb,
-.td-session-list::-webkit-scrollbar-thumb,
-.td-snippet-items::-webkit-scrollbar-thumb,
-.td-connections-body::-webkit-scrollbar-thumb,
-.td-settings-body::-webkit-scrollbar-thumb {
-  background: var(--td-border-strong);
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--td-text-dim) 45%, transparent);
   border-radius: 999px;
   border: 2px solid transparent;
   background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--td-accent) 75%, transparent);
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* xterm draws its own scrollbar out of divs, so it needs the same treatment. */
+.xterm .xterm-scrollable-element > .scrollbar > .slider {
+  background: color-mix(in srgb, var(--td-text-dim) 40%, transparent) !important;
+  border-radius: 999px;
+}
+
+.xterm .xterm-scrollable-element > .scrollbar > .slider:hover {
+  background: color-mix(in srgb, var(--td-accent) 70%, transparent) !important;
 }
 
 .td-tree-root::-webkit-scrollbar-track,
