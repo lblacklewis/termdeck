@@ -196,6 +196,18 @@ async function main() {
         'after 70s of continuous output')
 
       step = 'idle gate'
+      /*
+       * The busy stretch above runs for over a minute, which is long enough for
+       * another window to take the foreground. This timer only counts focused
+       * seconds, so once that happens the nudge can never arrive — and the nine
+       * timing checks below would all fail for one reason that has nothing to do
+       * with the app. Name it instead, and stop.
+       */
+      if (!document.hasFocus()) {
+        push('the window kept the foreground through the busy stretch', false,
+          'a break timer only counts focused seconds; bring the app to the front and re-run')
+        return out
+      }
       const appeared = await waitFor(() => !!document.querySelector('[data-testid="break-bar"]'), 25000)
       push('the nudge appears once the terminals are quiet', appeared)
 
