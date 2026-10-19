@@ -823,7 +823,7 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
   cursorBlink: true,
   // Deliberately slower than xterm's own ~0.5s cadence, which reads as a flicker.
   cursorBlinkMs: 900,
-  scrollback: 10_000,
+  scrollback: 4_000,
   /**
    * On by default. A per-line time column is what makes output auditable, and it
    * is what the reference client (WindTerm) shows; it can be turned off in
