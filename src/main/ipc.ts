@@ -106,7 +106,7 @@ function noteTypedInput(sessionId: string, data: string): void {
     if (ch === '\r' || ch === '\n') {
       const line = state.line
       state.line = ''
-      if (line.trim()) recordCommand(sessionId, line)
+      void line // the renderer now reports the real line, see history:record
       continue
     }
     if (ch === '\u007f' || ch === '\b') {
@@ -497,6 +497,7 @@ export function registerIpc(): void {
   ipcMain.handle('history:list', (_e, sessionId: string) => getHistoryStore().list(sessionId))
   /** Every session's commands, newest first, for the inline suggestions. */
   ipcMain.handle('history:commands', () => getHistoryStore().globalCommands())
+  ipcMain.handle('history:record', (_e, sessionId: string, command: string) => recordCommand(sessionId, command))
   ipcMain.handle('history:sessions', () => getHistoryStore().sessions())
   ipcMain.handle('history:delete', (_e, sessionId: string, id: string) =>
     getHistoryStore().remove(sessionId, id)

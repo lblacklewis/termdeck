@@ -77,6 +77,8 @@ const api = {
 
   listKnownHosts: (): Promise<KnownHostEntry[]> => ipcRenderer.invoke('hostkey:list'),
   globalCommandHistory: (): Promise<string[]> => ipcRenderer.invoke('history:commands'),
+  recordCommand: (sessionId: string, command: string): Promise<void> =>
+    ipcRenderer.invoke('history:record', sessionId, command),
 
   removeKnownHostEntry: (file: string, line: number): Promise<KnownHostEntry[]> =>
     ipcRenderer.invoke('hostkey:removeAt', file, line),

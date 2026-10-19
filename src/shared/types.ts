@@ -926,6 +926,7 @@ export interface TermDeckApi {
   listKnownHosts(): Promise<KnownHostEntry[]>
   /** Every session's command history, newest first, for inline suggestions. */
   globalCommandHistory(): Promise<string[]>
+  recordCommand(sessionId: string, command: string): Promise<void>
   /** Remove one entry by its file and line number. */
   removeKnownHostEntry(file: string, line: number): Promise<KnownHostEntry[]>
   /** Remove several entries in one write (see the handler for why it is batched). */

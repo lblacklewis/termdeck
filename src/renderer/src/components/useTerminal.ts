@@ -370,7 +370,9 @@ export function useTerminal(
     const suggest = attachSuggestions({
       container,
       term,
-      write: (data) => api.writeSession(sessionId, data)
+      write: (data) => api.writeSession(sessionId, data),
+      // History stores what the shell is about to run, not the keys typed.
+      report: (command) => void api.recordCommand(sessionId, command)
     })
 
     const dataSub = term.onData((data) => {

@@ -192,6 +192,34 @@ async function main() {
   push('typing on past the list closes it', typedOn.opened && typedOn.closed,
     JSON.stringify(typedOn))
 
+  // ---- history records what ran, not what was typed ----------------------------
+  const completed = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const id = Object.keys(window.__tdTerminals || {}).pop()
+    const entry = window.__tdTerminals[id]
+    entry.term.paste(String.fromCharCode(3))
+    await wait(500)
+    // Half a command name, then let the shell finish it with Tab.
+    entry.term.paste('Get-Dat')
+    await wait(600)
+    entry.term.paste(String.fromCharCode(13))
+    await wait(1500)
+    // Now recall it with Up: the keys typed are only an escape sequence, so a
+    // record whose source is the keystrokes would store nothing at all.
+    entry.term.paste(String.fromCharCode(27) + '[A')
+    await wait(1200)
+    const b = entry.term.buffer.active
+    const row = b.getLine(b.baseY + b.cursorY)
+    const screen = row ? row.translateToString(true).slice(0, b.cursorX) : ''
+    entry.term.paste(String.fromCharCode(13))
+    await wait(2000)
+    return { screen }
+  })()`)
+  const recorded = stores.history.globalCommands()
+  push('history stores the command the shell ran, not the keys typed',
+    recorded[0] === 'Get-Dat' && !recorded.some((c) => /[>$#%]/.test(c)),
+    'screen=' + completed.screen + ' history=' + recorded.slice(0, 3).join(' | '))
+
   const failed = checks.filter((c) => !c.ok)
   for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name} — ${c.detail}`)
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`)

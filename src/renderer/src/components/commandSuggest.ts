@@ -25,11 +25,21 @@ export interface SuggestOptions {
   container: HTMLElement
   /** The xterm instance, for the cursor position and the screen contents. */
   term: {
-    buffer: { active: { cursorX: number; cursorY: number; baseY: number } }
+    buffer: {
+      active: {
+        cursorX: number
+        cursorY: number
+        baseY: number
+        /** The screen row, for reading back the line the shell actually received. */
+        getLine(y: number): { translateToString(trimRight?: boolean): string } | undefined
+      }
+    }
     element?: HTMLElement | null
   }
   /** Write to the session, exactly like typing. */
   write: (data: string) => void
+  /** Hand the finished command line to the history store. */
+  report: (command: string) => void
 }
 
 export interface SuggestHandle {
@@ -42,7 +52,7 @@ const MAX_ITEMS = 8
 /** Longer prefixes are past the point of helping — the list is already short. */
 const MIN_CHARS = 1
 
-export function attachSuggestions({ container, term, write }: SuggestOptions): SuggestHandle {
+export function attachSuggestions({ container, term, write, report }: SuggestOptions): SuggestHandle {
   let line = ''
   let items: string[] = []
   let active = -1
@@ -52,6 +62,8 @@ export function attachSuggestions({ container, term, write }: SuggestOptions): S
   let feeds = 0
   /** Characters typed since the popup opened, and whether it was dismissed by typing. */
   let typed = 0
+  /** Column the prompt ended at, i.e. where the command line starts on screen. */
+  let promptLen = 0
   let muted = false
 
   /** Why the popup is or is not showing, for the probe (see `tdDebug`). */
@@ -251,6 +263,28 @@ export function attachSuggestions({ container, term, write }: SuggestOptions): S
     for (const char of stripped) {
       const code = char.codePointAt(0) ?? 0
       if (SUBMIT.has(code)) {
+        /*
+         * Record what the shell is actually about to run, read off the screen.
+         *
+         * The keystroke mirror is not that line: pressing Tab inserts the shell's own
+         * completion, which never passes through us, so lssc + Tab + -s was stored
+         * as lssc-s instead of lsscsi -s. The screen has the truth; the prompt length
+         * is measured when the line starts (the cursor sits right after the prompt).
+         */
+        const buffer = term.buffer.active
+        const row = buffer.getLine(buffer.baseY + buffer.cursorY)
+        const text = row ? row.translateToString(true) : ''
+        /*
+         * Only when the prompt length is known. A zero there means the measurement
+         * missed (a shell that had not painted its prompt yet), and slicing from
+         * column 0 stores the prompt along with the command — worse than falling back
+         * to the keystroke mirror.
+         */
+        const executed =
+          promptLen > 0 ? text.slice(promptLen, Math.max(promptLen, buffer.cursorX)).trim() : ''
+        if (executed) report(executed)
+        else if (line.trim()) report(line.trim())
+        promptLen = 0
         close()
         muted = false
       } else if (BACKSPACE.has(code)) {
@@ -263,6 +297,8 @@ export function attachSuggestions({ container, term, write }: SuggestOptions): S
         close()
         muted = false
       } else if (code >= 32 && code !== 127) {
+        // First character of a new line: the cursor is exactly at the prompt's end.
+        if (!line) promptLen = Math.max(0, term.buffer.active.cursorX)
         line += char
         if (line.length > 240) {
           close()
