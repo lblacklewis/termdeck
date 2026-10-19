@@ -90,6 +90,12 @@ async function main() {
       const drawer = await waitFor('[data-testid="settings-drawer"]')
       push('settings drawer opened', drawer)
 
+      /*
+       * Wait for the tab, not for the drawer that holds it: the drawer shell is
+       * part of the entry chunk and the settings panel is one of the lazily
+       * loaded ones, so it paints a beat after the drawer does.
+       */
+      await waitFor('.td-settings-tab')
       const tab = [...document.querySelectorAll('.td-settings-tab')]
         .find((t) => /Shortcuts/i.test(t.textContent))
       push('shortcuts tab present', tab)
@@ -176,10 +182,12 @@ async function main() {
         .find((b) => /Save settings/i.test(b.textContent || ''))
       push('save control present', save)
       if (save) {
+        // Read the row's id *before* saving: the footer's Save closes the drawer,
+        // and asking the shortcut list for it afterwards finds nothing and throws.
+        const id = rows()[0].getAttribute('data-binding-id')
         save.click()
         await wait(900)
         const settings = await window.termdeck.loadSettings()
-        const id = rows()[0].getAttribute('data-binding-id')
         const stored = settings.keybindings.find((k) => k.id === id)
         push('the change persisted', stored && stored.keys === '',
           JSON.stringify(stored && stored.keys))

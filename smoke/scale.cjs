@@ -225,12 +225,34 @@ async function main() {
   await sleep(400)
   await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    document.querySelector('[data-testid="scale-picks"] [data-scale="1.25"]').click()
+    /*
+     * Wait for the picker rather than assuming the click has already landed: this
+     * open follows a close, and when the close actually reverted a previewed scale
+     * the drawer settles a beat later. Without the wait the probe died with
+     * "Cannot read properties of null (reading 'click')" and took the remaining
+     * 24 checks with it.
+     */
+    let chip = null
+    for (let i = 0; i < 40 && !chip; i++) {
+      chip = document.querySelector('[data-testid="scale-picks"] [data-scale="1.25"]')
+      if (!chip) await wait(100)
+    }
+    if (!chip) throw new Error('the scale picker did not come back after reopening settings')
+    chip.click()
     await wait(1200)
-    document.querySelector('[data-testid="settings-save"]').click()
+    const saveBtn = document.querySelector('[data-testid="settings-save"]')
+    if (!saveBtn) throw new Error('no save control after reopening settings')
+    saveBtn.click()
     await wait(1200)
-    document.querySelector('[data-testid="drawer-close"]').click()
-    await wait(600)
+    /*
+     * The footer's Save closes the drawer, so there is usually nothing left to
+     * close here. Clicking it anyway is what killed this probe after 12 checks.
+     */
+    const closeBtn = document.querySelector('[data-testid="drawer-close"]')
+    if (closeBtn) {
+      closeBtn.click()
+      await wait(600)
+    }
     return true
   })()`)
   await sleep(600)

@@ -248,6 +248,7 @@ async function main() {
 
       // Open settings from the rail: the sidebar button only exists on the
       // terminal page, and this section may run from any page.
+      try {
       const railSettings = await waitFor('[data-testid="rail-settings"]')
       push('settings rail entry present', !!railSettings)
       railSettings.click()
@@ -300,12 +301,22 @@ async function main() {
       push('cleared shortcut persisted as empty', stored.keys === '',
         JSON.stringify(stored.keys))
 
+      // The footer's Save closes the drawer, so there may be nothing left to
+      // close here: looking for the button unconditionally is what threw
+      // "Cannot read properties of undefined (reading 'click')" and took the
+      // whole section's output with it.
       const close = [...document.querySelectorAll('.td-drawer-actions button')]
         .find((b) => /^Close$/.test((b.textContent || '').trim()))
-      close.click()
+      if (close) close.click()
       await new Promise((r) => setTimeout(r, 400))
+      push('the drawer is closed once settings are saved',
+        !document.querySelector('.td-settings'))
 
       return out
+      } catch (err) {
+        push('shortcut menu threw', false, String(err && err.message))
+        return out
+      }
     })()`)
   )
 

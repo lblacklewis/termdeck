@@ -214,21 +214,31 @@ async function main() {
     painted.drawer.ok, JSON.stringify(painted.drawer))
 
   /*
-   * And it stays that way when the first thing the user does is click the page they
-   * are already on — which is what a new user does to get their bearings, and what
-   * used to collapse the column under the pointer.
+   * Clicking the page you are already on is a toggle: it collapses the column,
+   * and clicking it again brings it back. This used to be "reveal only" — the
+   * gesture was narrowed while a first run could start collapsed, which made a
+   * fresh install look like it had lost its sidebar. That root cause is fixed on
+   * the welcome-screen side (asserted above), so `selectPage` toggles again.
    */
   const afterClick = await page(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    const active = [...document.querySelectorAll('.td-rail button')]
-      .find((b) => b.getAttribute('aria-current') === 'page' || b.className.includes('is-active'))
-    if (active) active.click()
-    await wait(600)
-    const rail = document.querySelector('.td-rail')
-    return { clicked: !!active, collapsed: rail ? rail.className.includes('is-collapsed') : null }
+    const clickActive = async () => {
+      const active = [...document.querySelectorAll('.td-rail button')]
+        .find((b) => b.getAttribute('aria-current') === 'page' || b.className.includes('is-active'))
+      if (!active) return { clicked: false, collapsed: null }
+      active.click()
+      await wait(600)
+      const rail = document.querySelector('.td-rail')
+      return { clicked: true, collapsed: rail ? rail.className.includes('is-collapsed') : null }
+    }
+    const first = await clickActive()
+    const second = await clickActive()
+    return { clicked: first.clicked, firstCollapsed: first.collapsed, secondCollapsed: second.collapsed }
   })()`)
-  push('clicking the page you are already on leaves the column alone',
-    afterClick.collapsed === false, JSON.stringify(afterClick))
+  push('clicking the page you are already on collapses the column',
+    afterClick.clicked && afterClick.firstCollapsed === true, JSON.stringify(afterClick))
+  push('and clicking it again brings the column back',
+    afterClick.secondCollapsed === false, JSON.stringify(afterClick))
 
   win.webContents.reload()
   await sleep(3200)

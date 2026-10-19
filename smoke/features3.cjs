@@ -126,6 +126,19 @@ async function main() {
       const chosen = target.getAttribute('data-font')
       target.click()
       await wait(600)
+
+      // The live preview must use the chosen family. Read it *before* saving: the
+      // footer's Save closes the drawer, and the preview goes with it — reading it
+      // afterwards is what made this check report "there is a live preview: false"
+      // and silently skip the assertion underneath it.
+      const preview = document.querySelector('[data-testid="font-preview"]')
+      push('there is a live preview', !!preview)
+      if (preview) {
+        push('the preview uses the chosen family',
+          (preview.style.fontFamily || '').includes(chosen),
+          preview.style.fontFamily)
+      }
+
       const saveBtn = [...document.querySelectorAll('.td-drawer-actions button')]
         .find((b) => /Save settings/i.test(b.textContent || ''))
       saveBtn.click()
@@ -137,15 +150,6 @@ async function main() {
       push('the fallback stack is preserved',
         /monospace/.test(saved.terminal.fontFamily) && saved.terminal.fontFamily.includes(','),
         'still ends in a generic family')
-
-      // The live preview must use the chosen family.
-      const preview = document.querySelector('[data-testid="font-preview"]')
-      push('there is a live preview', !!preview)
-      if (preview) {
-        push('the preview uses the chosen family',
-          (preview.style.fontFamily || '').includes(chosen),
-          preview.style.fontFamily)
-      }
 
       // ---- 3. broadcast input ---------------------------------------------
       const localBtn = () => document.querySelector('[data-testid="local-shell"]')

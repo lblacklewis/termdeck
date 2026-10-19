@@ -472,6 +472,27 @@ async function main() {
 
       // ---- 9. command history, one file per session ------------------------
       step = 'history'
+      /*
+       * Run a command and record it the way the renderer does on Enter.
+       *
+       * Recording is renderer-side now: at the moment Enter is pressed it reads the
+       * executed line back off the terminal screen and calls history:record (see
+       * useTerminal's report). The main process no longer assembles lines from the
+       * input stream, so writeSession — which pushes bytes straight at the pty —
+       * leaves the history empty while the shell still runs the command. That is why
+       * this section reported entries=0.
+       *
+       * A synthetic Enter does not reach xterm from an injected script (the same
+       * reason smoke:suggest only ever accepts a candidate and never runs a line), so
+       * the recording half goes through the very IPC the renderer calls. What the
+       * recorded line contains is asserted in smoke:suggest; this section is about
+       * the drawer panel, the per-session files and the picker.
+       */
+      const runAndRecord = async (id, command) => {
+        window.termdeck.writeSession(id, command + String.fromCharCode(13))
+        await window.termdeck.recordCommand(id, command)
+      }
+
       const shellBtn = document.querySelector('[data-testid="local-shell"]')
       push('the drawer offers a local shell', !!shellBtn)
       if (shellBtn) shellBtn.click()
@@ -479,7 +500,7 @@ async function main() {
       push('a session is open for history', live)
       const sessionId = (await window.termdeck.listSessions())[0].id
       const marker = 'echo TD_HISTORY_' + Date.now()
-      window.termdeck.writeSession(sessionId, marker + String.fromCharCode(13))
+      await runAndRecord(sessionId, marker)
       const listed = await waitFor(
         () => /TD_HISTORY_/.test(document.querySelector('[data-testid="history-list"]')?.textContent || ''),
         8000
@@ -538,7 +559,7 @@ async function main() {
 
       // The two sessions keep separate histories: what is typed into one is not
       // in the other's file.
-      window.termdeck.writeSession(sshId, 'echo TD_SSH_HISTORY' + String.fromCharCode(13))
+      await runAndRecord(sshId, 'echo TD_SSH_HISTORY')
       const sshRecorded = await waitFor(
         async () => (await window.termdeck.listHistory(sshId)).length > 0,
         10000
