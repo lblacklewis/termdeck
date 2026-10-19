@@ -3351,6 +3351,31 @@ export function App(): JSX.Element {
               <span aria-hidden="true">⇶</span>
               <span>{broadcasting ? 'Typing to all' : 'Broadcast'}</span>
             </button>
+            <button
+              className="td-broadcast"
+              title={t('app.tile_panes_hint', 'Arrange every pane: tile, columns, rows')}
+              data-testid="tile-panes"
+              onClick={() => openTileDialog()}
+            >
+              <span aria-hidden="true">▦</span>
+              <span>{t('app.tile_panes', 'Arrange')}</span>
+            </button>
+            <button
+              className="td-broadcast"
+              title={t('app.merge_panes_hint', 'Merge every pane back into one window')}
+              data-testid="merge-panes"
+              onClick={() => {
+                const dockApi = dockApiRef.current
+                if (!dockApi) return
+                const ids = dockApi.panels.map((panel) => panel.id)
+                if (ids.length < 2) return
+                tilePanels(dockApi, ids, 'stack', dockRef.current)
+                setToast(t('app.merged_panes', 'Merged {count} panes into one window', { count: ids.length }))
+              }}
+            >
+              <span aria-hidden="true">▣</span>
+              <span>{t('app.merge_panes', 'One window')}</span>
+            </button>
           </div>
         )}
         <main className="td-main">

@@ -197,6 +197,40 @@ async function main() {
     JSON.stringify(toggle))
   push('and clicking it again brings it back', toggle.back === toggle.first, JSON.stringify(toggle))
 
+  // ---- a partial selection must not squeeze the rest ---------------------------
+  await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'T', ctrlKey: true, shiftKey: true, bubbles: true }))
+    await wait(700)
+    document.querySelectorAll('[data-testid="tile-pane"]')[3].click()
+    await wait(300)
+    document.querySelector('[data-testid="tile-mode-columns"]').click()
+    await wait(200)
+    document.querySelector('[data-testid="tile-apply"]').click()
+    await wait(1800)
+    return true
+  })()`)
+  await sleep(900)
+  const partial = await groups()
+  const widest = Math.max(...partial.map((g) => g.w))
+  push('a partial selection keeps the unselected pane usable',
+    partial.length === 4 && Math.min(...partial.map((g) => g.w)) > 100,
+    JSON.stringify(partial.map((g) => g.w)))
+
+  // ---- one window -------------------------------------------------------------
+  const merged = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    document.querySelector('[data-testid="merge-panes"]').click()
+    await wait(1500)
+    return {
+      groups: document.querySelectorAll('.dv-groupview').length,
+      tabs: document.querySelectorAll('.dv-tab').length
+    }
+  })()`)
+  push('the one-window button merges every pane into a single group',
+    merged.groups === 1 && merged.tabs === 4, JSON.stringify(merged))
+  push('and nothing closed', (await page('Object.keys(window.__tdTerminals || {}).length')) === 4)
+
   const failed = checks.filter((c) => !c.ok)
   for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name} — ${c.detail}`)
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`)
