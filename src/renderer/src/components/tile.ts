@@ -59,19 +59,17 @@ export function tilePanels(
   if (panels.length === 0) return { arranged: [], mode }
 
   /*
-   * Panes left out of the selection are collected into one group of their own.
+   * Panes left out of the selection become tabs in one of the splits.
    *
-   * They used to be left where they were, and tiling the selection then divided the
-   * whole area between the selected panes — an unselected terminal was squeezed into
-   * whatever sliver was left over. Gathering them first gives them a real share, and
-   * they end up as tabs beside the arrangement instead of being crushed by it.
+   * They are gathered here and moved into the last arrangement group once it exists:
+   * a partial selection must produce exactly as many splits as were ticked ("select
+   * three, get three"), and the panes that were not ticked belong with one of them
+   * rather than taking a share of their own — which is what squeezed or, worse,
+   * silently added a fourth column.
    */
   const kept = keepIds
     .map((id) => api.getPanel(id))
     .filter((panel): panel is DockviewPanel => panel !== undefined && !ids.includes(panel.id))
-  for (const panel of kept.slice(1)) {
-    panel.api.moveTo({ group: kept[0].group, position: 'center' })
-  }
   const anchor = panels[0]
   const anchorGroup = anchor.group
 
@@ -80,10 +78,14 @@ export function tilePanels(
   for (const panel of panels.slice(1)) {
     panel.api.moveTo({ group: anchorGroup, position: 'center' })
   }
-  if (kept.length > 0) kept[0].api.moveTo({ group: anchorGroup, position: 'right' })
 
-  /** One extra share for the leftover group when the selection was not everything. */
-  const extra = kept.length > 0 ? 1 : 0
+  /** Unselected panes join the split that ends up last. */
+  const gather = (): void => {
+    const target = panels[panels.length - 1].group
+    for (const panel of kept) {
+      if (target && panel.group !== target) panel.api.moveTo({ group: target, position: 'center' })
+    }
+  }
 
   /** "One window": every pane as a tab in a single group. */
   if (mode === 'stack') {
@@ -106,7 +108,8 @@ export function tilePanels(
     for (const panel of panels.slice(1)) {
       if (panel.group) panel.api.moveTo({ group: panel.group, position })
     }
-    equalise(api, panels, mode === 'columns' ? 'width' : 'height', container, panels.length + extra)
+    equalise(api, panels, mode === 'columns' ? 'width' : 'height', container)
+    gather()
     return { arranged: panels.map((panel) => panel.id), mode }
   }
 
@@ -127,10 +130,11 @@ export function tilePanels(
     columns[column].push(panel)
   }
 
-  equalise(api, columns.map((column) => column[0]), 'width', container, columnCount + extra)
+  equalise(api, columns.map((column) => column[0]), 'width', container, columnCount)
   for (const column of columns) {
     equalise(api, column, 'height', container)
   }
+  gather()
   return { arranged: panels.map((panel) => panel.id), mode }
 }
 

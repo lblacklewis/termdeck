@@ -213,8 +213,8 @@ async function main() {
   await sleep(900)
   const partial = await groups()
   const widest = Math.max(...partial.map((g) => g.w))
-  push('a partial selection keeps the unselected pane usable',
-    partial.length === 4 && Math.min(...partial.map((g) => g.w)) > 100,
+  push('three selected panes make exactly three splits',
+    partial.length === 3 && Math.min(...partial.map((g) => g.w)) > 150,
     JSON.stringify(partial.map((g) => g.w)))
 
   // ---- one window -------------------------------------------------------------
