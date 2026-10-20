@@ -4911,6 +4911,28 @@ html[data-theme-scheme='light'] .td-select {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /*
+   * The path is a text field now (you can type a path and press Enter), so the
+   * box has to stop looking like a paragraph and start looking like an input
+   * that can be edited — without moving anything else in the bar, which is why
+   * the border is transparent until the field is hovered or focused.
+   */
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: 0;
+}
+
+.td-sftp-path:hover {
+  border-color: var(--td-border);
+}
+
+.td-sftp-path:focus {
+  outline: none;
+  border-color: var(--td-accent);
+  background: var(--td-bg-sunken);
+  color: var(--td-text);
 }
 
 .td-sftp-list {

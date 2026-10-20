@@ -38,6 +38,15 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
   const [entries, setEntries] = useState<SftpEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  /**
+   * What the path box holds while the user is typing in it.
+   *
+   * `null` means "not editing": the box shows the directory that is actually
+   * listed. Keeping that separate from `path` is what makes Escape and a failed
+   * jump both behave — the box goes back to the truth instead of keeping the
+   * text of a path that was never loaded.
+   */
+  const [draft, setDraft] = useState<string | null>(null)
   /** Which session the current listing belongs to, so a switch reloads it. */
   const loadedFor = useRef<string | null>(null)
 
@@ -119,9 +128,41 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
         >
           ↑
         </button>
-        <span className="td-sftp-path" title={path}>
-          {path || '…'}
-        </span>
+        <input
+          className="td-sftp-path"
+          data-testid="sftp-path"
+          value={draft ?? path}
+            /*
+             * The remote home is only known to the main process, so the field
+             * cannot pre-fill it; the placeholder is the one hint that matters.
+             */
+            placeholder="/path/on/the/host"
+            spellCheck={false}
+            aria-label={t('drawersections.remote_path', 'Remote path')}
+            title={t(
+              'drawersections.type_a_path_and_press_enter',
+              'Type a path and press Enter'
+            )}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                const target = e.currentTarget.value.trim()
+                // An empty box would list the home directory again, which is a
+                // valid thing to ask for but not what Enter on an empty box
+                // means — leave the listing alone instead.
+                if (!target) return
+                setDraft(null)
+                void load(target)
+              } else if (e.key === 'Escape') {
+                setDraft(null)
+                e.currentTarget.blur()
+              }
+            }}
+            // Leaving the box without pressing Enter abandons the edit rather
+            // than surprising the user with a jump they did not confirm.
+            onBlur={() => setDraft(null)}
+          />
         <button
           className="td-icon-btn"
           title={t('drawersections.refresh', 'Refresh')}

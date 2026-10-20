@@ -578,7 +578,25 @@ async function main() {
         20000
       )
       const rows = [...document.querySelectorAll('[data-sftp-entry]')]
-      const pathText = document.querySelector('.td-sftp-path')?.textContent || ''
+      /*
+       * The path box is an input now, so its text is el.value and not textContent.
+       * One reader for everything that wants to know where the panel is looking.
+       */
+      const pathShown = () => {
+        const el = document.querySelector('.td-sftp-path')
+        if (!el) return ''
+        return typeof el.value === 'string' ? el.value : (el.textContent || '')
+      }
+      // React tracks its own copy of an input's value, so setting el.value alone
+      // is ignored; the native setter plus an input event is what reaches onChange.
+      const typeInto = (el, value) => {
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+        setter.call(el, value)
+        el.dispatchEvent(new Event('input', { bubbles: true }))
+      }
+      const pressKey = (el, key) =>
+        el.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true, cancelable: true }))
+      const pathText = pathShown()
       push('the SFTP panel lists the remote home directory', listed2,
         'path=' + pathText + ' entries=' + rows.length)
       push('the listing uses absolute remote paths', pathText.startsWith('/'), pathText)
@@ -590,19 +608,62 @@ async function main() {
         const name = dir.getAttribute('data-sftp-entry')
         dir.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))
         const moved = await waitFor(
-          () => (document.querySelector('.td-sftp-path')?.textContent || '').includes(String(name)),
+          () => pathShown().includes(String(name)),
           15000
         )
         push('double-clicking a directory opens it', moved,
-          'path=' + (document.querySelector('.td-sftp-path')?.textContent || ''))
+          'path=' + pathShown())
         const up = document.querySelector('[data-testid="sftp-up"]')
         if (up) up.click()
         const back = await waitFor(
-          () => (document.querySelector('.td-sftp-path')?.textContent || '') === pathText,
+          () => pathShown() === pathText,
           15000
         )
         push('the up button returns', back,
-          'path=' + (document.querySelector('.td-sftp-path')?.textContent || ''))
+          'path=' + pathShown())
+      }
+
+      // ---- typing a path --------------------------------------------------
+      // The reason the box exists: jumping straight to a path instead of
+      // double-clicking through four directories to get there.
+      step = 'type a path'
+      const pathBox = document.querySelector('[data-testid="sftp-path"]')
+      push('the path is an editable field', !!pathBox && pathBox.tagName === 'INPUT',
+        pathBox ? pathBox.tagName : 'missing')
+      if (pathBox) {
+        typeInto(pathBox, '/etc')
+        pressKey(pathBox, 'Enter')
+        /*
+         * Assert on the *listing*, not on the box: the box holds the draft the
+         * user typed until the read comes back, so reading it straight after
+         * Enter matches the draft and proves nothing. /etc/passwd is on every
+         * Linux host this suite can reach.
+         */
+        const jumped = await waitFor(
+          () => !!document.querySelector('[data-sftp-entry="passwd"]'),
+          20000
+        )
+        push('typing a path and pressing Enter lists it', jumped, 'path=' + pathShown())
+        push('the box then shows the directory it listed', pathShown() === '/etc',
+          'path=' + pathShown())
+        const etcRows = document.querySelectorAll('[data-sftp-entry]').length
+        push('the new directory has entries', etcRows > 0, 'entries=' + etcRows)
+
+        // Escape abandons the edit: the box goes back to what is listed, rather
+        // than keeping the text of a path nobody loaded.
+        typeInto(pathBox, '/nowhere/at/all')
+        pressKey(pathBox, 'Escape')
+        await wait(200)
+        push('Escape puts the box back to the listing', pathShown() === '/etc',
+          'path=' + pathShown())
+
+        // A path that does not exist must say so and stay where it was.
+        typeInto(pathBox, '/no/such/directory')
+        pressKey(pathBox, 'Enter')
+        await wait(1200)
+        push('a path that does not exist leaves the listing alone',
+          pathShown() === '/etc' && !!document.querySelector('[data-sftp-entry="passwd"]'),
+          'path=' + pathShown())
       }
 
       return out
