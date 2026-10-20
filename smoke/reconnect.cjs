@@ -106,6 +106,18 @@ async function main() {
         [...document.querySelectorAll('[data-terminal-id]')]
           .map((el) => el.getAttribute('data-terminal-id'))
       const state = () => 'tabs=[' + panelIds().join(',') + '] panes=[' + panes().join(',') + ']'
+      /** Everything a pane's terminal has on screen, scrollback included. */
+      const textFor = (id) => {
+        const entry = window.__tdTerminals ? window.__tdTerminals[id] : null
+        if (!entry || !entry.term) return ''
+        const buffer = entry.term.buffer.active
+        let text = ''
+        for (let i = 0; i < buffer.length; i += 1) {
+          const line = buffer.getLine(i)
+          if (line) text += line.translateToString(true) + String.fromCharCode(10)
+        }
+        return text
+      }
       const dbl = (el) =>
         el.dispatchEvent(new MouseEvent('dblclick', {
           bubbles: true, cancelable: true, composed: true, detail: 2
@@ -187,6 +199,16 @@ async function main() {
        */
       step = 'ended overlay'
       /*
+       * Print something first, so "the history is still there afterwards" is a
+       * claim about a line that actually existed rather than about an empty buffer.
+       */
+      const keepMarker = 'KEEP_' + Date.now()
+      window.termdeck.writeSession(second.id, 'echo ' + keepMarker + String.fromCharCode(13))
+      const printed = await waitFor(() => textFor(second.id).includes(keepMarker), 10000)
+      push('a line printed before the drop is on screen', printed,
+        'tail=' + textFor(second.id).trim().slice(-40))
+
+      /*
        * The "exit" line is retried until the pane notices.
        *
        * A write that arrives while the SSH channel is still opening is dropped by
@@ -208,6 +230,16 @@ async function main() {
       const revive = document.querySelector('[data-testid="reconnect-session"]')
       push('and offers a reconnect button', !!revive)
       push('the old drag-or-close hint is gone', !document.querySelector('.td-terminal-banner-hint'))
+      /*
+       * Typing "exit" is the user ending the session, not a connection dropping:
+       * the connection was fine, the shell was done. Auto-retry must leave it alone,
+       * or a logged-out pane would keep logging itself back in.
+       */
+      push('a shell that exited on its own is not retried automatically',
+        !(await waitFor(
+          () => !!document.querySelector('[data-testid="reconnect-progress"]'),
+          2500
+        )))
 
       step = 'reconnect from the overlay'
       if (revive) revive.click()
@@ -222,19 +254,72 @@ async function main() {
        */
       push('reconnecting clears the notice', overlayUp && revived, state())
       /*
-       * The session list still holds the session that died — an exit does not
-       * remove it, by design — so the pane itself is the honest source for "which
-       * session is in there now".
+       * This is the point of the whole change: the rebuilt session keeps the id it
+       * had, so the pane keeps the terminal it already had — and therefore keeps
+       * every line in it. A new id would mean a new terminal and a blank screen.
        */
-      const adopted = await waitFor(() => !!panes()[0] && panes()[0] !== second.id, 20000)
-      const third = { id: panes()[0] }
-      push('a new session is behind the pane', adopted,
-        'old=' + second.id + ' new=' + (third.id || 'none'))
+      const revivedId = await waitFor(() => panes()[0], 20000)
+      push('reconnecting keeps the same session id',
+        revivedId && panes()[0] === second.id,
+        'was=' + second.id + ' now=' + (panes()[0] || 'none'))
+      const live = (await sessions()).some((s) => s.id === second.id)
+      push('and that session is live again, not just remembered', live,
+        'sessions=' + (await sessions()).map((s) => s.id).join(','))
       push('the reconnect reused the tab rather than adding one',
         tabs().length === 1 && panelIds()[0] === first.id,
         'tabs=' + tabs().length + ' panel=' + panelIds()[0] + ' expected=' + first.id)
-      push('and the pane holds the new session',
-        panes().length === 1 && !!third && panes()[0] === third.id, state())
+      const afterText = textFor(second.id)
+      push('the output printed before the drop is still on screen',
+        afterText.includes(keepMarker),
+        'marker=' + afterText.includes(keepMarker) + ' lines=' + afterText.split(String.fromCharCode(10)).length)
+      push('and the new connection is writing into the same terminal',
+        await waitFor(async () => {
+          window.termdeck.writeSession(second.id, 'echo AFTER_' + keepMarker + String.fromCharCode(13))
+          return textFor(second.id).includes('AFTER_' + keepMarker)
+        }, 12000),
+        'tail=' + textFor(second.id).trim().slice(-40))
+
+      /*
+       * ---- 5. Ctrl+R, in both directions -----------------------------------
+       * On a live pane the key belongs to the shell (reverse-i-search), so the app
+       * has to decline it; on an ended pane it is the reconnect shortcut. Checking
+       * only one of those would pass whether or not the key was being swallowed.
+       */
+      step = 'ctrl+r while alive'
+      const pressCtrlR = () => {
+        for (const type of ['keydown', 'keyup']) {
+          window.dispatchEvent(new KeyboardEvent(type, {
+            key: 'r', code: 'KeyR', ctrlKey: true, bubbles: true, cancelable: true
+          }))
+        }
+      }
+      const aliveBefore = (await sessions()).map((s) => s.id).join(',')
+      pressCtrlR()
+      await wait(1500)
+      push('Ctrl+R on a live pane reconnects nothing',
+        !document.querySelector('[data-testid="session-ended-overlay"]') &&
+          (await sessions()).map((s) => s.id).join(',') === aliveBefore,
+        'sessions=' + (await sessions()).map((s) => s.id).join(','))
+
+      step = 'ctrl+r on a dead pane'
+      let endedAgain = false
+      for (let attempt = 0; attempt < 20 && !endedAgain; attempt += 1) {
+        window.termdeck.writeSession(second.id, 'exit' + String.fromCharCode(13))
+        endedAgain = await waitFor(
+          () => !!document.querySelector('[data-testid="session-ended-overlay"]'),
+          1500
+        )
+      }
+      push('the session is ended again for the shortcut test', endedAgain)
+      pressCtrlR()
+      const backByKey = await waitFor(
+        () => !document.querySelector('[data-testid="session-ended-overlay"]'),
+        30000
+      )
+      push('Ctrl+R reconnects an ended pane', backByKey, state())
+      push('and it is still the same session, with its history',
+        panes()[0] === second.id && textFor(second.id).includes(keepMarker),
+        'pane=' + panes()[0] + ' keep=' + textFor(second.id).includes(keepMarker))
 
       return out
       } catch (err) {

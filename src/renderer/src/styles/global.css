@@ -899,6 +899,18 @@ kbd {
   color: var(--td-text);
 }
 
+/* The overlay's buttons sit side by side: reconnect, and stop retrying. */
+.td-terminal-overlay-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* A settings group that follows another one in the same tab. */
+.td-settings-spaced {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-border);
+}
 .td-terminal-overlay-hint {
   margin: 0;
   font-size: 11.5px;
@@ -2475,6 +2487,18 @@ kbd {
   color: var(--td-text);
 }
 
+/* The overlay's buttons sit side by side: reconnect, and stop retrying. */
+.td-terminal-overlay-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* A settings group that follows another one in the same tab. */
+.td-settings-spaced {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--td-border);
+}
 .td-terminal-overlay-hint {
   margin: 0;
   font-size: 11.5px;

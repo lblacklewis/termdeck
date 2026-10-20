@@ -381,6 +381,9 @@ export const zh: Catalog = {
 
   // ---- terminal pane / welcome --------------------------------------------
   'terminalpanel.cancel': '取消',
+  'terminalpanel.cancel_retry': '停止重试',
+  'terminalpanel.auto_gave_up': '自动重连 {n} 次都没成功。可以手动重试，或关掉这个窗格。',
+  'terminalpanel.auto_retry': '第 {attempt}/{of} 次尝试 —— {seconds} 秒后连接',
   'terminalpanel.ended_hint': '这个窗格还在，上面的内容也还在。重连即可继续在这里工作。',
   'terminalpanel.paste': '粘贴',
   'terminalpanel.paste_2': '粘贴',
@@ -407,6 +410,12 @@ export const zh: Catalog = {
   'settingsdialog.cursor': '光标',
   'settingsdialog.cursor_blink': '光标闪烁',
   'settingsdialog.drawer_sections': '抽屉分区',
+  'settingsdialog.dropped_connections': '连接掉线',
+  'settingsdialog.attempts': '重试次数',
+  'settingsdialog.retry_automatically': '自动重试',
+  'settingsdialog.retry_automatically_hint':
+    '—— 只对「自己断开」的连接重试。你自己退出的会话就让它结束，随时可以按 Ctrl+R 手动重连。',
+  'settingsdialog.seconds_between_attempts': '每次间隔（秒）',
   'settingsdialog.fast_0_4s': '快 —— 0.4 秒',
   'settingsdialog.font_family': '字体',
   'settingsdialog.font_size': '字号',

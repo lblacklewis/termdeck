@@ -1,10 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
-import type { SessionInfo } from '@shared/types'
+import type { SessionExitInfo, SessionInfo } from '@shared/types'
 import { useTerminal, type TerminalHandle } from './useTerminal'
 import { useClipboard, needsPasteConfirmation } from './useClipboard'
 import { useSettings } from './useSettings'
 import { getStamps, getTerminal, onTerminalRender } from './terminalRegistry'
 import { t } from '../i18n'
+
+/**
+ * How long a connection has to survive before a drop counts as a new outage.
+ *
+ * Long enough to cover a transport that reports success as soon as the socket
+ * opens, short enough that a link which held for a minute is treated as having
+ * recovered.
+ */
+const STABLE_CONNECTION_MS = 10_000
 
 interface TerminalPanelProps {
   /** Absent for a pane restored from a saved layout. */
@@ -64,19 +73,102 @@ export function TerminalPanel({
    * local state, so re-rendering with a new `session` prop does not clear it.
    */
   useEffect(() => {
-    if (session) setEnded(null)
-  }, [session?.id])
+    /*
+     * Keyed on the session *object*, not its id: a reconnect rebuilds the session
+     * under the same id (that is what keeps this terminal, and your scrollback, in
+     * place), so the id alone would not tell this component that it is alive again.
+     */
+    if (session) {
+      setEnded(null)
+      aliveSinceRef.current = Date.now()
+    }
+  }, [session])
 
   const { settings, theme } = useSettings()
   const { terminal, clipboard } = settings
   const showTimestamps = terminal.showTimestamps
 
+  /*
+   * Auto-retry state: which attempt is running and how long is left on its delay.
+   *
+   * `retryToken` exists so a manual reconnect, a new session or an unmount can
+   * cancel a countdown that is already running — without it a stale loop would
+   * fire a reconnect into a pane that has moved on.
+   */
+  const [retry, setRetry] = useState<{
+    attempt: number
+    of: number
+    secondsLeft: number
+    gaveUp?: boolean
+  } | null>(null)
+  const retryTokenRef = useRef(0)
+  /*
+   * Attempts made in the current outage, and when the current connection came up.
+   *
+   * The count deliberately survives a reconnect that immediately drops again: with
+   * a transport that reports success as soon as the socket opens (telnet, serial),
+   * "it reconnected" and "it is connected" are different claims, and counting only
+   * consecutive *failures* would retry a dead host forever.
+   */
+  const attemptRef = useRef(0)
+  const aliveSinceRef = useRef(0)
+
+  const stopRetry = useCallback(() => {
+    retryTokenRef.current += 1
+    setRetry(null)
+  }, [])
+
+  useEffect(() => stopRetry, [stopRetry])
+
   const handleExit = useCallback(
-    (info: { code: number | null; signal: string | null }) => {
+    (info: SessionExitInfo) => {
       setEnded({ code: info.code })
       if (session) onSessionEnded(session.id)
+
+      /*
+       * A connection that dropped on its own is worth retrying; a session the user
+       * ended is not. `expected` covers the pane being closed or Ctrl+D, and a
+       * clean exit status covers someone typing `exit` at the prompt — a shell that
+       * ended on purpose should not open itself again.
+       */
+      const { enabled, attempts, delaySeconds } = settings.reconnect
+      const passive = !info.expected && info.code !== 0
+      if (!enabled || !passive || attempts < 1 || !onReconnectSession) return
+
+      /*
+       * A connection that stayed up for a while is a fresh outage, and starts its
+       * attempts over. One that dropped again straight away is the same outage
+       * continuing, and carries on counting — otherwise "three attempts" would mean
+       * three per reconnect, which for a flapping link is no limit at all.
+       */
+      if (Date.now() - aliveSinceRef.current > STABLE_CONNECTION_MS) attemptRef.current = 0
+
+      const token = (retryTokenRef.current += 1)
+      void (async () => {
+        while (attemptRef.current < attempts) {
+          attemptRef.current += 1
+          const attempt = attemptRef.current
+          for (let left = delaySeconds; left > 0; left -= 1) {
+            if (retryTokenRef.current !== token) return
+            setRetry({ attempt, of: attempts, secondsLeft: left })
+            await new Promise((resolve) => window.setTimeout(resolve, 1000))
+          }
+          if (retryTokenRef.current !== token) return
+          setRetry({ attempt, of: attempts, secondsLeft: 0 })
+          const ok = await onReconnectSession()
+          if (retryTokenRef.current !== token) return
+          // Back up. If it drops again inside the stability window the next exit
+          // picks the count up where this left it.
+          if (ok) {
+            setRetry(null)
+            return
+          }
+        }
+        // Out of attempts: leave the pane to the user, with the button still there.
+        setRetry({ attempt: attempts, of: attempts, secondsLeft: 0, gaveUp: true })
+      })()
     },
-    [onSessionEnded, session]
+    [onSessionEnded, onReconnectSession, session, settings.reconnect]
   )
 
   const { handle: innerRef, container } = useTerminal(containerRef, session?.id ?? 'disconnected', {
@@ -315,29 +407,61 @@ export function TerminalPanel({
         <div className="td-terminal-overlay" data-testid="session-ended-overlay">
           <div className="td-terminal-overlay-card">
             <div className="td-terminal-overlay-title" data-testid="session-ended-title">
-              {t('terminalpanel.session_ended', 'Session ended')}
+              {retry && !retry.gaveUp
+                ? t('terminalpanel.reconnecting', 'Reconnecting…')
+                : t('terminalpanel.session_ended', 'Session ended')}
               {ended.code !== null ? ` · exit ${ended.code}` : ''}
             </div>
-            <p className="td-terminal-overlay-hint">
-              {t(
-                'terminalpanel.ended_hint',
-                'This pane is still here, and so is everything above it. Reconnect to keep working in it.'
-              )}
-            </p>
+            {retry ? (
+              <p className="td-terminal-overlay-hint" data-testid="reconnect-progress">
+                {retry.gaveUp
+                  ? t(
+                      'terminalpanel.auto_gave_up',
+                      'Gave up after {n} attempts. Retry by hand, or close the pane.',
+                      { n: retry.of }
+                    )
+                  : t(
+                      'terminalpanel.auto_retry',
+                      'Attempt {attempt} of {of} — connecting in {seconds}s',
+                      { attempt: retry.attempt, of: retry.of, seconds: retry.secondsLeft }
+                    )}
+              </p>
+            ) : (
+              <p className="td-terminal-overlay-hint">
+                {t(
+                  'terminalpanel.ended_hint',
+                  'This pane is still here, and so is everything above it. Reconnect to keep working in it.'
+                )}
+              </p>
+            )}
             {onReconnectSession && (
-              <button
-                className="td-btn td-btn-primary"
-                data-testid="reconnect-session"
-                disabled={busy}
-                onClick={() => {
-                  setBusy(true)
-                  void onReconnectSession().finally(() => setBusy(false))
-                }}
-              >
-                {busy
-                  ? t('terminalpanel.reconnecting', 'Reconnecting…')
-                  : t('terminalpanel.reconnect', 'Reconnect')}
-              </button>
+              <div className="td-terminal-overlay-actions">
+                <button
+                  className="td-btn td-btn-primary"
+                  data-testid="reconnect-session"
+                  disabled={busy}
+                  onClick={() => {
+                    stopRetry()
+                    // A deliberate retry starts the count over.
+                    attemptRef.current = 0
+                    setBusy(true)
+                    void onReconnectSession().finally(() => setBusy(false))
+                  }}
+                >
+                  {busy
+                    ? t('terminalpanel.reconnecting', 'Reconnecting…')
+                    : t('terminalpanel.reconnect', 'Reconnect')}
+                </button>
+                {retry && !retry.gaveUp && (
+                  <button
+                    className="td-btn"
+                    data-testid="reconnect-cancel"
+                    onClick={stopRetry}
+                  >
+                    {t('terminalpanel.cancel_retry', 'Stop retrying')}
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>

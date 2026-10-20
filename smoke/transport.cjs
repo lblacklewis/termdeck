@@ -30,6 +30,8 @@ const DASH = String.fromCharCode(8212)
 let received = ''
 let connections = 0
 let server = null
+/** Once set, the mock switch drops every new connection: the host-is-down case. */
+let refusing = false
 
 function report(checks) {
   for (const c of checks) {
@@ -44,6 +46,12 @@ function startServer() {
   return new Promise((resolve, reject) => {
     server = net.createServer((socket) => {
       connections += 1
+      if (refusing) {
+        // "The switch is gone": accept and drop, which is what the retry path has
+        // to keep facing. Set by the REFUSE marker below.
+        socket.destroy()
+        return
+      }
       socket.setNoDelay(true)
       socket.on('data', (chunk) => {
         const text = chunk.toString('latin1')
@@ -57,6 +65,21 @@ function startServer() {
          * the client.
          */
         const printable = text.replace(/[^\x20-\x7e\r\n]/g, '')
+        /*
+         * Two ways for the far end to go away, and both are *passive* as far as the
+         * app is concerned — nobody asked for the close:
+         *   HANGUP  this session is cut, but the switch is still there to dial again;
+         *   REFUSE  the switch stops answering, so every retry fails.
+         */
+        if (printable.includes('HANGUP')) {
+          socket.destroy()
+          return
+        }
+        if (printable.includes('REFUSE')) {
+          refusing = true
+          socket.destroy()
+          return
+        }
         if (printable.trim()) socket.write('ECHO:' + printable.replace(/\r/g, '') + '\r\n')
       })
       /*
@@ -142,6 +165,18 @@ async function main() {
         const rows = [...document.querySelectorAll('.xterm-rows')]
         return rows.map((r) => r.textContent || '').join('\\n')
       }
+      /** Everything a pane's terminal holds, scrollback included. */
+      const bufferText = (sessionId) => {
+        const entry = window.__tdTerminals ? window.__tdTerminals[sessionId] : null
+        if (!entry || !entry.term) return ''
+        const buffer = entry.term.buffer.active
+        let text = ''
+        for (let i = 0; i < buffer.length; i += 1) {
+          const line = buffer.getLine(i)
+          if (line) text += line.translateToString(true) + String.fromCharCode(10)
+        }
+        return text
+      }
 
       let step = 'start'
       try {
@@ -183,6 +218,68 @@ async function main() {
 
       const echoed = await waitFor(() => paneText().includes('ECHO:dir'), 8000)
       push('and the far end replies on screen', echoed, paneText().slice(-160))
+
+      /*
+       * ---- a connection that drops by itself is retried --------------------
+       * The mock switch hangs up when it sees HANGUP, which is the passive case:
+       * nothing was closed by the user, the far end simply went away. Two attempts
+       * a second apart, so the suite does not spend half a minute proving it.
+       */
+      step = 'auto retry'
+      const beforeDrop = await window.termdeck.loadSettings()
+      await window.termdeck.saveSettings({
+        ...beforeDrop,
+        reconnect: { enabled: true, attempts: 2, delaySeconds: 1 }
+      })
+      await wait(400)
+
+      const keep = 'KEEP_' + Date.now()
+      window.termdeck.writeSession(id, 'echo ' + keep + String.fromCharCode(13))
+      await waitFor(() => bufferText(id).includes(keep), 8000)
+
+      window.termdeck.writeSession(id, 'HANGUP' + String.fromCharCode(13))
+      const retrying = await waitFor(
+        () => !!document.querySelector('[data-testid="reconnect-progress"]'),
+        12000
+      )
+      const progressText = () =>
+        (document.querySelector('[data-testid="reconnect-progress"]') || {}).textContent || ''
+      push('a connection that drops by itself starts retrying on its own', retrying,
+        progressText() || 'no progress line')
+      push('and announces the first attempt of the configured two',
+        progressText().includes('1') && progressText().includes('2'), progressText())
+
+      const recovered = await waitFor(
+        () => !document.querySelector('[data-testid="session-ended-overlay"]'),
+        20000
+      )
+      push('it reconnects by itself once the far end answers again', recovered)
+      const paneId = () => {
+        const el = document.querySelector('[data-terminal-id]')
+        return el ? el.getAttribute('data-terminal-id') : null
+      }
+      push('into the same session, so the pane keeps its terminal', paneId() === id,
+        'pane=' + paneId() + ' was=' + id)
+      push('and the lines printed before the drop are still there',
+        bufferText(id).includes(keep), 'tail=' + bufferText(id).trim().slice(-40))
+
+      // ---- and it stops after the configured number of attempts ------------
+      step = 'auto retry gives up'
+      window.termdeck.writeSession(id, 'REFUSE' + String.fromCharCode(13))
+      const gaveUp = await waitFor(
+        () => /gave up/i.test(progressText()),
+        30000
+      )
+      push('when the host stays down it gives up after those attempts', gaveUp,
+        progressText() || 'no progress line')
+      push('and leaves the pane with its manual reconnect button',
+        !!document.querySelector('[data-testid="reconnect-session"]'))
+
+      // Put the setting back so the rest of the suite runs on the defaults.
+      await window.termdeck.saveSettings(beforeDrop)
+      const stop = document.querySelector('[data-testid="reconnect-cancel"]')
+      if (stop) stop.click()
+      await wait(300)
 
       // ---- the optional serial module is actually in this build ---------
       // Opening a port that does not exist is expected to fail; what matters is

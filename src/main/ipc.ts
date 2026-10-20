@@ -414,7 +414,14 @@ function serialiseError(err: unknown): {
 async function openSsh(
   options: SshConnectOptions,
   cols: number,
-  rows: number
+  rows: number,
+  /**
+   * Reconnect into this existing session id rather than opening a new one.
+   *
+   * Set by the reconnect path, where the pane — and therefore the terminal and its
+   * scrollback — has to survive.
+   */
+  reuseId?: string
 ): Promise<CreateSessionResult> {
   const label = options.title?.trim() || `${options.username}@${options.host}`
 
@@ -422,7 +429,8 @@ async function openSsh(
     (_id, c, r) => Promise.resolve(new SshShellBackend(options, c, r, { knownHosts })),
     { kind: 'ssh', title: label },
     cols,
-    rows
+    rows,
+    reuseId
   )
   blueprints.set(info.id, { kind: 'ssh', options, cols, rows })
 
@@ -437,6 +445,20 @@ async function openSsh(
       sessionManager.off('exit', onExit)
       resolve(value)
     }
+    /*
+     * A failed *reconnect* keeps both its record and its blueprint: the pane is
+     * still on screen and will try again, the buffer in that record is the output
+     * it already printed, and throwing the blueprint away would make the next
+     * attempt fail with "nothing left to reconnect with".
+     */
+    const discard = (): void => {
+      if (reuseId) {
+        sessionManager.abandon(reuseId)
+        return
+      }
+      sessionManager.close(info.id)
+      blueprints.delete(info.id)
+    }
 
     const onData = (id: string): void => {
       if (id === info.id) done({ ok: true, session: info })
@@ -445,13 +467,13 @@ async function openSsh(
       if (id !== info.id) return
       // Tear the dead session down; the UI will retry after the user decides.
       const serialised = serialiseError(error)
-      sessionManager.close(info.id)
-      blueprints.delete(info.id)
+      discard()
       done({ ok: false, error: serialised })
     }
     const onExit = (id: string): void => {
       if (id === info.id && !settled) {
         // Exited before producing anything and without a specific error.
+        discard()
         done({ ok: false, error: { message: 'Connection closed unexpectedly.' } })
       }
     }
@@ -476,7 +498,7 @@ export function stopAllTunnels(): void {
 
 export function registerIpc(): void {
   sessionManager.on('data', (id, chunk, seq) => broadcast('session:data', id, chunk, seq))
-  sessionManager.on('exit', (id, code, signal) => {
+  sessionManager.on('exit', (id, code, signal, expected) => {
     /*
      * The blueprint is deliberately *kept* after an exit.
      *
@@ -487,7 +509,7 @@ export function registerIpc(): void {
      * is what holds it.
      */
     closeSftp(id)
-    broadcast('session:exit', id, { code, signal })
+    broadcast('session:exit', id, { code, signal, expected })
   })
   sessionManager.on('error', (id, error) =>
     broadcast('session:error', id, serialiseError(error).message)
@@ -682,13 +704,18 @@ export function registerIpc(): void {
    * a new session with the same target and the same credentials, and the only
    * difference is what the caller does with it.
    */
-  async function createFromBlueprint(blueprint: SessionBlueprint): Promise<CreateSessionResult> {
+  async function createFromBlueprint(
+    blueprint: SessionBlueprint,
+    /** Reconnect into this session id instead of allocating a new one. */
+    reuseId?: string
+  ): Promise<CreateSessionResult> {
     if (blueprint.kind === 'local') {
       const info = await sessionManager.create(
         (_id, c, r) => Promise.resolve(new LocalShellBackend({}, c, r)),
         { kind: 'local', title: blueprint.title },
         blueprint.cols,
-        blueprint.rows
+        blueprint.rows,
+        reuseId
       )
       blueprints.set(info.id, { ...blueprint })
       return { ok: true, session: info }
@@ -699,7 +726,8 @@ export function registerIpc(): void {
         (_id, c, r) => Promise.resolve(new TelnetBackend(blueprint.options, c, r)),
         { kind: 'telnet', title: blueprint.options.host },
         blueprint.cols,
-        blueprint.rows
+        blueprint.rows,
+        reuseId
       )
       blueprints.set(info.id, { ...blueprint })
       runPostConnect(info.id, blueprint.post)
@@ -711,14 +739,15 @@ export function registerIpc(): void {
         (_id, c, r) => Promise.resolve(new SerialBackend(blueprint.options)),
         { kind: 'serial', title: blueprint.options.path },
         blueprint.cols,
-        blueprint.rows
+        blueprint.rows,
+        reuseId
       )
       blueprints.set(info.id, { ...blueprint })
       runPostConnect(info.id, blueprint.post, 300)
       return { ok: true, session: info }
     }
 
-    return openSsh(blueprint.options, blueprint.cols, blueprint.rows)
+    return openSsh(blueprint.options, blueprint.cols, blueprint.rows, reuseId)
   }
 
   ipcMain.handle('session:duplicate', async (_e, sourceId: string): Promise<CreateSessionResult> => {
@@ -756,7 +785,12 @@ export function registerIpc(): void {
     }
     // The old backend is done; drop anything riding on it before rebuilding.
     closeSftp(sourceId)
-    return createFromBlueprint(blueprint)
+    /*
+     * Rebuilt under the *same* session id, which is what keeps the pane's terminal —
+     * and with it every line the user was looking at — in place. A new id would mean
+     * a new terminal and a blank screen.
+     */
+    return createFromBlueprint(blueprint, sourceId)
   })
 
   // ---- REST tool ---------------------------------------------------------

@@ -179,6 +179,15 @@ export interface TunnelState extends TunnelSpec {
 export interface SessionExitInfo {
   code: number | null
   signal: string | null
+  /**
+   * True when the app asked for this close (a pane closing, Ctrl+D on a finished
+   * pane).
+   *
+   * The difference matters to the UI: a session that ended because someone closed
+   * it is finished, while one whose connection dropped on its own is worth
+   * retrying automatically.
+   */
+  expected: boolean
 }
 
 export interface AppInfo {
@@ -666,6 +675,20 @@ export const DEFAULT_SIDEBAR_SIDE: SidebarSide = 'left'
 export type BreakMode = 'reminder' | 'pomodoro'
 
 /**
+ * Retrying a connection that dropped.
+ *
+ * Only *passive* drops are retried: a session the user ended (closing the pane,
+ * Ctrl+D, or a clean `exit` at the prompt) is finished, not broken.
+ */
+export interface ReconnectSettings {
+  enabled: boolean
+  /** How many times to try before giving up and leaving the button to the user. */
+  attempts: number
+  /** Seconds to wait between attempts (and before the first one). */
+  delaySeconds: number
+}
+
+/**
  * A nudge to get up, after this much *focused* use.
  *
  * Counted only while the window has focus, so a reminder never fires at someone
@@ -692,6 +715,17 @@ export const DEFAULT_BREAK_SETTINGS: BreakSettings = {
   breakMinutes: 5,
   idleSeconds: 5,
   snoozeMinutes: 10
+}
+
+/**
+ * Three tries, ten seconds apart: long enough for a Wi-Fi blip or a VPN reconnect,
+ * short enough that a host which is really down is handed back to the user instead
+ * of being hammered.
+ */
+export const DEFAULT_RECONNECT_SETTINGS: ReconnectSettings = {
+  enabled: true,
+  attempts: 3,
+  delaySeconds: 10
 }
 
 /**
@@ -823,6 +857,8 @@ export interface AppSettings {
   sidebar: SidebarSettings
   /** Get-up-and-stretch reminder. */
   break: BreakSettings
+  /** What to do when a connection drops on its own. */
+  reconnect: ReconnectSettings
   /** What that reminder has recorded about the working day. */
   breakStats: BreakStats
   /** Id of the active theme; see `THEMES` in shared/themes. */
@@ -890,6 +926,13 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
    */
   { id: 'closeDeadPane', label: 'Close a finished session', keys: 'Ctrl+D', builtin: true },
   { id: 'openSettings', label: 'Open settings', keys: 'Ctrl+,', builtin: true },
+  /*
+   * Reconnect only *acts* on a pane whose session has ended, and declines the key
+   * otherwise — the same rule as Ctrl+D above. Ctrl+R is reverse-i-search in every
+   * readline shell, and swallowing it in a live terminal would be a regression
+   * dressed as a shortcut.
+   */
+  { id: 'reconnectSession', label: 'Reconnect the active session', keys: 'Ctrl+R', builtin: true },
   { id: 'toggleSidebar', label: 'Toggle sidebar', keys: 'Ctrl+B', builtin: true },
   { id: 'openConnections', label: 'Open connections window', keys: 'Ctrl+Shift+E', builtin: true },
   { id: 'toggleSnippets', label: 'Toggle snippet bar', keys: 'Ctrl+Shift+S', builtin: true },
@@ -1001,6 +1044,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
   break: DEFAULT_BREAK_SETTINGS,
   breakStats: DEFAULT_BREAK_STATS,
+  reconnect: DEFAULT_RECONNECT_SETTINGS,
   theme: 'termius-dark',
   uiScale: 1,
   language: 'en'

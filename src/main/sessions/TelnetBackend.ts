@@ -77,7 +77,14 @@ export class TelnetBackend extends EventEmitter implements SessionBackend {
     this.socket.on('close', () => {
       if (this.closed) return
       this.closed = true
-      this.emit('exit', 0, null)
+      /*
+       * No exit status: telnet has none, and inventing a clean 0 here said "the far
+       * end finished properly" about a connection that had just dropped — which is
+       * the one distinction the UI acts on (a clean end is left alone, a drop is
+       * retried). A deliberate `close()` never reaches this line: it sets `closed`
+       * first.
+       */
+      this.emit('exit', null, null)
     })
   }
 

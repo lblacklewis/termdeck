@@ -9,6 +9,7 @@ import type {
   FontChoices,
   Keybinding,
   LockStatus,
+  ReconnectSettings,
   SidebarSectionState,
   TerminalSettings
 } from '@shared/types'
@@ -89,6 +90,8 @@ export function SettingsDialog({
     setDraft((d) => ({ ...d, terminal: { ...d.terminal, ...patch } }))
   const updateClipboard = (patch: Partial<ClipboardSettings>): void =>
     setDraft((d) => ({ ...d, clipboard: { ...d.clipboard, ...patch } }))
+  const updateReconnect = (patch: Partial<ReconnectSettings>): void =>
+    setDraft((d) => ({ ...d, reconnect: { ...d.reconnect, ...patch } }))
 
   // ---- live theme preview -------------------------------------------------
 
@@ -326,7 +329,10 @@ export function SettingsDialog({
             )}
 
             {tab === 'terminal' && (
-              <TerminalTab settings={draft.terminal} onChange={updateTerminal} />
+              <>
+                <TerminalTab settings={draft.terminal} onChange={updateTerminal} />
+                <ReconnectTab settings={draft.reconnect} onChange={updateReconnect} />
+              </>
             )}
 
             {tab === 'clipboard' && (
@@ -699,6 +705,70 @@ function CredentialsTab({
             {t('settingsdialog.import_hosts', 'Import hosts…')}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * What happens when a connection drops on its own.
+ *
+ * Separate from the terminal's own settings because it is not about how a
+ * terminal looks: it is the policy for a host that went away underneath a pane.
+ */
+function ReconnectTab({
+  settings,
+  onChange
+}: {
+  settings: ReconnectSettings
+  onChange: (patch: Partial<ReconnectSettings>) => void
+}): JSX.Element {
+  return (
+    <div className="td-field-stack td-settings-spaced" data-testid="reconnect-tab">
+      <h3 className="td-settings-heading">
+        {t('settingsdialog.dropped_connections', 'Dropped connections')}
+      </h3>
+      <label className="td-check">
+        <input
+          type="checkbox"
+          aria-label="reconnect-enabled"
+          checked={settings.enabled}
+          onChange={(e) => onChange({ enabled: e.target.checked })}
+        />
+        <span>
+          <b>{t('settingsdialog.retry_automatically', 'Retry automatically')}</b>{' '}
+          {t(
+            'settingsdialog.retry_automatically_hint',
+            '— only for a connection that drops by itself. A shell you ended yourself stays ended, and Ctrl+R retries by hand at any time.'
+          )}
+        </span>
+      </label>
+
+      <div className="td-field-row">
+        <label className="td-field td-field-grow">
+          <span>{t('settingsdialog.attempts', 'Attempts')}</span>
+          <input
+            type="number"
+            aria-label="reconnect-attempts"
+            min={0}
+            max={10}
+            disabled={!settings.enabled}
+            value={settings.attempts}
+            onChange={(e) => onChange({ attempts: Number(e.target.value) })}
+          />
+        </label>
+        <label className="td-field td-field-grow">
+          <span>{t('settingsdialog.seconds_between_attempts', 'Seconds between attempts')}</span>
+          <input
+            type="number"
+            aria-label="reconnect-delay"
+            min={1}
+            max={120}
+            disabled={!settings.enabled}
+            value={settings.delaySeconds}
+            onChange={(e) => onChange({ delaySeconds: Number(e.target.value) })}
+          />
+        </label>
       </div>
     </div>
   )

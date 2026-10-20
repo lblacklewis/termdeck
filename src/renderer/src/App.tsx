@@ -1517,7 +1517,27 @@ export function App(): JSX.Element {
         setAlert({ message: result.error.message })
         return false
       }
-      setSessions((prev) => [...prev, result.session])
+      /*
+       * "It opened" and "it is up" are different claims.
+       *
+       * A transport with no handshake to wait for (telnet, serial) reports success
+       * as soon as the socket opens, and the connection can already be gone by the
+       * time this returns. Binding it would clear the pane's ended state and leave
+       * a dead terminal with no notice on it — so the session has to still be there
+       * before it counts as reconnected.
+       */
+      const stillLive = (await api.listSessions()).some((entry) => entry.id === result.session.id)
+      if (!stillLive) return false
+      setSessions((prev) => {
+        /*
+         * The rebuilt session keeps the id it had — that is what keeps the pane's
+         * terminal, and the scrollback in it, in place — so this replaces the entry
+         * rather than adding one. Appending left the list holding the dead session
+         * too, and every count of "open sessions" was one too high.
+         */
+        const others = prev.filter((entry) => entry.id !== result.session.id)
+        return [...others, result.session]
+      })
       return bindSessionToPanel(panelId, result.session)
     }
   }, [bindSessionToPanel, connectSaved])
@@ -2696,6 +2716,18 @@ export function App(): JSX.Element {
       if (!active || active.id === 'welcome') return false
       if (!isPaneDead(active.id)) return false
       closeSession(active.id)
+    },
+    /*
+     * Ctrl+R reconnects only a pane whose session has ended, and declines the key
+     * otherwise — the same rule as Ctrl+D above. In a live shell Ctrl+R is
+     * reverse-i-search, and swallowing that would be a regression dressed up as a
+     * shortcut.
+     */
+    reconnectSession: () => {
+      const active = dockApiRef.current?.activePanel
+      if (!active || active.id === 'welcome') return false
+      if (!isPaneDead(active.id)) return false
+      void reconnectEndedRef.current(active.id)
     },
     openSettings: () => setSettingsOpen(true),
     toggleSidebar: () => setRailCollapsed((v) => !v),

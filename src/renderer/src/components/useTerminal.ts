@@ -4,7 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import '@xterm/xterm/css/xterm.css'
 
-import type { ClipboardSettings, TerminalSettings, Theme } from '@shared/types'
+import type { ClipboardSettings, SessionExitInfo, TerminalSettings, Theme } from '@shared/types'
 import { buildTerminalOptions, terminalThemeFor, xtermCursorStyle } from './terminalTheme'
 import {
   LineTimestamps,
@@ -40,7 +40,7 @@ interface UseTerminalOptions {
   clipboard: ClipboardSettings
   /** Active theme, so the terminal palette follows the app. */
   theme: Theme
-  onExit?: (info: { code: number | null; signal: string | null }) => void
+  onExit?: (info: SessionExitInfo) => void
 }
 
 /**

@@ -19,12 +19,14 @@ import {
 import { dirname, join } from 'node:path'
 import {
   DEFAULT_BREAK_SETTINGS,
+  DEFAULT_RECONNECT_SETTINGS,
   DEFAULT_SETTINGS,
   DEFAULT_SIDEBAR_SECTIONS,
   DEFAULT_SIDEBAR_WIDTH,
   HISTORY_RETENTION_DAYS,
   type AppSettings,
   type BreakSettings,
+  type ReconnectSettings,
   type BreakStats,
   type HistoryEntry,
   type HistorySessionSummary,
@@ -108,6 +110,7 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
     },
     break: mergeBreak(stored.break),
     breakStats: mergeBreakStats(stored.breakStats),
+    reconnect: mergeReconnect(stored.reconnect),
     theme: typeof stored.theme === 'string' && stored.theme ? stored.theme : defaults.theme,
     // Clamped here so a hand-edited file cannot leave the UI unusable
     // (invisible at 0.1, unusable at 10).
@@ -198,6 +201,30 @@ function mergeBreak(stored: unknown): BreakSettings {
     snoozeMinutes: Math.min(
       120,
       Math.max(1, Math.round(input.snoozeMinutes ?? DEFAULT_BREAK_SETTINGS.snoozeMinutes))
+    )
+  }
+}
+
+/**
+ * The reconnect policy, clamped.
+ *
+ * A settings file written before this existed has no `reconnect` at all, and gets
+ * the defaults — which is the intended behaviour for a feature that is on by
+ * default. Attempts are capped at ten and the delay at two minutes so a
+ * hand-edited file cannot turn a dropped connection into a permanent hammering of
+ * somebody's production host.
+ */
+function mergeReconnect(stored: unknown): ReconnectSettings {
+  const input = (stored ?? {}) as Partial<ReconnectSettings>
+  return {
+    enabled: input.enabled !== false,
+    attempts: Math.min(
+      10,
+      Math.max(0, Math.round(input.attempts ?? DEFAULT_RECONNECT_SETTINGS.attempts))
+    ),
+    delaySeconds: Math.min(
+      120,
+      Math.max(1, Math.round(input.delaySeconds ?? DEFAULT_RECONNECT_SETTINGS.delaySeconds))
     )
   }
 }
