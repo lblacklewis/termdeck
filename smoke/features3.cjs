@@ -213,6 +213,33 @@ async function main() {
 
       // ---- 2b. the hollow cursor ------------------------------------------
       /*
+       * xterm only paints a cursor for a focused terminal, and this suite runs at
+       * the very end of a long chain of Electron runs — the window can lose the OS
+       * foreground in between, which used to surface as four separate failures
+       * about a cursor that was simply never drawn. Ask for focus first, then wait
+       * for the element, so a real regression is still a failure while a lost
+       * foreground says so in one line.
+       */
+      {
+        if (!document.hasFocus()) {
+          window.focus()
+          const textarea = document.querySelector('.xterm-helper-textarea')
+          if (textarea) textarea.focus()
+          await wait(500)
+        }
+        const ready = await waitFor(
+          () => !!(paneHosts()[0] || document).querySelector('.xterm-cursor'),
+          5000
+        )
+        push(
+          'a focused terminal paints the cursor that is measured below',
+          ready,
+          'focus=' + document.hasFocus() +
+            ' active=' + (document.activeElement ? document.activeElement.tagName : 'none') +
+            ' panes=' + paneHosts().length
+        )
+      }
+      /*
        * A hollow box: transparent inside, outlined in the terminal's text colour.
        * Measured, not eyeballed — xterm injects its cursor colours with an
        * important-flagged rule from a stylesheet appended *after* ours, so "it still
