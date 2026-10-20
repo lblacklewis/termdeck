@@ -97,7 +97,9 @@ export function DrawerFooter({
     setSent(
       reached === 0
         ? t('appscript.nothing_open', 'No pane took it')
-        : `${t('appscript.sent', 'Sent to')} ${reached} ${reached === 1 ? 'pane' : 'panes'}`
+        : // One template rather than a plural rule glued on: the count belongs
+          // inside the sentence, and each language puts it where it belongs.
+          t('appscript.sent', 'Sent to {n} panes', { n: reached })
     )
     setScript('')
     setTimeout(() => setSent(''), 2500)
