@@ -26,7 +26,8 @@ function navEntries(): NavEntry[] {
     { id: 'logs', label: t('navrail.logs', 'Logs'), icon: '≣' },
     // A tunnel is a connection you keep open in the background, so it sits with
     // the other things that outlive a pane rather than inside the terminal.
-    { id: 'tunnels', label: t('navrail.tunnels', 'Tunnels'), icon: '⇄' }
+    { id: 'tunnels', label: t('navrail.tunnels', 'Tunnels'), icon: '⇄' },
+    { id: 'rest', label: t('navrail.rest', 'REST'), icon: '⇢' }
   ]
 }
 

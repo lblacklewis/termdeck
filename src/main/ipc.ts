@@ -29,9 +29,11 @@ import { TunnelManager } from './tunnels/TunnelManager'
 import { listFontChoices } from './fonts'
 import { clampScale, HistoryStore, SettingsStore, SessionStore } from './store/Stores'
 import { KnownHosts } from './ssh/KnownHosts'
+import { sendRestRequest } from './rest'
 import { closeSftp, downloadFile, listDirectory, uploadFile } from './sftp'
 import type {
   AppSettings,
+  RestRequest,
   TunnelSpec,
   CreateSessionResult,
   FontChoices,
@@ -653,6 +655,17 @@ export function registerIpc(): void {
 
     return openSsh(blueprint.options, blueprint.cols, blueprint.rows)
   })
+
+  // ---- REST tool ---------------------------------------------------------
+
+  /*
+   * Sent from here rather than from the page because the renderer runs on
+   * `file://`: a fetch from it is subject to CORS, and the services this tool is
+   * for — a local Ollama, an Elasticsearch, a health endpoint — do not send
+   * `Access-Control-Allow-Origin`. The renderer still never touches the network
+   * directly, which is the same rule every other connection in the app follows.
+   */
+  ipcMain.handle('rest:send', (_e, request: RestRequest) => sendRestRequest(request))
 
   // ---- tunnels -----------------------------------------------------------
 

@@ -89,6 +89,35 @@ export interface SerialConnectPayload {
   savedSessionId?: string
 }
 
+export interface RestHeader {
+  name: string
+  value: string
+}
+
+export interface RestRequest {
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
+  url: string
+  headers: RestHeader[]
+  body?: string
+}
+
+export interface RestResponse {
+  /** False only when the request never produced a response at all. */
+  ok: boolean
+  status?: number
+  statusText?: string
+  headers?: RestHeader[]
+  body?: string
+  /** Total wall time for the request, in ms. */
+  durationMs: number
+  /** Bytes received, before any decoding. */
+  size: number
+  /** Set when `ok` is false: the transport-level reason. */
+  error?: string
+  /** The URL that finally answered, after redirects. */
+  finalUrl?: string
+}
+
 export interface TunnelSpec {
   id: string
   name: string
@@ -334,7 +363,7 @@ export interface KnownHostEntry {
 }
 
 /** Rail sections. `settings` opens a drawer rather than a page of its own. */
-export type PageId = 'terminal' | 'hosts' | 'known-hosts' | 'snippets' | 'logs' | 'tunnels' | 'settings'
+export type PageId = 'terminal' | 'hosts' | 'known-hosts' | 'snippets' | 'logs' | 'tunnels' | 'rest' | 'settings'
 
 /** Persisted UI arrangement, restored on launch. */
 export interface LayoutState {
@@ -1098,6 +1127,8 @@ export interface TermDeckApi {
   onSettingsChanged(handler: (settings: AppSettings) => void): () => void
   /** Fires on every saved-session or folder mutation. */
   onTreeChanged(handler: (tree: SessionTree) => void): () => void
+
+  sendRestRequest(request: RestRequest): Promise<RestResponse>
 
   listTunnels(): Promise<TunnelState[]>
   saveTunnels(specs: TunnelSpec[]): Promise<TunnelState[]>

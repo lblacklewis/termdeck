@@ -35,6 +35,8 @@ import type {
   SftpTransferResult,
   Snippet,
   SshConnectPayload,
+  RestRequest,
+  RestResponse,
   TunnelSpec,
   TunnelState,
   TrustHostKeyRequest
@@ -235,6 +237,11 @@ const api = {
 
   onTagsChanged: (handler: (tags: string[]) => void): (() => void) =>
     on<[string[]]>('tree:tags', handler),
+
+  // ---- REST tool ---------------------------------------------------------
+
+  sendRestRequest: (request: RestRequest): Promise<RestResponse> =>
+    ipcRenderer.invoke('rest:send', request),
 
   // ---- tunnels -----------------------------------------------------------
 

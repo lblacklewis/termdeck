@@ -30,6 +30,7 @@ const HostsPage = lazy(() => import('./HostsPage').then((m) => ({ default: m.Hos
 const TunnelsPage = lazy(() =>
   import('./TunnelsPage').then((m) => ({ default: m.TunnelsPage }))
 )
+const RestPage = lazy(() => import('./RestPage').then((m) => ({ default: m.RestPage })))
 
 interface PagesLayerProps {
   page: PageId
@@ -137,6 +138,12 @@ export function PagesLayer({
       {page === 'tunnels' && (
         <Suspense fallback={null}>
           <TunnelsPage hosts={tree.sessions} />
+        </Suspense>
+      )}
+
+      {page === 'rest' && (
+        <Suspense fallback={null}>
+          <RestPage />
         </Suspense>
       )}
 

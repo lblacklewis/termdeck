@@ -4902,6 +4902,37 @@ html[data-theme-scheme='light'] .td-select {
   padding: 2px 2px 4px;
 }
 
+/*
+ * The REST tool's answer pane.
+ *
+ * `white-space: pre` and an x-scroll on purpose: wrapped JSON is unreadable the
+ * moment a value gets long, and the point of this pane is to read the shape.
+ */
+.td-pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 320px;
+  overflow: auto;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: 6px;
+  color: var(--td-text);
+}
+
+.td-details summary {
+  cursor: pointer;
+  margin: 6px 0 4px;
+  font-size: 11px;
+  color: var(--td-text-dim);
+}
+
+.td-details[open] summary {
+  margin-bottom: 6px;
+}
 .td-sftp-path {
   flex: 1 1 auto;
   min-width: 0;
