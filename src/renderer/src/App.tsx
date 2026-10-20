@@ -2215,19 +2215,66 @@ export function App(): JSX.Element {
 
   const sendSnippet = useCallback(
     (snippet: Snippet) => {
-      const sessionId = activeTerminalId()
-      if (!sessionId) {
+      const active = dockApiRef.current?.activePanel
+      if (!active || active.id === 'welcome') {
         setAlert({
           message: `Cannot run “${snippet.label}”: no active terminal. Connect to a host first.`
         })
         return
       }
+      // A restored pane keeps the *old* session's id, so the shell to write into
+      // is the live one behind it, not the pane id.
+      const sessionId = liveIdFor(active.id)
       // Sent verbatim. Whether the shell executes it is decided by the newline
       // the user did or did not include — never added on their behalf.
       api.writeSession(sessionId, snippet.command)
+      /*
+       * Hand the keyboard straight back to the pane.
+       *
+       * Reaching for a snippet happens in the middle of a sentence, not at the end
+       * of one: leaving focus on the button meant the next keystroke went to the
+       * button and the typing stopped. Focus goes to the terminal the command went
+       * to, which is why this is keyed on the session and not on the active pane.
+       */
+      getTerminal(sessionId)?.focus()
     },
-    [activeTerminalId]
+    [liveIdFor]
   )
+
+  /**
+   * The snippets that carry a shortcut, as bindings the dispatcher can match.
+   *
+   * Derived rather than stored in `settings.keybindings`: a snippet keeps its key
+   * when renamed and loses it when deleted, whereas an entry in the binding list
+   * would outlive the snippet and leave a key that silently does nothing.
+   */
+  const snippetBindings = useMemo(
+    () =>
+      settings.snippets
+        .filter((snippet) => !!snippet.keys)
+        .map((snippet) => ({
+          id: 'snippet:' + snippet.id,
+          label: snippet.label,
+          keys: snippet.keys as string,
+          builtin: false
+        })),
+    [settings.snippets]
+  )
+
+  /** Snippet shortcuts and ordinary ones in one list, so clashes can be seen. */
+  const allBindings = useMemo(
+    () => [...settings.keybindings, ...snippetBindings],
+    [settings.keybindings, snippetBindings]
+  )
+
+  /** What each snippet's key runs. Lives beside the bindings it belongs to. */
+  const snippetHandlers = useMemo(() => {
+    const out: Record<string, () => void> = {}
+    for (const snippet of settings.snippets) {
+      out['snippet:' + snippet.id] = () => sendSnippet(snippet)
+    }
+    return out
+  }, [settings.snippets, sendSnippet])
 
   const saveSnippet = useCallback(
     async (input: Partial<Snippet> & { label: string; command: string }) => {
@@ -2712,7 +2759,7 @@ export function App(): JSX.Element {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [zoomBy])
 
-  useShortcuts(settings.keybindings, {
+  useShortcuts(allBindings, {
     newConnection: () => setDialogOpen(true),
     closeSession: () => {
       const active = dockApiRef.current?.activePanel
@@ -2766,7 +2813,14 @@ export function App(): JSX.Element {
     scaleDown: () => zoomBy(-1),
     toggleFocus,
     lockApp: lockNow,
-    quitApp: requestQuit
+    quitApp: requestQuit,
+    /*
+     * One handler per snippet, under the id its binding was given above.
+     *
+     * Spread last so a snippet whose key was left over from an older release can
+     * never be shadowed by a built-in handler of the same id.
+     */
+    ...snippetHandlers
   })
 
   const platformLabel = useMemo(
@@ -3351,6 +3405,17 @@ export function App(): JSX.Element {
           snippet={snippetEditor.snippet}
           defaultGroup={snippetEditor.group}
           groups={[...new Set(settings.snippets.map((s) => s.group || 'Ungrouped'))]}
+          /*
+           * Everything the new key could collide with, minus this snippet's own
+           * binding — otherwise every edit would report a clash with itself.
+           */
+          taken={allBindings
+            .filter((binding) => binding.id !== `snippet:${snippetEditor.snippet?.id ?? ''}`)
+            .filter((binding) => !!binding.keys)
+            .map((binding) => ({
+              keys: binding.keys,
+              label: t('keybinding.' + binding.id, binding.label)
+            }))}
           onCancel={() => setSnippetEditor(null)}
           onSaved={(input) => void saveSnippet(input)}
           onDeleted={(id) => void deleteSnippet(id)}

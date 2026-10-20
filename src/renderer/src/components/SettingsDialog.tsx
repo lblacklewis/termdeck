@@ -189,10 +189,7 @@ export function SettingsDialog({
       if (!formatted) return // waiting for a non-modifier key
       if (!isValidBinding(formatted)) return
 
-      setDraft((d) => ({
-        ...d,
-        keybindings: d.keybindings.map((b) => (b.id === recording ? { ...b, keys: formatted } : b))
-      }))
+      setBindingKeys(recording, formatted)
       setError(null)
       setRecording(null)
     }
@@ -201,25 +198,72 @@ export function SettingsDialog({
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [recording])
 
+  /**
+   * Set a shortcut by binding id.
+   *
+   * A snippet carries its own key rather than owning a row in `keybindings`, so
+   * the id decides which list is written — `snippet:<id>` goes to the snippet and
+   * everything else to the binding list.
+   */
   const setBindingKeys = (id: string, keys: string): void =>
-    setDraft((d) => ({
-      ...d,
-      keybindings: d.keybindings.map((b) => (b.id === id ? { ...b, keys } : b))
-    }))
+    setDraft((d) =>
+      id.startsWith('snippet:')
+        ? {
+            ...d,
+            snippets: d.snippets.map((s) =>
+              s.id === id.slice('snippet:'.length) ? { ...s, keys: keys || undefined } : s
+            )
+          }
+        : {
+            ...d,
+            keybindings: d.keybindings.map((b) => (b.id === id ? { ...b, keys } : b))
+          }
+    )
+
+  /**
+   * Every shortcut in the app, in one namespace, so a clash can be found.
+   *
+   * Snippet shortcuts are included because they compete for the same keys: two
+   * snippets on one chord, or a snippet on top of a built-in, would leave the
+   * dispatcher picking whichever happens to come first in the list — the user's
+   * key would appear to work "sometimes".
+   */
+  const shortcutsInUse = useMemo(
+    () => [
+      ...draft.keybindings,
+      ...draft.snippets
+        .filter((snippet) => !!snippet.keys)
+        .map((snippet) => ({
+          id: `snippet:${snippet.id}`,
+          label: snippet.label,
+          keys: snippet.keys as string
+        }))
+    ],
+    [draft.keybindings, draft.snippets]
+  )
 
   const conflicts = useMemo(() => {
-    const byKeys = new Map<string, string[]>()
-    for (const binding of draft.keybindings) {
+    // Keyed by the lower-cased chord for comparison, but the original spelling and
+    // the labels are what get shown — `ctrl+t` in a warning about key names reads
+    // like a different key from the one the user just pressed.
+    const byKeys = new Map<string, { keys: string; labels: string[] }>()
+    for (const binding of shortcutsInUse) {
       if (!binding.keys) continue
       const normalised = binding.keys.toLowerCase()
-      byKeys.set(normalised, [...(byKeys.get(normalised) ?? []), binding.label])
+      const existing = byKeys.get(normalised)
+      if (existing) existing.labels.push(binding.label)
+      else byKeys.set(normalised, { keys: binding.keys, labels: [binding.label] })
     }
-    const out = new Map<string, string[]>()
-    for (const [keys, labels] of byKeys) {
-      if (labels.length > 1) out.set(keys, labels)
+    const out = new Map<string, { keys: string; labels: string[] }>()
+    for (const [normalised, entry] of byKeys) {
+      if (entry.labels.length > 1) out.set(normalised, entry)
     }
     return out
-  }, [draft.keybindings])
+  }, [shortcutsInUse])
+
+  /** Is this key one of the clashing ones? Used to mark the row itself. */
+  const clashesOn = (keys: string | undefined): boolean =>
+    !!keys && conflicts.has(keys.toLowerCase())
 
   /** Reorder by dropping `from` onto `to`. */
   const reorder = (from: string, to: string): void => {
@@ -270,8 +314,18 @@ export function SettingsDialog({
   }
 
   const save = async (): Promise<void> => {
+    /*
+     * A duplicated chord is refused, not resolved: two bindings on one key means
+     * whichever comes first in the list wins, so "it works sometimes" is the only
+     * outcome the app could promise. The rows above say which two.
+     */
     if (conflicts.size > 0) {
-      setError('Resolve conflicting shortcuts before saving.')
+      setError(
+        t(
+          'settingsdialog.resolve_conflicting_short',
+          'Fix the conflicting shortcuts before saving — the same key is used twice.'
+        )
+      )
       return
     }
     try {
@@ -372,9 +426,10 @@ export function SettingsDialog({
                   <kbd>{t('settingsdialog.alt_2', 'Alt')}</kbd>+<kbd>[</kbd> and <kbd>{t('settingsdialog.alt_3', 'Alt')}</kbd>+<kbd>]</kbd> {t('settingsdialog.step_to_the_previous_and_nex', 'step to the previous and next session and wrap around at both ends.')}{' '}
                   <kbd>{t('settingsdialog.ctrl', 'Ctrl')}</kbd>+<kbd>=</kbd> and <kbd>{t('settingsdialog.ctrl_2', 'Ctrl')}</kbd>+<kbd>-</kbd> {t('settingsdialog.make_the_whole_interface_lar', 'make the whole interface larger and smaller, a step at a time through the sizes on the Appearance tab.')}
                 </p>
-                {[...conflicts.entries()].map(([keys, labels]) => (
-                  <div key={keys} className="td-form-error">
-                    {t('settingsdialog.shortcut_conflict_on', 'Shortcut conflict on')}<b>{keys}</b>: {labels.join(', ')}
+                {[...conflicts.values()].map((entry) => (
+                  <div key={entry.keys} className="td-form-error" data-testid="shortcut-conflict">
+                    {t('settingsdialog.shortcut_conflict_on', 'Shortcut conflict on')}{' '}
+                    <b>{entry.keys}</b>: {entry.labels.join(', ')}
                   </div>
                 ))}
                 <ul className="td-shortcut-list" data-testid="shortcut-list">
@@ -426,7 +481,7 @@ export function SettingsDialog({
                       <button
                         className={`td-key-btn${recording === binding.id ? ' is-recording' : ''}${
                           binding.keys ? '' : ' is-empty'
-                        }`}
+                        }${clashesOn(binding.keys) ? ' is-conflict' : ''}`}
                         data-testid={`binding-${binding.id}`}
                         onClick={() => setRecording(binding.id)}
                       >
@@ -442,6 +497,55 @@ export function SettingsDialog({
                     </li>
                   ))}
                 </ul>
+
+                {/*
+                  Snippet shortcuts live on the snippet, not in the list above, but
+                  they are matched by the same dispatcher and so compete for the same
+                  keys. They are shown here so a clash with a built-in is visible in
+                  the place where clashes are resolved — and so saving is blocked by
+                  the same check rather than by a second rule.
+                */}
+                {draft.snippets.length > 0 && (
+                  <>
+                    <p className="td-hint td-settings-spaced" data-testid="snippet-shortcut-heading">
+                      {t(
+                        'settingsdialog.snippet_shortcuts',
+                        'Snippet shortcuts — set in a snippet’s editor, listed here because they take part in the same conflict check.'
+                      )}
+                    </p>
+                    <ul className="td-shortcut-list" data-testid="snippet-shortcut-list">
+                      {draft.snippets.map((snippet) => (
+                        <li
+                          key={snippet.id}
+                          className="td-shortcut-row"
+                          data-snippet-id={snippet.id}
+                        >
+                          <span className="td-shortcut-label">{snippet.label}</span>
+                          <button
+                            className={`td-key-btn${
+                              recording === `snippet:${snippet.id}` ? ' is-recording' : ''
+                            }${snippet.keys ? '' : ' is-empty'}${
+                              clashesOn(snippet.keys) ? ' is-conflict' : ''
+                            }`}
+                            data-testid={`snippet-binding-${snippet.id}`}
+                            onClick={() => setRecording(`snippet:${snippet.id}`)}
+                          >
+                            {recording === `snippet:${snippet.id}`
+                              ? 'Press keys...'
+                              : snippet.keys || t('settingsdialog.not_set', 'Not set')}
+                          </button>
+                          <button
+                            className="td-mini"
+                            title={t('settingsdialog.remove_shortcut_2', 'Remove shortcut')}
+                            onClick={() => setBindingKeys(`snippet:${snippet.id}`, '')}
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
             )}
 

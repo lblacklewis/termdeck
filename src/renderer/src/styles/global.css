@@ -1647,6 +1647,15 @@ kbd {
   flex: 1 1 auto;
 }
 
+/*
+ * A recorded shortcut next to its clear button, in the snippet editor. The key
+ * button keeps its own width so several rows line up.
+ */
+.td-key-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .td-key-btn {
   flex: 0 0 150px;
   padding: 6px 10px;
@@ -1673,6 +1682,17 @@ kbd {
 .td-key-btn.is-empty {
   color: var(--td-text-faint);
   font-style: italic;
+}
+
+/*
+ * The key is claimed twice. Saving is refused while one of these is on screen, so
+ * the mark has to be findable in a list that scrolls — hence the border as well as
+ * the text colour.
+ */
+.td-key-btn.is-conflict {
+  border-color: var(--td-danger-border);
+  background: var(--td-danger-soft);
+  color: var(--td-danger);
 }
 
 /* ---- vault ------------------------------------------------------------- */
@@ -3277,6 +3297,15 @@ body {
   font-size: 12.5px;
 }
 
+/*
+ * A recorded shortcut next to its clear button, in the snippet editor. The key
+ * button keeps its own width so several rows line up.
+ */
+.td-key-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .td-key-btn {
   flex: 0 0 158px;
   padding: 6px 11px;

@@ -1,6 +1,7 @@
-import { useMemo, useState, type FormEvent, type JSX } from 'react'
+import { useEffect, useMemo, useState, type FormEvent, type JSX } from 'react'
 import type { Snippet } from '@shared/types'
 import { Drawer } from './Drawer'
+import { formatEvent, isValidBinding } from './useShortcuts'
 import { t } from '../i18n'
 
 interface SnippetEditorProps {
@@ -10,6 +11,11 @@ interface SnippetEditorProps {
   defaultGroup: string
   /** Existing group names, offered as suggestions and used for renames. */
   groups: string[]
+  /**
+   * Every other shortcut in the app, so a clash shows up while the key is being
+   * pressed rather than only in the settings list afterwards.
+   */
+  taken: { keys: string; label: string }[]
   onCancel: () => void
   onSaved: (input: Partial<Snippet> & { label: string; command: string }) => void
   onDeleted?: (id: string) => void
@@ -19,6 +25,7 @@ export function SnippetEditor({
   snippet,
   defaultGroup,
   groups,
+  taken,
   onCancel,
   onSaved,
   onDeleted
@@ -28,10 +35,42 @@ export function SnippetEditor({
   const [group, setGroup] = useState(snippet?.group ?? defaultGroup)
   const [newGroup, setNewGroup] = useState('')
   const [description, setDescription] = useState(snippet?.description ?? '')
+  const [keys, setKeys] = useState(snippet?.keys ?? '')
+  const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  /*
+   * Recording, in the same shape the settings list uses: captured on the window so
+   * the terminal never sees the chord, Escape abandons it, and a bare modifier
+   * press is not a binding yet.
+   */
+  useEffect(() => {
+    if (!recording) return
+    const onKeyDown = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (e.key === 'Escape') {
+        setRecording(false)
+        return
+      }
+      const formatted = formatEvent(e)
+      if (!formatted || !isValidBinding(formatted)) return
+      setKeys(formatted)
+      setRecording(false)
+    }
+    window.addEventListener('keydown', onKeyDown, true)
+    return () => window.removeEventListener('keydown', onKeyDown, true)
+  }, [recording])
+
+  /** The binding this key already belongs to, if it belongs to one. */
+  const clash = useMemo(() => {
+    const needle = keys.trim().toLowerCase()
+    if (!needle) return null
+    return taken.find((binding) => binding.keys.trim().toLowerCase() === needle) ?? null
+  }, [keys, taken])
+
   const effectiveGroup = useMemo(() => newGroup.trim() || group, [newGroup, group])
-  const canSave = label.trim().length > 0 && command.length > 0
+  const canSave = label.trim().length > 0 && command.length > 0 && !clash && !recording
 
   const submit = (e: FormEvent): void => {
     e.preventDefault()
@@ -45,7 +84,8 @@ export function SnippetEditor({
         // what decides whether the shell runs it.
         command,
         group: effectiveGroup.trim(),
-        description: description.trim() || undefined
+        description: description.trim() || undefined,
+        keys: keys.trim() || undefined
       })
       setError(null)
     } catch (err) {
@@ -133,6 +173,46 @@ export function SnippetEditor({
               onChange={(e) => setDescription(e.target.value)}
             />
           </label>
+
+          <div className="td-field">
+            <span>{t('snippeteditor.shortcut_optional', 'Shortcut (optional)')}</span>
+            <div className="td-key-row">
+              <button
+                type="button"
+                className={`td-key-btn${recording ? ' is-recording' : ''}${keys ? '' : ' is-empty'}`}
+                data-testid="snippet-keys"
+                onClick={() => setRecording(true)}
+              >
+                {recording
+                  ? t('snippeteditor.press_keys', 'Press keys…')
+                  : keys || t('snippeteditor.not_set', 'Not set')}
+              </button>
+              {keys !== '' && (
+                <button
+                  type="button"
+                  className="td-mini"
+                  data-testid="snippet-keys-clear"
+                  title={t('snippeteditor.clear_shortcut', 'Clear the shortcut')}
+                  onClick={() => setKeys('')}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {clash && (
+              <span className="td-form-error" data-testid="snippet-keys-clash">
+                {t('snippeteditor.shortcut_already_used_b', 'Already used by {label}. Pick another one.', {
+                  label: clash.label
+                })}
+              </span>
+            )}
+            <span className="td-hint">
+              {t(
+                'snippeteditor.shortcut_hint',
+                'Runs this snippet from anywhere in the app, like any other shortcut.'
+              )}
+            </span>
+          </div>
 
           {error && <div className="td-form-error">{error}</div>}
         </div>

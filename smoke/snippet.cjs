@@ -192,6 +192,114 @@ async function main() {
           'A=' + afterMulti.includes(lineA) + ' B=' + afterMulti.includes(lineB))
       }
 
+      /*
+       * ---- the keyboard comes back to the pane ------------------------------
+       *
+       * Reaching for a snippet happens in the middle of typing, so focus has to end
+       * up back in the terminal — in the pane the command went to, whatever the
+       * click did to the caret.
+       */
+      const focusMarker = 'focus-' + String(Date.now()).slice(-6)
+      await api.saveSnippet({
+        label: 'focus-check',
+        command: 'echo ' + focusMarker + String.fromCharCode(13),
+        group: 'snip'
+      })
+      await waitFor(() => !!document.querySelector('[data-snippet-label="focus-check"]'), 5000)
+      const focusEntry = window.__tdTerminals[Object.keys(window.__tdTerminals).pop()]
+      focusEntry.term.focus()
+      await wait(400)
+      const focusedBefore = !!document.activeElement && !!document.activeElement.closest('.xterm')
+      const focusBtn = document.querySelector('[data-snippet-label="focus-check"]')
+      if (focusBtn) {
+        focusBtn.click()
+        await waitFor(() => bufferText().includes(focusMarker), 8000)
+      }
+      const focusedAfter = !!document.activeElement && !!document.activeElement.closest('.xterm')
+      push('the terminal has the keyboard before a snippet is clicked', focusedBefore,
+        'active=' + (document.activeElement ? document.activeElement.className : 'none'))
+      push('and gets it back after, so typing can continue',
+        focusedAfter && bufferText().includes(focusMarker),
+        'active=' + (document.activeElement ? document.activeElement.className : 'none') +
+          ' ran=' + bufferText().includes(focusMarker))
+
+      // ---- a snippet can carry its own shortcut -----------------------------
+      const hotkeyMarker = 'hotkey-' + String(Date.now()).slice(-6)
+      const withKey = await api.saveSnippet({
+        label: 'hotkey-run',
+        command: 'echo ' + hotkeyMarker + String.fromCharCode(13),
+        group: 'snip',
+        keys: 'Ctrl+Shift+U'
+      })
+      const keyed = withKey.snippets.find((s) => s.label === 'hotkey-run')
+      push('a shortcut is stored on the snippet', !!keyed && keyed.keys === 'Ctrl+Shift+U',
+        JSON.stringify(keyed && keyed.keys))
+      await wait(700)
+      const beforeHotkey = bufferText().includes(hotkeyMarker)
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'U', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true
+        })
+      )
+      await waitFor(() => bufferText().includes(hotkeyMarker), 8000)
+      push('pressing it runs the snippet', !beforeHotkey && bufferText().includes(hotkeyMarker),
+        'ran=' + bufferText().includes(hotkeyMarker))
+
+      /*
+       * ---- a conflicting shortcut is refused --------------------------------
+       *
+       * Ctrl+T is New connection by default, so binding a snippet to it is exactly
+       * the mistake the check exists for: both are matched by the same dispatcher,
+       * and whichever came first in the list would win, silently.
+       */
+      document.querySelector('[data-testid="rail-settings"]').click()
+      await waitFor(() => !!document.querySelector('.td-settings'), 6000)
+      const shortcutsTab = [...document.querySelectorAll('.td-settings-tab')]
+        .find((el) => /Shortcut/i.test(el.textContent))
+      shortcutsTab.click()
+      await wait(400)
+      push('snippet shortcuts are listed beside the others',
+        !!document.querySelector('[data-testid="snippet-shortcut-list"]'))
+      const keyBtn = document.querySelector('[data-testid="snippet-binding-' + (keyed ? keyed.id : '') + '"]')
+      push('and each snippet row has its own recorder', !!keyBtn)
+      if (keyBtn) {
+        keyBtn.click()
+        await wait(250)
+        window.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true, cancelable: true })
+        )
+        await wait(450)
+        const bannerText = [...document.querySelectorAll('.td-form-error')]
+          .map((el) => el.textContent || '')
+          .join(' | ')
+        // The banner lower-cases the chord it reports, so compare that way.
+        const banner = bannerText.toLowerCase()
+        push('a clash with a built-in is reported, naming both sides',
+          banner.includes('ctrl+t') && /New connection/i.test(bannerText) &&
+            /hotkey-run/i.test(bannerText),
+          bannerText.slice(0, 200))
+        push('and the row itself is marked', keyBtn.className.includes('is-conflict'),
+          keyBtn.className)
+
+        document.querySelector('[data-testid="settings-save"]').click()
+        await wait(600)
+        const stillOpen = !!document.querySelector('.td-settings')
+        push('saving is refused while the clash stands', stillOpen,
+          'open=' + stillOpen)
+
+        // Clearing it removes the warning, so the block is not a dead end.
+        const clearBtn = keyBtn.parentElement.querySelector('.td-mini')
+        if (clearBtn) clearBtn.click()
+        await wait(450)
+        push('removing the duplicate clears the warning',
+          document.querySelectorAll('.td-key-btn.is-conflict').length === 0,
+          'marked=' + document.querySelectorAll('.td-key-btn.is-conflict').length)
+      }
+      const closeSettings = [...document.querySelectorAll('.td-drawer button')]
+        .find((b) => /Close/i.test((b.textContent || '').trim()))
+      if (closeSettings) closeSettings.click()
+      await wait(400)
+
       // Clean up.
       const settings = await api.loadSettings()
       for (const s of settings.snippets.filter((x) => x.group === 'snip')) {

@@ -843,6 +843,15 @@ export interface Snippet {
   group: string
   /** Shown as the button tooltip. */
   description?: string
+  /**
+   * Global shortcut that runs this snippet, in the same notation as a keybinding
+   * (`Ctrl+Shift+U`). Empty or absent means the button is the only way in.
+   *
+   * Snippets carry their own shortcut rather than owning a keybinding entry so
+   * that deleting a snippet also removes its key — a binding list entry outliving
+   * the snippet it pointed at is how a key ends up doing nothing.
+   */
+  keys?: string
   createdAt: number
   updatedAt: number
 }

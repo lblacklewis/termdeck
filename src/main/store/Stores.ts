@@ -306,6 +306,8 @@ function sanitiseSnippets(input: unknown): Snippet[] {
       command: s.command,
       group: typeof s.group === 'string' ? s.group : '',
       description: typeof s.description === 'string' ? s.description : undefined,
+      // Rebuilt field by field, so anything not named here is lost on reload.
+      keys: typeof s.keys === 'string' && s.keys.trim() ? s.keys.trim() : undefined,
       createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
       updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now()
     }))
@@ -341,6 +343,9 @@ export class SettingsStore {
       existing.command = input.command
       if (input.group !== undefined) existing.group = input.group
       if (input.description !== undefined) existing.description = input.description
+      // A shortcut can be cleared (empty string) as well as set, so it is copied
+      // whenever the caller mentions it at all.
+      if (input.keys !== undefined) existing.keys = input.keys.trim() || undefined
       existing.updatedAt = now
     } else {
       this.settings.snippets.push({
@@ -349,6 +354,7 @@ export class SettingsStore {
         command: input.command,
         group: input.group ?? '',
         description: input.description,
+        keys: input.keys?.trim() || undefined,
         createdAt: now,
         updatedAt: now
       })
