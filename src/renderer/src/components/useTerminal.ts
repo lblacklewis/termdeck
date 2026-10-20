@@ -371,6 +371,13 @@ export function useTerminal(
       report: (command) => void api.recordCommand(sessionId, command)
     })
 
+    /*
+     * A full-screen program takes the alternate buffer, and the popup belongs to the
+     * shell prompt only. Watching the repaint is what closes it on the Enter that
+     * started vim — there is no keystroke after that to react to.
+     */
+    const writeSub = term.onWriteParsed(() => suggest.sync())
+
     const dataSub = term.onData((data) => {
       /*
        * Fan out to the other panes, then always write to this one. `routeInput`
@@ -468,6 +475,7 @@ export function useTerminal(
       window.removeEventListener('termdeck:panel-shown', onShown)
       suggest.dispose()
       dataSub.dispose()
+      writeSub.dispose()
       selectionSub.dispose()
       writeParsedSub.dispose()
       offData()

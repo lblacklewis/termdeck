@@ -226,6 +226,69 @@ async function main() {
     recorded[0] === 'Get-Dat' && !recorded.some((c) => /[>$#%]/.test(c)),
     'screen=' + completed.screen + ' history=' + recorded.slice(0, 3).join(' | '))
 
+  /*
+   * ---- a full-screen program is not a command line ----------------------------
+   *
+   * vim, less, man and htop all switch the terminal to the alternate screen buffer
+   * (`ESC [ ? 1049 h`) on the way in and back on the way out, and that switch is
+   * what the app watches. The bytes are written straight to the terminal here
+   * because vim is not installed on a Windows build machine — they arrive by the
+   * same path a real one uses, since session output is `term.write(chunk)` too.
+   */
+  const fullScreen = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const id = Object.keys(window.__tdTerminals || {}).pop()
+    const entry = window.__tdTerminals[id]
+    entry.term.focus()
+    await wait(300)
+    const ESC = String.fromCharCode(27)
+    const box = () => document.querySelector('[data-testid="command-suggest"]')
+    const open = () => { const b = box(); return !!b && !b.hidden }
+
+    // 1. A list that is open when the program takes over has to go away.
+    entry.term.paste('Get-')
+    await wait(900)
+    const openedBefore = open()
+    entry.term.write(ESC + '[?1049h')
+    await wait(700)
+    const mode = entry.term.buffer.active.type
+    const closedWhenFullScreen = !open()
+
+    // 2. Nothing typed in there opens one again, and nothing is mirrored.
+    for (const ch of 'Get-') entry.term.paste(ch)
+    await wait(900)
+    const stillClosed = !open()
+    const debug = window.__tdSuggest || {}
+
+    // 3. Leaving hands the prompt back, suggestions and all.
+    entry.term.write(ESC + '[?1049l')
+    await wait(700)
+    const backToNormal = entry.term.buffer.active.type
+    entry.term.paste(String.fromCharCode(3))   // discard the line typed above
+    await wait(500)
+    entry.term.paste('Get-')
+    await wait(1000)
+    const openedAgain = open()
+    entry.term.paste(String.fromCharCode(3))
+    return {
+      openedBefore, mode, closedWhenFullScreen, stillClosed,
+      mirrored: debug.line, open2: debug.open, backToNormal, openedAgain
+    }
+  })()`)
+  push('a suggestion list is open before the full-screen program starts',
+    fullScreen.openedBefore, JSON.stringify(fullScreen))
+  push('starting one switches the terminal to its own screen',
+    fullScreen.mode === 'alternate', 'buffer=' + fullScreen.mode)
+  push('and the list that was open goes away with it',
+    fullScreen.closedWhenFullScreen)
+  push('typing in there does not open a new one', fullScreen.stillClosed,
+    'open=' + fullScreen.open2)
+  push('nor is what it types mirrored as a command line',
+    fullScreen.mirrored === '', JSON.stringify(fullScreen.mirrored))
+  push('leaving it gives the prompt back', fullScreen.backToNormal === 'normal')
+  push('and suggestions work again at the prompt',
+    fullScreen.openedAgain, JSON.stringify(fullScreen))
+
   const failed = checks.filter((c) => !c.ok)
   for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name} — ${c.detail}`)
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`)

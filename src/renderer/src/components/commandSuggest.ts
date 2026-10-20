@@ -27,6 +27,13 @@ export interface SuggestOptions {
   term: {
     buffer: {
       active: {
+        /**
+         * Which buffer the terminal is showing.
+         *
+         * `alternate` means a full-screen program owns the screen — vim, less, man,
+         * htop, tmux — and nothing typed there is a command line for the shell.
+         */
+        type: 'normal' | 'alternate'
         cursorX: number
         cursorY: number
         baseY: number
@@ -47,6 +54,14 @@ export interface SuggestOptions {
 export interface SuggestHandle {
   /** Feed one chunk from `term.onData`. */
   feed: (data: string) => void
+  /**
+   * Re-check whether the popup may still be on screen.
+   *
+   * Called as the terminal repaints, so the popup disappears the moment a
+   * full-screen program comes up (pressing Enter on `vim` switches buffers without
+   * any further keystroke for us to react to).
+   */
+  sync: () => void
   dispose: () => void
 }
 
@@ -73,6 +88,15 @@ export function attachSuggestions({
   /** Column the prompt ended at, i.e. where the command line starts on screen. */
   let promptLen = 0
   let muted = false
+
+  /**
+   * Is a full-screen program in charge of the screen?
+   *
+   * Read from the buffer the terminal is showing rather than guessed from the
+   * text: vim, less, man, htop and tmux all switch to the alternate buffer on the
+   * way in and back on the way out, which is exactly the lifetime we want.
+   */
+  const fullScreen = (): boolean => term.buffer.active.type === 'alternate'
 
   /** Why the popup is or is not showing, for the probe (see `tdDebug`). */
   const debug = (): void => {
@@ -146,6 +170,20 @@ export function attachSuggestions({
   }
 
   const refresh = (): void => {
+    /*
+     * Only a shell prompt has anything to complete.
+     *
+     * A full-screen program (vim, less, man, htop, tmux) runs on the alternate
+     * screen buffer, where every keystroke means something to *that* program and
+     * nothing to the shell — so a list of past commands over it is at best noise
+     * and at worst gets accepted by a stray Tab. The buffer type is the signal
+     * every one of those programs switches on entering and leaving.
+     */
+    if (fullScreen()) {
+      close()
+      debug()
+      return
+    }
     if (line.length < MIN_CHARS || line.startsWith(' ')) {
       open = false
       items = []
@@ -265,6 +303,21 @@ export function attachSuggestions({
     const stripped = data
       .replace(/\x1b\[200~/g, '')
       .replace(/\x1b\[201~/g, '')
+    /*
+     * Nothing typed inside a full-screen program is a command line.
+     *
+     * Returning before the mirror is updated matters twice over: the popup never
+     * opens over vim, and Enter inside vim never reports vim's line as a command
+     * run in this session (which is how history used to collect junk).
+     */
+    if (fullScreen()) {
+      if (open) close()
+      line = ''
+      // Keep the debug snapshot honest: it is what the probe reads to tell "the
+      // popup is closed" from "the popup was never considered".
+      debug()
+      return
+    }
     if (stripped.includes('\x1b')) {
       if (open) close()
       return
@@ -341,6 +394,12 @@ export function attachSuggestions({
 
   return {
     feed,
+    /* Cheap on the hot path: it only does anything while the popup is open. */
+    sync: () => {
+      if (!open || !fullScreen()) return
+      close()
+      debug()
+    },
     dispose: () => {
       container.removeEventListener('keydown', onKeyDown, true)
       box.remove()
