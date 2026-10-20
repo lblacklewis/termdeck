@@ -4908,6 +4908,17 @@ html[data-theme-scheme='light'] .td-select {
  * `white-space: pre` and an x-scroll on purpose: wrapped JSON is unreadable the
  * moment a value gets long, and the point of this pane is to read the shape.
  */
+/* A checkbox with its label beside it, rather than above it. */
+.td-field-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.td-field-inline input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
 .td-pre {
   margin: 0;
   padding: 8px 10px;

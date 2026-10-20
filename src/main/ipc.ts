@@ -25,6 +25,7 @@ import {
 import { CredentialStore } from './store/CredentialStore'
 import { LayoutStore } from './store/LayoutStore'
 import { TunnelStore } from './store/TunnelStore'
+import { RestStore } from './store/RestStore'
 import { TunnelManager } from './tunnels/TunnelManager'
 import { listFontChoices } from './fonts'
 import { clampScale, HistoryStore, SettingsStore, SessionStore } from './store/Stores'
@@ -34,6 +35,7 @@ import { closeSftp, downloadFile, listDirectory, uploadFile } from './sftp'
 import type {
   AppSettings,
   RestRequest,
+  RestState,
   TunnelSpec,
   CreateSessionResult,
   FontChoices,
@@ -133,6 +135,7 @@ let sessionStore: SessionStore | null = null
 let layoutStore: LayoutStore | null = null
 let tunnelStore: TunnelStore | null = null
 let tunnelManager: TunnelManager | null = null
+let restStore: RestStore | null = null
 
 /**
  * Host keys are read from the user's real OpenSSH files by default. The
@@ -187,6 +190,11 @@ export function loadSettingsForStartup(): AppSettings {
 function getSessionStore(): SessionStore {
   sessionStore ??= new SessionStore(configDir())
   return sessionStore
+}
+
+function getRestStore(): RestStore {
+  restStore ??= new RestStore(configDir())
+  return restStore
 }
 
 function getTunnelStore(): TunnelStore {
@@ -666,6 +674,14 @@ export function registerIpc(): void {
    * directly, which is the same rule every other connection in the app follows.
    */
   ipcMain.handle('rest:send', (_e, request: RestRequest) => sendRestRequest(request))
+
+  ipcMain.handle('rest:loadState', () => getRestStore().load())
+
+  ipcMain.handle('rest:saveState', (_e, state: RestState) => {
+    const saved = getRestStore().save(state)
+    broadcast('rest:state', saved)
+    return saved
+  })
 
   // ---- tunnels -----------------------------------------------------------
 

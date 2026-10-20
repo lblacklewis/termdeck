@@ -53,6 +53,18 @@ function startServer() {
         res.end(JSON.stringify({ method: req.method, body }))
         return
       }
+      if (req.url === '/big') {
+        // 600 lines, so the fold and the search have something to work on.
+        const lines = []
+        for (let i = 0; i < 600; i += 1) lines.push('line ' + i + (i % 100 === 7 ? ' NEEDLE' : ''))
+        res.writeHead(200, { 'Content-Type': 'text/plain' })
+        res.end(lines.join('\n'))
+        return
+      }
+      if (req.url === '/slow') {
+        // Never answers: the timeout is the thing under test.
+        return
+      }
       if (req.url === '/hello') {
         res.writeHead(200, { 'Content-Type': 'application/json', 'X-TermDeck': 'probe' })
         res.end(JSON.stringify({ hello: 'world', nested: { a: 1 } }))
@@ -201,7 +213,53 @@ async function main() {
       push('a redirect is followed', followed, (text('rest-response-body') || '').slice(0, 60))
       push('the final URL is shown', text('rest-meta').includes('/hello'), text('rest-meta'))
 
-      // ---- 6. a dead port is an error, not an empty answer ----------------
+      // ---- 6. a long body folds, and can be searched ----------------------
+      step = 'long body'
+      setValue(field('rest-method'), 'GET')
+      setValue(field('rest-url'), base + '/big')
+      field('rest-send').click()
+      const longBody = await waitFor(() => (text('rest-response-body') || '').includes('line 0'), 15000)
+      push('a long body arrives', longBody)
+      const foldButton = field('rest-show-all')
+      push('a long body is folded with a way to unfold it', !!foldButton,
+        foldButton ? foldButton.textContent : 'no button')
+      const foldedLines = (text('rest-response-body') || '').split('\\n').length
+      push('folded to about 400 lines', foldedLines <= 420, 'lines=' + foldedLines)
+      if (foldButton) {
+        foldButton.click()
+        await wait(300)
+        const expanded = (text('rest-response-body') || '').split('\\n').length
+        push('unfolding shows all of it', expanded > 500, 'lines=' + expanded)
+      }
+
+      const searchBox = field('rest-search')
+      push('the response has a search box', !!searchBox)
+      if (searchBox) {
+        setValue(searchBox, 'NEEDLE')
+        await wait(400)
+        const hits = (text('rest-response-body') || '')
+        const hitLines = hits === '' ? 0 : hits.split('\\n').length
+        push('searching filters the body', hitLines === 6 && hits.includes('NEEDLE'),
+          'lines=' + hitLines)
+        push('and the count says how many matched', text('rest-search-count').includes('6 / 600'),
+          text('rest-search-count'))
+        setValue(searchBox, '')
+        await wait(300)
+      }
+
+      // ---- 7. a timeout is reported as a timeout --------------------------
+      step = 'timeout'
+      setValue(field('rest-method'), 'GET')
+      setValue(field('rest-url'), base + '/slow')
+      setValue(field('rest-timeout'), '1')
+      field('rest-send').click()
+      const timedOut = await waitFor(() => !!field('rest-error'), 12000)
+      push('a request that never answers times out', timedOut, text('rest-error'))
+      push('and says that it timed out', /No answer within/.test(text('rest-error')),
+        text('rest-error'))
+      setValue(field('rest-timeout'), '15')
+
+      // ---- 8. a dead port is an error, not an empty answer ----------------
       step = 'error'
       setValue(field('rest-url'), 'http://127.0.0.1:1/never')
       field('rest-send').click()
@@ -243,6 +301,79 @@ async function main() {
       detail: post ? String(post.headers['content-type']) : 'none'
     }
   ])
+
+  /*
+   * ---- 7. the page comes back as it was ----------------------------------
+   * Written through the same API the page uses, then the window is reloaded:
+   * anything that survives belongs to the store, not to React state.
+   */
+  await win.webContents.executeJavaScript(
+    'window.termdeck.saveRestState({' +
+      'draft: { method: "GET", url: "http://kept.example/draft", headers: [], body: "" },' +
+      'saved: [{ id: "s1", name: "kept health", request: { method: "GET", url: "http://kept.example/health", headers: [], body: "" } }]' +
+      '})'
+  )
+  await win.reload()
+  await sleep(3000)
+
+  const afterReload = `
+    (async () => {
+      const out = []
+      const push = (n, ok, d) => out.push({ name: n, ok: Boolean(ok), detail: d || '' })
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+      const waitFor = async (fn, timeout) => {
+        const end = Date.now() + (timeout || 8000)
+        while (Date.now() < end) {
+          const v = await fn()
+          if (v) return true
+          await wait(150)
+        }
+        return false
+      }
+      const field = (id) => document.querySelector('[data-testid="' + id + '"]')
+      try {
+        const tab = [...document.querySelectorAll('button')]
+          .find((b) => (b.getAttribute('data-testid') || '') === 'rail-rest')
+        if (!tab) {
+          push('the REST entry is still there after a reload', false)
+          return out
+        }
+        tab.click()
+        await waitFor(() => !!field('rest-page'), 15000)
+        await waitFor(() => (field('rest-url') || {}).value === 'http://kept.example/draft', 8000)
+        push('the draft request comes back after a reload',
+          (field('rest-url') || {}).value === 'http://kept.example/draft',
+          'url=' + ((field('rest-url') || {}).value || ''))
+        const select = field('rest-saved')
+        const names = select ? [...select.options].map((o) => o.textContent) : []
+        push('the saved request is listed', names.includes('kept health'), names.join(','))
+        if (select) {
+          const option = [...select.options].find((o) => o.textContent === 'kept health')
+          if (option) {
+            const setter = Object.getOwnPropertyDescriptor(
+              window.HTMLSelectElement.prototype,
+              'value'
+            ).set
+            setter.call(select, option.value)
+            select.dispatchEvent(new Event('change', { bubbles: true }))
+            await wait(400)
+            push('picking it fills the request in',
+              (field('rest-url') || {}).value === 'http://kept.example/health',
+              'url=' + ((field('rest-url') || {}).value || ''))
+          }
+        }
+        return out
+      } catch (err) {
+        push('state probe failed', false, String((err && err.message) || err))
+        return out
+      }
+    })()
+  `
+  try {
+    report(await win.webContents.executeJavaScript(afterReload))
+  } catch (err) {
+    report([{ name: 'state probe', ok: false, detail: String((err && err.message) || err) }])
+  }
 
   const failed = all.filter((c) => !c.ok)
   console.log(`\n${all.length - failed.length}/${all.length} checks passed`)

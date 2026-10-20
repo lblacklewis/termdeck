@@ -37,6 +37,7 @@ import type {
   SshConnectPayload,
   RestRequest,
   RestResponse,
+  RestState,
   TunnelSpec,
   TunnelState,
   TrustHostKeyRequest
@@ -242,6 +243,14 @@ const api = {
 
   sendRestRequest: (request: RestRequest): Promise<RestResponse> =>
     ipcRenderer.invoke('rest:send', request),
+
+  loadRestState: (): Promise<RestState> => ipcRenderer.invoke('rest:loadState'),
+
+  saveRestState: (state: RestState): Promise<RestState> =>
+    ipcRenderer.invoke('rest:saveState', state),
+
+  onRestStateChanged: (handler: (state: RestState) => void): (() => void) =>
+    on<[RestState]>('rest:state', handler),
 
   // ---- tunnels -----------------------------------------------------------
 

@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
-import type { RestHeader, RestRequest, RestResponse } from '@shared/types'
+import type { RestHeader, RestRequest, RestResponse, SavedRestRequest } from '@shared/types'
 import { REST_TEMPLATES } from '@shared/restTemplates'
 import { t } from '../i18n'
 
@@ -12,6 +12,9 @@ const EMPTY: RestRequest = {
   headers: [],
   body: ''
 }
+
+/** Bodies longer than this are folded to the first screenful. */
+const FOLD_AFTER = 400
 
 /** Pretty-print when the answer is JSON; otherwise hand back what arrived. */
 function present(body: string): string {
@@ -36,33 +39,111 @@ function present(body: string): string {
  * blocked by CORS.
  *
  * What it deliberately is not: a collection manager, an environment/variable
- * system, or a test runner. Templates are starting points you edit in place.
+ * system, or a test runner. Templates are starting points you edit in place; the
+ * saved list is a handful of requests you named, not a folder tree.
  */
 export function RestPage(): JSX.Element {
   const [request, setRequest] = useState<RestRequest>(EMPTY)
   const [response, setResponse] = useState<RestResponse | null>(null)
   const [busy, setBusy] = useState(false)
   const [templateId, setTemplateId] = useState('')
+  const [saved, setSaved] = useState<SavedRestRequest[]>([])
+  const [savedId, setSavedId] = useState('')
+  const [search, setSearch] = useState('')
+  const [showAll, setShowAll] = useState(false)
+  /** Draft writes are debounced: typing a URL must not hit the disk per key. */
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const draftRef = useRef<RestRequest>(EMPTY)
+  const savedRef = useRef<SavedRestRequest[]>([])
 
-  const applyTemplate = useCallback((id: string) => {
-    setTemplateId(id)
-    const template = REST_TEMPLATES.find((entry) => entry.id === id)
-    if (!template) return
-    // A copy: editing a loaded template must not rewrite the catalog, or the
-    // next person to pick it gets somebody else's half-finished request.
-    setRequest({
-      method: template.request.method,
-      url: template.request.url,
-      headers: template.request.headers.map((header) => ({ ...header })),
-      body: template.request.body ?? ''
+  draftRef.current = request
+  savedRef.current = saved
+
+  useEffect(() => {
+    void window.termdeck.loadRestState().then((state) => {
+      setSaved(state.saved)
+      if (state.draft) setRequest(state.draft)
     })
-    setResponse(null)
+    return window.termdeck.onRestStateChanged((state) => setSaved(state.saved))
   }, [])
+
+  /** Write the draft once the user stops typing. */
+  const rememberDraft = useCallback(() => {
+    if (draftTimer.current) clearTimeout(draftTimer.current)
+    draftTimer.current = setTimeout(() => {
+      void window.termdeck.saveRestState({ draft: draftRef.current, saved: savedRef.current })
+    }, 400)
+  }, [])
+
+  const update = useCallback(
+    (next: RestRequest) => {
+      setRequest(next)
+      rememberDraft()
+    },
+    [rememberDraft]
+  )
+
+  const applyTemplate = useCallback(
+    (id: string) => {
+      setTemplateId(id)
+      setSavedId('')
+      const template = REST_TEMPLATES.find((entry) => entry.id === id)
+      if (!template) return
+      // A copy: editing a loaded template must not rewrite the catalog, or the
+      // next person to pick it gets somebody else's half-finished request.
+      update({
+        method: template.request.method,
+        url: template.request.url,
+        headers: template.request.headers.map((header) => ({ ...header })),
+        body: template.request.body ?? ''
+      })
+      setResponse(null)
+    },
+    [update]
+  )
+
+  const applySaved = useCallback(
+    (id: string) => {
+      setSavedId(id)
+      setTemplateId('')
+      const entry = saved.find((item) => item.id === id)
+      if (!entry) return
+      update({ ...entry.request, headers: entry.request.headers.map((h) => ({ ...h })) })
+      setResponse(null)
+    },
+    [saved, update]
+  )
+
+  const persistSaved = useCallback(async (next: SavedRestRequest[]): Promise<void> => {
+    setSaved(next)
+    // The draft goes with it: the store keeps one file, so a write that only
+    // touched the list would drop whatever is on screen.
+    await window.termdeck.saveRestState({ draft: draftRef.current, saved: next })
+  }, [])
+
+  const saveCurrent = async (): Promise<void> => {
+    if (!request.url.trim()) return
+    const existing = saved.find((entry) => entry.id === savedId)
+    const name = existing?.name ?? request.url.trim()
+    const id = existing?.id ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+    const entry: SavedRestRequest = { id, name, request: { ...request } }
+    const next = existing ? saved.map((item) => (item.id === id ? entry : item)) : [...saved, entry]
+    setSavedId(id)
+    await persistSaved(next)
+  }
+
+  const removeSaved = async (): Promise<void> => {
+    if (!savedId) return
+    await persistSaved(saved.filter((entry) => entry.id !== savedId))
+    setSavedId('')
+  }
 
   const send = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     setBusy(true)
     setResponse(null)
+    setSearch('')
+    setShowAll(false)
     try {
       setResponse(await window.termdeck.sendRestRequest(request))
     } catch (err) {
@@ -78,10 +159,10 @@ export function RestPage(): JSX.Element {
   }
 
   const setHeader = (index: number, patch: Partial<RestHeader>): void => {
-    setRequest((prev) => ({
-      ...prev,
-      headers: prev.headers.map((header, at) => (at === index ? { ...header, ...patch } : header))
-    }))
+    update({
+      ...request,
+      headers: request.headers.map((header, at) => (at === index ? { ...header, ...patch } : header))
+    })
   }
 
   const status = useMemo(() => {
@@ -90,6 +171,21 @@ export function RestPage(): JSX.Element {
     return `${response.status} ${response.statusText ?? ''}`.trim()
   }, [response])
 
+  /** The body, folded and filtered. Both are view concerns, not transport ones. */
+  const shown = useMemo(() => {
+    if (!response?.ok) return { text: '', lines: 0, matches: 0 }
+    const all = present(response.body ?? '').split('\n')
+    if (search.trim()) {
+      const needle = search.trim().toLowerCase()
+      const hits = all.filter((line) => line.toLowerCase().includes(needle))
+      return { text: hits.join('\n'), lines: all.length, matches: hits.length }
+    }
+    if (all.length > FOLD_AFTER && !showAll) {
+      return { text: all.slice(0, FOLD_AFTER).join('\n'), lines: all.length, matches: 0 }
+    }
+    return { text: all.join('\n'), lines: all.length, matches: 0 }
+  }, [response, search, showAll])
+
   return (
     <div className="td-page" data-testid="rest-page">
       <header className="td-page-head">
@@ -97,7 +193,6 @@ export function RestPage(): JSX.Element {
           <h1 className="td-page-sub">{t('restpage.title', 'REST')}</h1>
           <div className="td-page-actions">
             <select
-
               data-testid="rest-template"
               aria-label={t('restpage.template', 'Template')}
               value={templateId}
@@ -110,6 +205,37 @@ export function RestPage(): JSX.Element {
                 </option>
               ))}
             </select>
+            <select
+              data-testid="rest-saved"
+              aria-label={t('restpage.saved', 'Saved requests')}
+              value={savedId}
+              onChange={(e) => applySaved(e.target.value)}
+            >
+              <option value="">{t('restpage.no_saved', 'Saved requests…')}</option>
+              {saved.map((entry) => (
+                <option key={entry.id} value={entry.id}>
+                  {entry.name}
+                </option>
+              ))}
+            </select>
+            <button
+              className="td-btn"
+              data-testid="rest-save-saved"
+              type="button"
+              onClick={() => void saveCurrent()}
+            >
+              {savedId ? t('restpage.update', 'Update') : t('restpage.keep', 'Keep')}
+            </button>
+            {savedId && (
+              <button
+                className="td-btn"
+                data-testid="rest-delete-saved"
+                type="button"
+                onClick={() => void removeSaved()}
+              >
+                {t('restpage.drop', 'Drop')}
+              </button>
+            )}
           </div>
         </div>
         <p className="td-page-meta" data-testid="rest-template-hint">
@@ -128,11 +254,10 @@ export function RestPage(): JSX.Element {
             <label className="td-field">
               <span>{t('restpage.method', 'Method')}</span>
               <select
-  
                 data-testid="rest-method"
                 value={request.method}
                 onChange={(e) =>
-                  setRequest({ ...request, method: e.target.value as RestRequest['method'] })
+                  update({ ...request, method: e.target.value as RestRequest['method'] })
                 }
               >
                 {METHODS.map((method) => (
@@ -145,12 +270,11 @@ export function RestPage(): JSX.Element {
             <label className="td-field td-field-grow">
               <span>{t('restpage.url', 'URL')}</span>
               <input
-  
                 data-testid="rest-url"
                 value={request.url}
                 spellCheck={false}
                 placeholder="http://127.0.0.1:8080/health"
-                onChange={(e) => setRequest({ ...request, url: e.target.value })}
+                onChange={(e) => update({ ...request, url: e.target.value })}
               />
             </label>
             <button
@@ -163,13 +287,39 @@ export function RestPage(): JSX.Element {
             </button>
           </div>
 
+          <div className="td-field-row">
+            <label className="td-field">
+              <span>{t('restpage.timeout', 'Timeout (s)')}</span>
+              <input
+                data-testid="rest-timeout"
+                inputMode="numeric"
+                value={String(Math.round((request.timeoutMs ?? 15000) / 1000))}
+                onChange={(e) => {
+                  const seconds = Number(e.target.value)
+                  update({
+                    ...request,
+                    timeoutMs: Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined
+                  })
+                }}
+              />
+            </label>
+            <label className="td-field td-field-inline">
+              <input
+                type="checkbox"
+                data-testid="rest-insecure"
+                checked={request.insecure === true}
+                onChange={(e) => update({ ...request, insecure: e.target.checked === true })}
+              />
+              <span>{t('restpage.insecure', 'Accept a self-signed certificate')}</span>
+            </label>
+          </div>
+
           <div className="td-field">
             <span>{t('restpage.headers', 'Headers')}</span>
             <div data-testid="rest-headers">
               {request.headers.map((header, index) => (
                 <div className="td-field-row" key={index}>
                   <input
-      
                     data-testid="rest-header-name"
                     value={header.name}
                     placeholder="Content-Type"
@@ -187,10 +337,10 @@ export function RestPage(): JSX.Element {
                     type="button"
                     data-testid="rest-header-remove"
                     onClick={() =>
-                      setRequest((prev) => ({
-                        ...prev,
-                        headers: prev.headers.filter((_, at) => at !== index)
-                      }))
+                      update({
+                        ...request,
+                        headers: request.headers.filter((_, at) => at !== index)
+                      })
                     }
                   >
                     ×
@@ -203,7 +353,7 @@ export function RestPage(): JSX.Element {
               type="button"
               data-testid="rest-header-add"
               onClick={() =>
-                setRequest((prev) => ({ ...prev, headers: [...prev.headers, { name: '', value: '' }] }))
+                update({ ...request, headers: [...request.headers, { name: '', value: '' }] })
               }
             >
               {t('restpage.add_header', 'Add header')}
@@ -218,7 +368,7 @@ export function RestPage(): JSX.Element {
               value={request.body ?? ''}
               spellCheck={false}
               placeholder={t('restpage.body_placeholder', 'Only sent with POST, PUT and PATCH')}
-              onChange={(e) => setRequest({ ...request, body: e.target.value })}
+              onChange={(e) => update({ ...request, body: e.target.value })}
             />
           </label>
         </form>
@@ -231,7 +381,24 @@ export function RestPage(): JSX.Element {
             {response?.ok && (
               <span className="td-page-meta" data-testid="rest-meta">
                 {response.durationMs} ms · {response.size} B
-                {response.finalUrl && response.finalUrl !== request.url ? ` · ${response.finalUrl}` : ''}
+                {response.finalUrl && response.finalUrl !== request.url
+                  ? ` · ${response.finalUrl}`
+                  : ''}
+              </span>
+            )}
+            {response?.ok && (
+              <span className="td-page-actions">
+                <input
+                  data-testid="rest-search"
+                  value={search}
+                  spellCheck={false}
+                  aria-label={t('restpage.search', 'Search the response')}
+                  placeholder={t('restpage.search', 'Search the response')}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <span className="td-page-meta" data-testid="rest-search-count">
+                  {search.trim() ? `${shown.matches} / ${shown.lines}` : `${shown.lines}`}
+                </span>
               </span>
             )}
           </div>
@@ -247,12 +414,26 @@ export function RestPage(): JSX.Element {
               <details className="td-details">
                 <summary>{t('restpage.response_headers', 'Response headers')}</summary>
                 <pre className="td-pre" data-testid="rest-response-headers">
-                  {(response.headers ?? []).map((header) => `${header.name}: ${header.value}`).join('\n')}
+                  {(response.headers ?? [])
+                    .map((header) => `${header.name}: ${header.value}`)
+                    .join('\n')}
                 </pre>
               </details>
               <pre className="td-pre" data-testid="rest-response-body">
-                {present(response.body ?? '')}
+                {shown.text}
               </pre>
+              {!search.trim() && shown.lines > FOLD_AFTER && (
+                <button
+                  className="td-btn"
+                  data-testid="rest-show-all"
+                  type="button"
+                  onClick={() => setShowAll((prev) => !prev)}
+                >
+                  {showAll
+                    ? t('restpage.fold_again', 'Fold back to the first 400 lines')
+                    : `${t('restpage.show_all', 'Show all lines')} (${shown.lines})`}
+                </button>
+              )}
             </>
           )}
         </section>

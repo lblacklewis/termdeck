@@ -99,6 +99,33 @@ export interface RestRequest {
   url: string
   headers: RestHeader[]
   body?: string
+  /** Give up after this long. Absent uses the default (15s). */
+  timeoutMs?: number
+  /**
+   * Accept a certificate that does not verify. Off by default and deliberately
+   * per-request: a self-signed box on the LAN is a normal thing to talk to, and
+   * turning verification off for *everything* is how people stop noticing.
+   */
+  insecure?: boolean
+}
+
+/** A request the user named and kept. */
+export interface SavedRestRequest {
+  id: string
+  name: string
+  request: RestRequest
+}
+
+/**
+ * What the REST page restores on open.
+ *
+ * `draft` is the request that was on screen last, so closing the window in the
+ * middle of editing an endpoint does not lose it; `saved` is the list the user
+ * deliberately kept. Both are one file because they are one page's state.
+ */
+export interface RestState {
+  draft: RestRequest | null
+  saved: SavedRestRequest[]
 }
 
 export interface RestResponse {
@@ -1129,6 +1156,10 @@ export interface TermDeckApi {
   onTreeChanged(handler: (tree: SessionTree) => void): () => void
 
   sendRestRequest(request: RestRequest): Promise<RestResponse>
+
+  loadRestState(): Promise<RestState>
+  saveRestState(state: RestState): Promise<RestState>
+  onRestStateChanged(handler: (state: RestState) => void): () => void
 
   listTunnels(): Promise<TunnelState[]>
   saveTunnels(specs: TunnelSpec[]): Promise<TunnelState[]>

@@ -5,7 +5,7 @@ import { URL } from 'node:url'
 import type { RestHeader, RestRequest, RestResponse } from '@shared/types'
 
 /** How long one hop may take before it is called a failure. */
-const TIMEOUT_MS = 15_000
+const DEFAULT_TIMEOUT_MS = 15_000
 /** Enough for any JSON answer a person is going to read in a pane. */
 const MAX_BYTES = 5 * 1024 * 1024
 const MAX_REDIRECTS = 5
@@ -50,7 +50,13 @@ function once(url: URL, req: RestRequest): Promise<Hop> {
         port: url.port || (url.protocol === 'https:' ? 443 : 80),
         path: `${url.pathname}${url.search}`,
         method: req.method,
-        headers
+        headers,
+        /*
+         * Only when asked for, and only for this request. A self-signed box on
+         * the LAN is a legitimate thing to talk to; a client that ignores
+         * certificates by default is how nobody notices a real one has changed.
+         */
+        ...(req.insecure ? { rejectUnauthorized: false } : {})
       },
       (response) => {
         const chunks: Buffer[] = []
@@ -87,8 +93,14 @@ function once(url: URL, req: RestRequest): Promise<Hop> {
       }
     )
 
-    request.setTimeout(TIMEOUT_MS, () => {
-      request.destroy(new Error(`No answer within ${TIMEOUT_MS / 1000}s.`))
+    // A per-request ceiling, so a slow internal service can be given more time
+    // without raising it for everything else.
+    const timeoutMs =
+      typeof req.timeoutMs === 'number' && req.timeoutMs >= 1000 && req.timeoutMs <= 300_000
+        ? req.timeoutMs
+        : DEFAULT_TIMEOUT_MS
+    request.setTimeout(timeoutMs, () => {
+      request.destroy(new Error(`No answer within ${timeoutMs / 1000}s.`))
     })
     request.on('error', reject)
     if (body) request.write(body)
