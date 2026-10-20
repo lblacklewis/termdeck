@@ -458,10 +458,40 @@ async function main() {
     })()
   `
 
+  /*
+   * The pomodoro counts *focused* seconds (`document.hasFocus()`), which makes the
+   * whole suite depend on this window owning the OS foreground for several minutes
+   * — and it cannot rely on that: any other window taking the front pauses the
+   * timer and the round never ends, which reads as five failures about breaks.
+   * Focus emulation says "this page is focused" from inside the page, so what is
+   * measured is the timer rather than who is using the machine.
+   */
+  let focusEmulated = false
+  try {
+    if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+      enabled: true
+    })
+    focusEmulated = true
+  } catch {
+    // Older runtime: the probe's own focus guard will name the problem instead.
+  }
+
   try {
     report(await win.webContents.executeJavaScript(probe))
   } catch (err) {
     report([{ name: 'wellbeing probe', ok: false, detail: String((err && err.message) || err) }])
+  } finally {
+    if (focusEmulated && win.webContents.debugger.isAttached()) {
+      try {
+        await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+          enabled: false
+        })
+      } catch {
+        // Detaching below clears it anyway.
+      }
+      win.webContents.debugger.detach()
+    }
   }
 
   const failed = all.filter((c) => !c.ok)
