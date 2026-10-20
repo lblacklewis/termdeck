@@ -257,6 +257,86 @@ async function main() {
       }
     ])
 
+    // ---- 5b. a running tunnel cannot be re-pointed silently -------------
+    /*
+     * The listener and the SSH channel were built from the numbers in the row, so
+     * keeping a forward alive after its target was edited would leave something
+     * that looks right and forwards elsewhere. Renaming, on the other hand, must
+     * not tear down a working tunnel.
+     */
+    const repointedPort = await freePort()
+    const statusOf = async (tunnelId) => {
+      let last = ''
+      for (let i = 0; i < 40; i += 1) {
+        last = await win.webContents.executeJavaScript(
+          'window.termdeck.listTunnels().then((l) => (l.find((t) => t.id === ' +
+            JSON.stringify(tunnelId) +
+            ') || {}).status || "")'
+        )
+        // "starting" is not an answer: a tunnel that is on its way either ends up
+        // running or reports why it could not.
+        if (last === 'running' || last === 'error') return last
+        await sleep(200)
+      }
+      return last
+    }
+
+    await win.webContents.executeJavaScript('window.termdeck.startTunnel(' + JSON.stringify(id) + ')')
+    const again = await statusOf(id)
+    report([
+      { name: 'the tunnel can be started again after a stop', ok: again === 'running', detail: again }
+    ])
+
+    const repointed = await win.webContents.executeJavaScript(
+      'window.termdeck.saveTunnels([Object.assign({}, ' +
+        JSON.stringify(spec) +
+        ', { id: ' +
+        JSON.stringify(id) +
+        ', localPort: ' +
+        repointedPort +
+        ' })])'
+    )
+    const oldFreed = await readBanner(localPort, 3000)
+    const newQuiet = await readBanner(repointedPort, 2500)
+    report([
+      {
+        name: 'editing the target of a running tunnel stops it',
+        ok: Array.isArray(repointed) && repointed[0] && repointed[0].status === 'stopped',
+        detail: Array.isArray(repointed) && repointed[0] ? repointed[0].status : 'no list'
+      },
+      {
+        name: 'and the old port is released',
+        ok: /^error:/.test(oldFreed),
+        detail: oldFreed
+      },
+      {
+        name: 'and the new port is not opened behind our back',
+        ok: /^error:/.test(newQuiet),
+        detail: newQuiet
+      }
+    ])
+
+    await win.webContents.executeJavaScript('window.termdeck.startTunnel(' + JSON.stringify(id) + ')')
+    await statusOf(id)
+    const renamed = await win.webContents.executeJavaScript(
+      'window.termdeck.saveTunnels([Object.assign({}, ' +
+        JSON.stringify(spec) +
+        ', { id: ' +
+        JSON.stringify(id) +
+        ', localPort: ' +
+        repointedPort +
+        ', name: "renamed while running" })])'
+    )
+    report([
+      {
+        name: 'renaming a running tunnel leaves it running',
+        ok: Array.isArray(renamed) && renamed[0] && renamed[0].status === 'running',
+        detail: Array.isArray(renamed) && renamed[0]
+          ? renamed[0].status + ' / ' + renamed[0].name
+          : 'no list'
+      }
+    ])
+
     // ---- 6. a tunnel that cannot start says why -------------------------
     /*
      * The saved host is gone, so there is nothing to authenticate as. The point

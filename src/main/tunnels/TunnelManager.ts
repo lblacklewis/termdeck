@@ -64,12 +64,26 @@ export class TunnelManager extends EventEmitter {
     })
   }
 
-  /** Replace the stored list. Anything dropped is stopped first. */
+  /** Replace the stored list. Anything dropped or re-pointed is stopped first. */
   save(specs: TunnelSpec[]): TunnelState[] {
     const next = new Map<string, TunnelSpec>()
     for (const spec of specs) {
       const id = spec.id || randomUUID()
       next.set(id, { ...spec, id, name: spec.name.trim() || `${spec.localPort} → ${spec.remoteHost}:${spec.remotePort}` })
+    }
+    /*
+     * A running forward cannot be re-pointed. Its listener and its SSH channel
+     * were built from the old numbers, so keeping it alive while the list shows
+     * the new ones would leave a tunnel that looks right and forwards somewhere
+     * else — the failure mode this feature is most likely to produce. Stopping it
+     * makes the row honestly say "stopped" and the user presses Start again.
+     *
+     * Renaming is not re-pointing: that only touches the label.
+     */
+    for (const [id, previous] of this.specs) {
+      const updated = next.get(id)
+      if (!updated || sameTarget(previous, updated)) continue
+      if (this.running.has(id)) this.stop(id)
     }
     for (const id of [...this.specs.keys()]) {
       if (!next.has(id)) this.stop(id)
@@ -255,4 +269,20 @@ export class TunnelManager extends EventEmitter {
   private emitChanged(): void {
     this.emit('changed', this.list())
   }
+}
+
+/**
+ * Whether two specs describe the same forward.
+ *
+ * The name is excluded on purpose: renaming must not tear down a working tunnel.
+ * Everything that the listener or the SSH channel was built from is included.
+ */
+function sameTarget(a: TunnelSpec, b: TunnelSpec): boolean {
+  return (
+    a.savedSessionId === b.savedSessionId &&
+    a.localHost === b.localHost &&
+    a.localPort === b.localPort &&
+    a.remoteHost === b.remoteHost &&
+    a.remotePort === b.remotePort
+  )
 }
