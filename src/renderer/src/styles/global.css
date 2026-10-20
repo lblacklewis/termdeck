@@ -636,6 +636,34 @@ kbd {
   white-space: nowrap;
 }
 
+/*
+ * The drawer's session search.
+ *
+ * Compact because the drawer is narrow, and at the top of the tree because it
+ * narrows what is below it — the same place the tag chips live.
+ */
+.td-tree-search-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 6px 1px;
+}
+
+.td-tree-search {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 7px;
+  font-size: 11.5px;
+  color: var(--td-text);
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: 5px;
+}
+
+.td-tree-search:focus {
+  outline: none;
+  border-color: var(--td-accent);
+}
 .td-tag-filter {
   display: flex;
   flex-wrap: wrap;

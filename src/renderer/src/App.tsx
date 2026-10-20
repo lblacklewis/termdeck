@@ -309,6 +309,13 @@ export function App(): JSX.Element {
   })
   const [knownTags, setKnownTags] = useState<string[]>([])
   const [tagFilter, setTagFilter] = useState<string[]>([])
+  /**
+   * Free-text search over the drawer's session tree.
+   *
+   * Kept here rather than inside the tree because the section can be collapsed and
+   * reordered — and unmounting the tree would throw the query away mid-search.
+   */
+  const [sessionQuery, setSessionQuery] = useState('')
 
   const [appMeta, setAppMeta] = useState<Awaited<ReturnType<typeof api.appInfo>> | null>(null)
   /**
@@ -2939,6 +2946,8 @@ export function App(): JSX.Element {
                   selectedSavedId={selectedSavedId}
                   connectingId={connectingId}
                   tagFilter={tagFilter}
+                  query={sessionQuery}
+                  onQuery={setSessionQuery}
                   availableTags={knownTags}
                   onSelectSession={(s) => setSelectedSavedId(s.id)}
                   onOpenSession={(s) => void connectSaved(s)}

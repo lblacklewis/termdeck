@@ -15,6 +15,9 @@ interface SessionTreeProps {
   /** Saved session currently being connected, if any. */
   connectingId: string | null
   tagFilter: string[]
+  /** Free-text search across name, address and tags. */
+  query: string
+  onQuery: (value: string) => void
   onSelectSession: (session: SavedSession) => void
   onOpenSession: (session: SavedSession) => void
   /** Create a session at the root; lives in the Sessions header, not the sidebar. */
@@ -101,6 +104,8 @@ export function SessionTree({
   selectedSavedId,
   connectingId,
   tagFilter,
+  query,
+  onQuery,
   onSelectSession,
   onOpenSession,
   onNewSession,
@@ -119,8 +124,43 @@ export function SessionTree({
   // `dragover` is disallowed by the spec, so it is only available on `drop`.
   const dragPayload = useRef<DragPayload | null>(null)
 
-  const matchesFilter = (session: SavedSession): boolean =>
-    tagFilter.length === 0 || tagFilter.every((tag) => session.tags.includes(tag))
+  const needle = query.trim().toLowerCase()
+  const filtering = needle !== '' || tagFilter.length > 0
+
+  /**
+   * Does this session survive the search box and the tag chips?
+   *
+   * The same three things people search a host list by — what it is called, where
+   * it is, and what it is labelled. A tag is a way of remembering a machine, so it
+   * belongs in the same box as its name rather than only in the chips above.
+   */
+  const matchesFilter = (session: SavedSession): boolean => {
+    if (tagFilter.length > 0 && !tagFilter.every((tag) => session.tags.includes(tag))) return false
+    if (needle === '') return true
+    return (
+      session.name.toLowerCase().includes(needle) ||
+      session.host.toLowerCase().includes(needle) ||
+      session.username.toLowerCase().includes(needle) ||
+      session.tags.some((tag) => tag.toLowerCase().includes(needle))
+    )
+  }
+
+  /**
+   * Whether anything below this folder matches.
+   *
+   * While a search is active, a folder with nothing in it is noise: the point of
+   * the search is to show the few hosts that match, not the shape of the whole
+   * tree. With no search on, every folder stays — including empty ones, which are
+   * also drop targets for a host you are about to move there.
+   */
+  const subtreeMatches = (parentId: string): boolean => {
+    const node = children.get(parentId)
+    if (!node) return false
+    if (node.sessions.some(matchesFilter)) return true
+    return node.folders.some((folder) => subtreeMatches(folder.id))
+  }
+
+  const matchCount = tree.sessions.filter(matchesFilter).length
 
   /**
    * Drop-zone wiring shared by folders, sessions and the tree root.
@@ -258,7 +298,9 @@ export function SessionTree({
       })
 
   const renderFolders = (parentId: string | null): JSX.Element[] =>
-    (children.get(parentId)?.folders ?? []).map((folder) => {
+    (children.get(parentId)?.folders ?? [])
+      .filter((folder) => !filtering || subtreeMatches(folder.id))
+      .map((folder) => {
       const expanded = folder.expanded !== false
       const key = `folder:${folder.id}`
       const total = countSessions(children, folder.id) + countFolders(children, folder.id)
@@ -357,6 +399,34 @@ export function SessionTree({
         </div>
       )}
 
+      {/*
+        The search box and the tag chips are two ways to answer the same question,
+        so they sit together. Neither is a mode: a tag and a word narrow together.
+      */}
+      <div className="td-tree-search-row">
+        <input
+          className="td-tree-search"
+          data-testid="tree-search"
+          value={query}
+          spellCheck={false}
+          placeholder={t('sessiontree.search_name_address_or_t', 'Search name, address or tag…')}
+          onChange={(e) => onQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') onQuery('')
+          }}
+        />
+        {query !== '' && (
+          <button
+            className="td-mini"
+            data-testid="tree-search-clear"
+            title={t('sessiontree.clear_the_search', 'Clear the search')}
+            onClick={() => onQuery('')}
+          >
+            ×
+          </button>
+        )}
+      </div>
+
       {availableTags.length > 0 && (
         <div className="td-tag-filter">
           {availableTags.map((tag) => (
@@ -384,6 +454,11 @@ export function SessionTree({
       >
         {rootFolders}
         {rootSessions}
+        {filtering && matchCount === 0 && (
+          <li className="td-session-empty" data-testid="tree-no-matches">
+            {t('sessiontree.nothing_matches', 'No saved session matches that.')}
+          </li>
+        )}
         {tree.folders.length === 0 && tree.sessions.length === 0 && (
           <li className="td-session-empty">
             {t('sessiontree.no_saved_sessions_use_new_se', 'No saved sessions. Use “New session” to add one.')}

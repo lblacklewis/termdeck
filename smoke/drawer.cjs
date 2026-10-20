@@ -62,6 +62,19 @@ async function main() {
     parentId: null,
     tags: []
   })
+  /*
+   * A second host, so the drawer's search has something to discriminate between:
+   * one row cannot show that a query narrowed anything.
+   */
+  mod.storeAccess().sessions.upsertSession({
+    name: 'web-1',
+    host: '10.9.8.7',
+    port: 22,
+    username: 'deploy',
+    authMethod: 'password',
+    parentId: null,
+    tags: ['staging']
+  })
 
   const win = new BrowserWindow({
     width: 1500,
@@ -123,6 +136,74 @@ async function main() {
         [...document.querySelectorAll('.td-section-head')].every(
           (h) => h.getAttribute('draggable') === 'true'
         ))
+
+      /*
+       * ---- 1b. searching the session list ----------------------------------
+       * Name, address and tag are the three things people look a host up by, and
+       * the tags are already chips below this box — so the check is that the box
+       * finds a host by any of the three, not just by its name.
+       */
+      step = 'tree search'
+      const sessionRows = () =>
+        [...document.querySelectorAll('.td-node[data-node-kind="session"]')].map((node) =>
+          (node.textContent || '').trim()
+        )
+      const searchBox = document.querySelector('[data-testid="tree-search"]')
+      push('the session list has a search box', !!searchBox)
+      if (searchBox) {
+        const setQuery = async (text) => {
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value'
+          ).set
+          setter.call(searchBox, text)
+          searchBox.dispatchEvent(new Event('input', { bubbles: true }))
+          await wait(350)
+        }
+        const everyone = sessionRows().length
+        push('there is more than one saved host to search through', everyone > 1,
+          'rows=' + everyone)
+
+        await setQuery('web-1')
+        const byName = sessionRows()
+        push('a name narrows the list',
+          byName.length > 0 && byName.length < everyone && byName.every((r) => r.includes('web-1')),
+          'rows=' + byName.length + ' of ' + everyone)
+
+        await setQuery('10.9.8.7')
+        const byHost = sessionRows()
+        push('so does an address',
+          byHost.length > 0 && byHost.every((r) => r.includes('web-1')),
+          'rows=' + byHost.length)
+
+        await setQuery('staging')
+        const byTag = sessionRows()
+        push('and so does a tag', byTag.length > 0 && byTag.every((r) => r.includes('web-1')),
+          'rows=' + byTag.length)
+
+        await setQuery('nothing-matches-this')
+        push('a search with no match says so rather than showing an empty list',
+          sessionRows().length === 0 && !!document.querySelector('[data-testid="tree-no-matches"]'),
+          'rows=' + sessionRows().length)
+
+        const clear = document.querySelector('[data-testid="tree-search-clear"]')
+        push('there is a way to clear the search', !!clear)
+        if (clear) {
+          clear.click()
+          await wait(350)
+        }
+        push('clearing brings every host back', sessionRows().length === everyone,
+          'rows=' + sessionRows().length + ' of ' + everyone)
+
+        // Escape does the same without reaching for the button.
+        await setQuery('web-1')
+        searchBox.dispatchEvent(
+          new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+        )
+        await wait(350)
+        push('and Escape clears it too', sessionRows().length === everyone,
+          'rows=' + sessionRows().length + ' of ' + everyone)
+      }
 
       // ---- 2. dragging a heading reorders the drawer ----------------------
       step = 'reorder'
