@@ -321,6 +321,107 @@ ${HELPERS}
     report([{ name: 'pointer half', ok: false, detail: String((err && err.message) || err) }])
   }
 
+  /*
+   * ---- 3. a dragged divider stays where it was released --------------------
+   *
+   * Driven here rather than in the page: a real drag needs mouse events from
+   * outside the renderer, and the breakage was invisible to anything that only
+   * looked at the DOM afterwards. The correction watchdog used to hand dockview
+   * `layout(w, h, true)` ten times a second, and that does not merely measure — it
+   * re-distributes the grid. A divider being dragged was pushed back to equal
+   * halves on the next tick, and the ratio the user chose was gone on release.
+   */
+  const sashChecks = []
+  const pushSash = (name, ok, detail) =>
+    sashChecks.push({ name, ok: Boolean(ok), detail: detail || '' })
+  const readWidths = `(() => {
+    const groups = window.__tdDockApi.groups
+    return groups.map((g) => Math.round(g.element.getBoundingClientRect().width)).join(',')
+  })()`
+
+  try {
+    const geom = await win.webContents.executeJavaScript(`(async () => {
+      const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+      const api = window.__tdDockApi
+      while (api.panels.length < 2) {
+        document.querySelector('[data-testid="local-shell"]').click()
+        await wait(2500)
+        if (api.panels.length < 2) return { error: 'could not open two panes' }
+      }
+      // Side by side, whatever arrangement they were left in. The second pane is
+      // moved even when it already shares the first group: as a tab it has to be
+      // split out to the right, and a panel in its own right-hand group lands in
+      // the same place.
+      const first = api.groups[0]
+      if (api.panels[1]) api.panels[1].api.moveTo({ group: first, position: 'right' })
+      await wait(1200)
+      const sash = [...document.querySelectorAll('[class*="dv-sash"]')]
+        .map((el) => el.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0 && r.height > r.width)
+        .sort((a, b) => b.height - a.height)[0]
+      const host = document.querySelector('.td-dockview').getBoundingClientRect()
+      if (!sash) return { error: 'no vertical divider' }
+      return {
+        x: Math.round(sash.x + sash.width / 2),
+        y: Math.round(sash.y + sash.height / 2),
+        targetX: Math.round(host.x + host.width * 0.7),
+        widths: api.groups.map((g) => Math.round(g.element.getBoundingClientRect().width))
+      }
+    })()`)
+
+    if (geom.error) {
+      pushSash('two panes can be placed side by side', false, geom.error)
+    } else {
+      pushSash('two panes can be placed side by side', geom.widths.length === 2,
+        'widths=' + geom.widths.join(','))
+
+      if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
+      const send = (method, params) => win.webContents.debugger.sendCommand(method, params)
+      const widthsNow = async () =>
+        (await win.webContents.executeJavaScript(readWidths)).split(',').map(Number)
+
+      await send('Input.dispatchMouseEvent', {
+        type: 'mousePressed', x: geom.x, y: geom.y, button: 'left', clickCount: 1
+      })
+
+      const steps = 10
+      const trace = []
+      let trackedEarly = false
+      for (let i = 1; i <= steps; i += 1) {
+        const x = Math.round(geom.x + (geom.targetX - geom.x) * (i / steps))
+        await send('Input.dispatchMouseEvent', {
+          type: 'mouseMoved', x, y: geom.y, button: 'left', buttons: 1
+        })
+        await sleep(90)
+        const widths = await widthsNow()
+        trace.push(widths.join('/'))
+        // The divider has to follow the pointer from the start, not only when a
+        // watchdog tick happens to leave it alone.
+        if (i <= 3 && Math.abs(widths[0] - geom.widths[0]) > 4) trackedEarly = true
+      }
+      await send('Input.dispatchMouseEvent', {
+        type: 'mouseReleased', x: geom.targetX, y: geom.y, button: 'left', clickCount: 1
+      })
+      await sleep(400)
+      const released = await widthsNow()
+      await sleep(1200)
+      const settled = await widthsNow()
+      if (win.webContents.debugger.isAttached()) win.webContents.debugger.detach()
+
+      pushSash('a dragged divider follows the pointer from the first steps', trackedEarly,
+        'start=' + geom.widths.join('/') + ' trace=' + trace.join(' '))
+      pushSash('it lands at the ratio it was released at',
+        released[0] > geom.widths[0] + 20,
+        geom.widths.join('/') + ' -> ' + released.join('/'))
+      pushSash('and it stays there instead of snapping back to equal halves',
+        Math.abs(settled[0] - released[0]) <= 2,
+        released.join('/') + ' -> ' + settled.join('/'))
+    }
+  } catch (err) {
+    pushSash('the divider drag could be driven', false, String((err && err.message) || err))
+  }
+  report(sashChecks)
+
   const failed = all.filter((c) => !c.ok)
   console.log(`\n${all.length - failed.length}/${all.length} checks passed`)
   app.exit(failed.length === 0 ? 0 : 1)

@@ -88,7 +88,7 @@ import {
   writesBySink
 } from './components/broadcast'
 import { useShortcuts, matchesBinding } from './components/useShortcuts'
-import { refitAll } from './components/terminalRegistry'
+import { fitsArePaused, refitAll } from './components/terminalRegistry'
 import { useTheme } from './components/useTheme'
 import { onLanguageChange, setLanguage, t } from './i18n'
 
@@ -948,6 +948,30 @@ export function App(): JSX.Element {
      */
     let settleFrame = 0
 
+    /**
+     * Is dockview's grid already the size of its container?
+     *
+     * `Gridview.layout()` records the size it was laid out at as an inline style on
+     * `.dv-grid-view`, so the disagreement this watchdog exists for can be read off
+     * the DOM. That matters more than it looks: `dock.layout(w, h, true)` does not
+     * merely measure, it re-distributes the grid — called every 100 ms it pushed a
+     * divider the user was dragging back to equal halves on the next tick, and the
+     * custom ratio was lost on release. Asking first is what keeps the correction
+     * for a collapsed grid from fighting every gesture.
+     */
+    const layoutAgrees = (width: number, height: number): boolean => {
+      const grid = host.querySelector('.dv-grid-view') as HTMLElement | null
+      if (!grid) return false
+      const w = Number.parseFloat(grid.style.width)
+      const h = Number.parseFloat(grid.style.height)
+      return (
+        Number.isFinite(w) &&
+        Number.isFinite(h) &&
+        Math.abs(w - width) <= 1 &&
+        Math.abs(h - height) <= 1
+      )
+    }
+
     const applyLayout = (): void => {
       const width = host.clientWidth
       const height = host.clientHeight
@@ -1055,6 +1079,21 @@ export function App(): JSX.Element {
        * anywhere. Retrying on the next tick is the useful behaviour.
        */
       try {
+        /*
+         * Nothing to correct, twice over.
+         *
+         * A gesture in progress re-lays the grid itself: the divider is being dragged
+         * and cannot be re-laid from under the pointer. And once the grid matches the
+         * container — the normal state after the first frame — there is nothing left
+         * for the watchdog to do, so it stays quiet and the drag lands wherever it was
+         * released. The failure it exists for is dockview *keeping* a placeholder
+         * size, which reads as a disagreement here.
+         */
+        if (fitsArePaused()) return
+        const width = host.clientWidth
+        const height = host.clientHeight
+        if (width === 0 || height === 0) return
+        if (layoutAgrees(width, height)) return
         applyLayout()
       } catch {
         /* the next tick tries again */

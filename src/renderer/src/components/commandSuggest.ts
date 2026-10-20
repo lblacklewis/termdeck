@@ -322,6 +322,24 @@ export function attachSuggestions({
 
   container.addEventListener('keydown', onKeyDown, true)
 
+  /**
+   * Clicking anywhere else puts the list away.
+   *
+   * Escape is not the only way out of a popup: reaching for the mouse is exactly
+   * when it is in the way. Captured on the document because a click inside the
+   * terminal is stopped by xterm before it ever bubbles, and because "anywhere
+   * else" means other panes and other windows too. A press that lands on the list
+   * itself is left alone — the item's own handler is what accepts it.
+   */
+  const onPointerDown = (event: PointerEvent): void => {
+    if (!open) return
+    const target = event.target as Node | null
+    if (target && box.contains(target)) return
+    close()
+    debug()
+  }
+  document.addEventListener('pointerdown', onPointerDown, true)
+
   const feed = (data: string): void => {
     if (!enabled) return
     feeds += 1
@@ -476,6 +494,7 @@ export function attachSuggestions({
     },
     dispose: () => {
       container.removeEventListener('keydown', onKeyDown, true)
+      document.removeEventListener('pointerdown', onPointerDown, true)
       box.remove()
     }
   }

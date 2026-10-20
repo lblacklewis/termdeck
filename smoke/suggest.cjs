@@ -171,6 +171,51 @@ async function main() {
   })()`)
   push('Escape dismisses the list', escaped.opened && escaped.closed, JSON.stringify(escaped))
 
+  /*
+   * ---- a click anywhere else dismisses it -------------------------------------
+   *
+   * Escape is not the only way out of a popup. Reaching for the mouse is exactly
+   * when the list is in the way, and it used to sit there until a key was pressed.
+   * Pressed outside the list, and inside another pane as well, because that is what
+   * "somewhere else" means when a pane is full of a running command.
+   */
+  const clickedAway = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const id = Object.keys(window.__tdTerminals || {}).pop()
+    const entry = window.__tdTerminals[id]
+    const box = () => document.querySelector('[data-testid="command-suggest"]')
+    const visible = () => !!box() && !box().hidden
+    const press = (target) => (target || document.body).dispatchEvent(
+      new PointerEvent('pointerdown', { bubbles: true, cancelable: true }))
+
+    entry.term.paste(String.fromCharCode(3))
+    await wait(500)
+    for (const ch of 'git ') entry.term.paste(ch)
+    await wait(800)
+    const opened = visible()
+    // The drawer is outside both the pane and the list.
+    press(document.querySelector('.td-sidebar') || document.body)
+    await wait(400)
+    const closedByOutside = !visible()
+
+    // And a press on the list itself is not a dismissal - that is a selection.
+    for (const ch of 'git ') entry.term.paste(ch)
+    await wait(800)
+    const reopened = visible()
+    const item = box() ? box().querySelector('.td-suggest-item') : null
+    press(item)
+    await wait(300)
+    const survivedInnerClick = visible()
+    press(document.body)
+    await wait(300)
+    entry.term.paste(String.fromCharCode(3))
+    return { opened, closedByOutside, reopened, survivedInnerClick }
+  })()`)
+  push('a click outside the list dismisses it',
+    clickedAway.opened && clickedAway.closedByOutside, JSON.stringify(clickedAway))
+  push('but a click on the list itself does not — that is a selection',
+    clickedAway.reopened && clickedAway.survivedInnerClick, JSON.stringify(clickedAway))
+
   // ---- typing on past the list dismisses it ------------------------------------
   const typedOn = await page(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
