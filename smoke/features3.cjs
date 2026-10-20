@@ -694,10 +694,41 @@ async function main() {
     })()
   `
 
+  /*
+   * xterm only paints a cursor for a focused terminal, and "focused" means the
+   * window actually owns the OS foreground — which this suite cannot count on,
+   * running as it does in the middle of a long chain of Electron windows. Toggling
+   * focus emulation through the debugger is the supported way to say "this page is
+   * focused" and puts the measurement back on the app: with it, a missing cursor
+   * means a missing cursor, and without it the check would report the window
+   * manager instead.
+   */
+  let focusEmulated = false
+  try {
+    if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
+    await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+      enabled: true
+    })
+    focusEmulated = true
+  } catch {
+    // Older runtime: fall back to the page-side focus request the probe does itself.
+  }
+
   try {
     report(await win.webContents.executeJavaScript(probe))
   } catch (err) {
     report([{ name: 'appearance probe', ok: false, detail: String((err && err.message) || err) }])
+  } finally {
+    if (focusEmulated && win.webContents.debugger.isAttached()) {
+      try {
+        await win.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', {
+          enabled: false
+        })
+      } catch {
+        // Detaching below clears it anyway.
+      }
+      win.webContents.debugger.detach()
+    }
   }
 
   /*
