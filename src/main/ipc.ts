@@ -19,16 +19,20 @@ import { copyData, resolveDataDir, writePointer } from './dataDir'
 import {
   SshShellBackend,
   HostKeyRequiredError,
+  buildSshConnectConfig,
   type SshConnectOptions
 } from './sessions/SshShellBackend'
 import { CredentialStore } from './store/CredentialStore'
 import { LayoutStore } from './store/LayoutStore'
+import { TunnelStore } from './store/TunnelStore'
+import { TunnelManager } from './tunnels/TunnelManager'
 import { listFontChoices } from './fonts'
 import { clampScale, HistoryStore, SettingsStore, SessionStore } from './store/Stores'
 import { KnownHosts } from './ssh/KnownHosts'
 import { closeSftp, downloadFile, listDirectory, uploadFile } from './sftp'
 import type {
   AppSettings,
+  TunnelSpec,
   CreateSessionResult,
   FontChoices,
   HostKeyPrompt,
@@ -125,6 +129,8 @@ let credentials: CredentialStore | null = null
 let settingsStore: SettingsStore | null = null
 let sessionStore: SessionStore | null = null
 let layoutStore: LayoutStore | null = null
+let tunnelStore: TunnelStore | null = null
+let tunnelManager: TunnelManager | null = null
 
 /**
  * Host keys are read from the user's real OpenSSH files by default. The
@@ -179,6 +185,92 @@ export function loadSettingsForStartup(): AppSettings {
 function getSessionStore(): SessionStore {
   sessionStore ??= new SessionStore(configDir())
   return sessionStore
+}
+
+function getTunnelStore(): TunnelStore {
+  tunnelStore ??= new TunnelStore(configDir())
+  return tunnelStore
+}
+
+/**
+ * The port-forward engine, created once.
+ *
+ * It owns its own SSH connections: a tunnel is meant to outlive the pane that
+ * inspired it (that is the point of a tunnel), so it cannot borrow a session's
+ * connection — closing the terminal would silently kill the forward.
+ */
+function getTunnelManager(): TunnelManager {
+  if (tunnelManager) return tunnelManager
+  const store = getTunnelStore()
+  tunnelManager = new TunnelManager({
+    resolveOptions: async (savedSessionId) => {
+      const resolved = savedSessionOptions(savedSessionId)
+      if (!resolved.ok) return resolved
+      /*
+       * The same config the pane builds, key file and agent included. A host key
+       * that has not been trusted yet throws here — which is right: a tunnel
+       * cannot answer a prompt, and the message should send the user to the host
+       * page instead of failing opaquely.
+       */
+      const options = await buildSshConnectConfig(resolved.options, knownHosts)
+      return { ok: true, options }
+    },
+    persist: (specs) => {
+      store.save(specs)
+    }
+  })
+  tunnelManager.on('changed', (list) => broadcast('tunnel:changed', list))
+  // Restore the saved definitions without starting anything: a tunnel that
+  // reopens itself on launch could quietly hold a production link open.
+  tunnelManager.save(store.load())
+  return tunnelManager
+}
+
+/**
+ * Everything a saved session needs to open an SSH connection.
+ *
+ * The same rules `session:createSsh` applies — a stored password, a key file, or
+ * the agent — because a tunnel has to authenticate exactly like a pane does, and
+ * there is no payload here to override anything with: a tunnel is started from
+ * the app, never from the connect dialog.
+ */
+function savedSessionOptions(
+  sessionId: string
+): { ok: true; options: SshConnectOptions } | { ok: false; message: string } {
+  const saved = getSessionStore()
+    .load()
+    .sessions.find((s) => s.id === sessionId)
+  if (!saved) return { ok: false, message: 'That saved session no longer exists.' }
+  if (saved.kind === 'telnet' || saved.kind === 'serial') {
+    return { ok: false, message: `"${saved.name}" is not an SSH session, so a tunnel cannot ride on it.` }
+  }
+
+  const credential = getCredentials().get(saved.id)
+  if (saved.authMethod === 'password' && !credential.password) {
+    return {
+      ok: false,
+      message:
+        `"${saved.name}" has no saved password. Edit the session to add one, ` +
+        'select a private key, or switch it to the SSH agent.'
+    }
+  }
+
+  return {
+    ok: true,
+    options: {
+      host: saved.host,
+      port: saved.port,
+      username: saved.username,
+      title: saved.name,
+      hostKeyPolicy: getSettingsStore().load().hostKeys.policy,
+      auth: {
+        password: credential.password,
+        privateKeyPath: saved.privateKeyPath,
+        passphrase: credential.passphrase,
+        useAgent: saved.authMethod === 'agent'
+      }
+    }
+  }
 }
 
 let historyStore: HistoryStore | null = null
@@ -303,6 +395,17 @@ async function openSsh(
     sessionManager.on('error', onError)
     sessionManager.on('exit', onExit)
   })
+}
+
+/**
+ * Close every running forward.
+ *
+ * Called when the app goes away: a listener outliving its window would keep the
+ * port bound and, worse, keep an SSH connection to a production host open with
+ * nobody watching it.
+ */
+export function stopAllTunnels(): void {
+  tunnelManager?.stopAll()
 }
 
 export function registerIpc(): void {
@@ -550,6 +653,18 @@ export function registerIpc(): void {
 
     return openSsh(blueprint.options, blueprint.cols, blueprint.rows)
   })
+
+  // ---- tunnels -----------------------------------------------------------
+
+  ipcMain.handle('tunnel:list', () => getTunnelManager().list())
+
+  ipcMain.handle('tunnel:save', (_e, specs: TunnelSpec[]) => getTunnelManager().save(specs))
+
+  ipcMain.handle('tunnel:remove', (_e, id: string) => getTunnelManager().remove(id))
+
+  ipcMain.handle('tunnel:start', async (_e, id: string) => getTunnelManager().start(id))
+
+  ipcMain.handle('tunnel:stop', (_e, id: string) => getTunnelManager().stop(id))
 
   ipcMain.on('session:write', (_e, id: string, data: string) => {
     sessionManager.write(id, data)

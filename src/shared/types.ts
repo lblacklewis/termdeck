@@ -89,6 +89,29 @@ export interface SerialConnectPayload {
   savedSessionId?: string
 }
 
+export interface TunnelSpec {
+  id: string
+  name: string
+  /** Saved SSH session the tunnel rides on. */
+  savedSessionId: string
+  /** Where the listener sits on this machine. */
+  localHost: string
+  localPort: number
+  /** Where it lands, as seen from the SSH host. */
+  remoteHost: string
+  remotePort: number
+}
+
+export type TunnelStatus = 'stopped' | 'starting' | 'running' | 'error'
+
+export interface TunnelState extends TunnelSpec {
+  status: TunnelStatus
+  /** Why it is not running, when it is not. */
+  message?: string
+  /** Live forwarded connections, so the UI can show it is actually in use. */
+  connections: number
+}
+
 export interface SessionExitInfo {
   code: number | null
   signal: string | null
@@ -311,7 +334,7 @@ export interface KnownHostEntry {
 }
 
 /** Rail sections. `settings` opens a drawer rather than a page of its own. */
-export type PageId = 'terminal' | 'hosts' | 'known-hosts' | 'snippets' | 'logs' | 'settings'
+export type PageId = 'terminal' | 'hosts' | 'known-hosts' | 'snippets' | 'logs' | 'tunnels' | 'settings'
 
 /** Persisted UI arrangement, restored on launch. */
 export interface LayoutState {
@@ -1075,5 +1098,12 @@ export interface TermDeckApi {
   onSettingsChanged(handler: (settings: AppSettings) => void): () => void
   /** Fires on every saved-session or folder mutation. */
   onTreeChanged(handler: (tree: SessionTree) => void): () => void
+
+  listTunnels(): Promise<TunnelState[]>
+  saveTunnels(specs: TunnelSpec[]): Promise<TunnelState[]>
+  removeTunnel(id: string): Promise<TunnelState[]>
+  startTunnel(id: string): Promise<TunnelState[]>
+  stopTunnel(id: string): Promise<TunnelState[]>
+  onTunnelsChanged(handler: (tunnels: TunnelState[]) => void): () => void
   onTagsChanged(handler: (tags: string[]) => void): () => void
 }

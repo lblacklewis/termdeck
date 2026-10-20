@@ -23,7 +23,7 @@ const DEFAULT_LAYOUT: LayoutState = {
   hostsView: 'list'
 }
 
-const PAGES: PageId[] = ['terminal', 'hosts', 'known-hosts', 'snippets', 'logs', 'settings']
+const PAGES: PageId[] = ['terminal', 'hosts', 'known-hosts', 'snippets', 'logs', 'tunnels', 'settings']
 
 function sanitise(input: unknown): LayoutState {
   if (!input || typeof input !== 'object') return { ...DEFAULT_LAYOUT }

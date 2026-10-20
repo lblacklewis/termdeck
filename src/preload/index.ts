@@ -35,6 +35,8 @@ import type {
   SftpTransferResult,
   Snippet,
   SshConnectPayload,
+  TunnelSpec,
+  TunnelState,
   TrustHostKeyRequest
 } from '@shared/types'
 
@@ -232,7 +234,23 @@ const api = {
     on<[SessionTree]>('tree:changed', handler),
 
   onTagsChanged: (handler: (tags: string[]) => void): (() => void) =>
-    on<[string[]]>('tree:tags', handler)
+    on<[string[]]>('tree:tags', handler),
+
+  // ---- tunnels -----------------------------------------------------------
+
+  listTunnels: (): Promise<TunnelState[]> => ipcRenderer.invoke('tunnel:list'),
+
+  saveTunnels: (specs: TunnelSpec[]): Promise<TunnelState[]> =>
+    ipcRenderer.invoke('tunnel:save', specs),
+
+  removeTunnel: (id: string): Promise<TunnelState[]> => ipcRenderer.invoke('tunnel:remove', id),
+
+  startTunnel: (id: string): Promise<TunnelState[]> => ipcRenderer.invoke('tunnel:start', id),
+
+  stopTunnel: (id: string): Promise<TunnelState[]> => ipcRenderer.invoke('tunnel:stop', id),
+
+  onTunnelsChanged: (handler: (tunnels: TunnelState[]) => void): (() => void) =>
+    on<[TunnelState[]]>('tunnel:changed', handler)
 }
 
 contextBridge.exposeInMainWorld('termdeck', api)

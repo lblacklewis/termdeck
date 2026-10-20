@@ -1,6 +1,6 @@
 import { app, BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
-import { registerIpc, loadSettingsForStartup } from './ipc'
+import { registerIpc, loadSettingsForStartup, stopAllTunnels } from './ipc'
 import { attachFocusMode, registerFocusIpc } from './focus'
 import { attachQuitConfirmation, registerQuitIpc } from './quit'
 import { attachDevShortcuts, removeApplicationMenu } from './shortcuts'
@@ -125,10 +125,12 @@ if (!gotLock) {
 
   app.on('window-all-closed', () => {
     sessionManager.disposeAll()
+    stopAllTunnels()
     if (process.platform !== 'darwin') app.quit()
   })
 
   app.on('before-quit', () => {
     sessionManager.disposeAll()
+    stopAllTunnels()
   })
 }

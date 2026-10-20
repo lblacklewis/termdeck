@@ -27,6 +27,9 @@ const SnippetsPage = lazy(() =>
 )
 const LogsPage = lazy(() => import('./LogsPage').then((m) => ({ default: m.LogsPage })))
 const HostsPage = lazy(() => import('./HostsPage').then((m) => ({ default: m.HostsPage })))
+const TunnelsPage = lazy(() =>
+  import('./TunnelsPage').then((m) => ({ default: m.TunnelsPage }))
+)
 
 interface PagesLayerProps {
   page: PageId
@@ -123,6 +126,17 @@ export function PagesLayer({
       {page === 'logs' && (
         <Suspense fallback={null}>
           <LogsPage entries={logEntries} onClear={onClearLogs} />
+        </Suspense>
+      )}
+
+      {/*
+        Tunnels need the saved hosts rather than the live sessions: a forward is
+        defined against a host you saved, and it runs on its own connection so it
+        keeps working with no pane open at all.
+      */}
+      {page === 'tunnels' && (
+        <Suspense fallback={null}>
+          <TunnelsPage hosts={tree.sessions} />
         </Suspense>
       )}
 
