@@ -113,6 +113,10 @@ export function S3Page(): JSX.Element {
     setBusy(true)
     setError(null)
     setPreview(null)
+    // Any edit in progress belonged to the object that was open; carrying it into
+    // the next listing and then pressing "write back" would write it to the wrong
+    // key, which is the one mistake here that loses data.
+    setUploaded('')
     setBucket(name)
     setPrefix(at)
     try {
@@ -134,6 +138,9 @@ export function S3Page(): JSX.Element {
   const openObject = async (key: string): Promise<void> => {
     setBusy(true)
     setError(null)
+    // A fresh object starts unedited: the draft textarea must show *its* contents,
+    // not whatever was being typed for the object opened a minute ago.
+    setUploaded('')
     try {
       const result = await api().s3GetObject(connection, bucket, key)
       if (!result.ok) setError(result.error ?? 'Could not read that object.')
@@ -171,7 +178,11 @@ export function S3Page(): JSX.Element {
         preview.contentType ?? 'text/plain'
       )
       if (!result.ok) setError(result.error ?? 'Could not write that object.')
-      else await openBucket(bucket, prefix)
+      else {
+        // Re-read it rather than closing the preview: seeing what S3 now holds —
+        // not what we hoped we sent — is the point of writing it back at all.
+        await openObject(preview.key)
+      }
     } finally {
       setBusy(false)
     }

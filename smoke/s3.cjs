@@ -68,6 +68,10 @@ function startMock() {
       res.writeHead(200, { 'Content-Type': 'text/plain' })
       return res.end('hello s3')
     }
+    if (key === '/alpha/dir/b.txt' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/plain' })
+      return res.end('second object')
+    }
     if (req.method === 'DELETE') return xml(res, '<DeleteObjectResult/>')
     if (req.method === 'PUT') return xml(res, '<PutObjectResult/>')
     return xml(
@@ -212,7 +216,35 @@ async function main() {
       const previewed = await waitFor(() => valueOf('s3-preview-body') === 'hello s3', 15000)
       push('an object opens with its contents', previewed, valueOf('s3-preview-body'))
 
+      /*
+       * An edit belongs to the object it was typed into. Switching objects used to
+       * carry the draft across, so "write back" would have written one object's
+       * text over another's key — the one mistake in this tool that loses data.
+       */
+      step = 'draft'
+      setValue(field('s3-preview-body'), 'EDITED BY HAND')
+      await wait(300)
+      push('editing a preview offers a write-back', !!field('s3-put'))
+      const other = rows('s3-object').find((r) => r.dataset.key === 'dir/b.txt')
+      if (other) {
+        other.querySelector('button').click()
+        const switched = await waitFor(() => valueOf('s3-preview-body') === 'second object', 15000)
+        push('opening another object shows that object, not the draft', switched,
+          valueOf('s3-preview-body'))
+        push('and the write-back is gone with the draft', !field('s3-put'))
+      } else {
+        push('the second object is listed', false)
+      }
+
       step = 'delete'
+      const aGain = rows('s3-object').find((r) => r.dataset.key === 'dir/a.txt')
+      if (aGain) aGain.querySelector('button').click()
+      // Wait for a.txt's own contents: the delete button already exists while the
+      // previous object is still on screen, so clicking on that alone would delete
+      // whichever object happened to be open.
+      await waitFor(() => valueOf('s3-preview-body') === 'hello s3', 15000)
+      push('the first object is open again, ready to delete',
+        valueOf('s3-preview-body') === 'hello s3', valueOf('s3-preview-body'))
       field('s3-delete').click()
       // The preview closes and the folder is re-listed; whether the DELETE really
       // went out is asserted from the main process below, where the socket is.
