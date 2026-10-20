@@ -26,6 +26,9 @@ import { CredentialStore } from './store/CredentialStore'
 import { LayoutStore } from './store/LayoutStore'
 import { TunnelStore } from './store/TunnelStore'
 import { RestStore } from './store/RestStore'
+import { S3Store } from './store/S3Store'
+import { S3Client, S3Error } from './s3/S3Client'
+import type { S3Connection, S3PageState, S3Result } from '@shared/s3Types'
 import { TunnelManager } from './tunnels/TunnelManager'
 import { listFontChoices } from './fonts'
 import { clampScale, HistoryStore, SettingsStore, SessionStore } from './store/Stores'
@@ -136,6 +139,7 @@ let layoutStore: LayoutStore | null = null
 let tunnelStore: TunnelStore | null = null
 let tunnelManager: TunnelManager | null = null
 let restStore: RestStore | null = null
+let s3Store: S3Store | null = null
 
 /**
  * Host keys are read from the user's real OpenSSH files by default. The
@@ -190,6 +194,58 @@ export function loadSettingsForStartup(): AppSettings {
 function getSessionStore(): SessionStore {
   sessionStore ??= new SessionStore(configDir())
   return sessionStore
+}
+
+function getS3Store(): S3Store {
+  s3Store ??= new S3Store(configDir())
+  return s3Store
+}
+
+/*
+ * Every S3 call carries its own connection, because the credentials are held in
+ * the page's memory and never in the store: there is no ambient "logged in"
+ * state for the main process to remember, and a long-lived client would keep a
+ * secret alive after the user cleared the field.
+ */
+function s3ClientFor(connection: S3Connection): S3Client {
+  const endpoint = String(connection?.endpoint ?? '').trim()
+  if (!endpoint) throw new Error('An endpoint is required, for example https://s3.amazonaws.com')
+  try {
+    const url = new URL(endpoint)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('The endpoint must be an http:// or https:// URL.')
+    }
+  } catch (err) {
+    throw new Error(err instanceof Error ? err.message : 'That endpoint is not a URL.')
+  }
+  if (!connection.accessKeyId) throw new Error('An access key is required.')
+  if (!connection.secretAccessKey) throw new Error('A secret key is required.')
+  return new S3Client({
+    endpoint,
+    region: String(connection.region ?? '').trim() || 'us-east-1',
+    accessKeyId: connection.accessKeyId,
+    secretAccessKey: connection.secretAccessKey,
+    sessionToken: connection.sessionToken,
+    // Defaults to path-style for anything that is not AWS proper: a gateway on
+    // an IP address cannot be reached virtual-hosted at all.
+    pathStyle: connection.pathStyle !== false
+  })
+}
+
+/** Runs one S3 call and turns a failure into a value the page can show. */
+async function withS3<T>(
+  connection: S3Connection,
+  run: (client: S3Client) => Promise<T>
+): Promise<S3Result<T>> {
+  try {
+    return { ok: true, value: await run(s3ClientFor(connection)) }
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      code: err instanceof S3Error ? err.code : undefined
+    }
+  }
 }
 
 function getRestStore(): RestStore {
@@ -680,6 +736,47 @@ export function registerIpc(): void {
   ipcMain.handle('rest:saveState', (_e, state: RestState) => {
     const saved = getRestStore().save(state)
     broadcast('rest:state', saved)
+    return saved
+  })
+
+  // ---- S3 tool -----------------------------------------------------------
+
+  ipcMain.handle('s3:listBuckets', (_e, connection: S3Connection) =>
+    withS3(connection, (client) =>
+      client.listBuckets().then((buckets) => buckets.map((b) => ({ name: b.name, createdAt: b.createdAt })))
+    )
+  )
+
+  ipcMain.handle('s3:listObjects', (_e, connection: S3Connection, bucket: string, options) =>
+    withS3(connection, (client) => client.listObjects(bucket, options ?? {}))
+  )
+
+  ipcMain.handle('s3:getObject', (_e, connection: S3Connection, bucket: string, key: string) =>
+    withS3(connection, (client) => client.getObject(bucket, key).then((object) => ({
+      bucket,
+      key,
+      body: object.body,
+      size: object.size,
+      truncated: object.truncated,
+      contentType: object.contentType
+    })))
+  )
+
+  ipcMain.handle(
+    's3:putObject',
+    (_e, connection: S3Connection, bucket: string, key: string, body: string, contentType?: string) =>
+      withS3(connection, (client) => client.putObject(bucket, key, body, contentType).then(() => null))
+  )
+
+  ipcMain.handle('s3:deleteObject', (_e, connection: S3Connection, bucket: string, key: string) =>
+    withS3(connection, (client) => client.deleteObject(bucket, key).then(() => null))
+  )
+
+  ipcMain.handle('s3:loadState', () => getS3Store().load())
+
+  ipcMain.handle('s3:saveState', (_e, state: S3PageState) => {
+    const saved = getS3Store().save(state)
+    broadcast('s3:state', saved)
     return saved
   })
 

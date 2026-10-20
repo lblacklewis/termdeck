@@ -42,6 +42,14 @@ import type {
   TunnelState,
   TrustHostKeyRequest
 } from '@shared/types'
+import type {
+  S3BucketInfo,
+  S3Connection,
+  S3Listing,
+  S3ObjectPreview,
+  S3PageState,
+  S3Result
+} from '@shared/s3Types'
 
 export type { TermDeckApi } from '@shared/types'
 
@@ -251,6 +259,45 @@ const api = {
 
   onRestStateChanged: (handler: (state: RestState) => void): (() => void) =>
     on<[RestState]>('rest:state', handler),
+
+  // ---- S3 tool -----------------------------------------------------------
+
+  /*
+   * The connection travels with every call, credentials included: the page holds
+   * the secret in memory and the main process keeps no "logged in" state, so a
+   * cleared field immediately means no access rather than a stale client.
+   */
+  s3ListBuckets: (connection: S3Connection): Promise<S3Result<S3BucketInfo[]>> =>
+    ipcRenderer.invoke('s3:listBuckets', connection),
+
+  s3ListObjects: (
+    connection: S3Connection,
+    bucket: string,
+    options: { prefix?: string; delimiter?: string; continuationToken?: string }
+  ): Promise<S3Result<S3Listing>> =>
+    ipcRenderer.invoke('s3:listObjects', connection, bucket, options),
+
+  s3GetObject: (connection: S3Connection, bucket: string, key: string): Promise<S3Result<S3ObjectPreview>> =>
+    ipcRenderer.invoke('s3:getObject', connection, bucket, key),
+
+  s3PutObject: (
+    connection: S3Connection,
+    bucket: string,
+    key: string,
+    body: string,
+    contentType?: string
+  ): Promise<S3Result<null>> => ipcRenderer.invoke('s3:putObject', connection, bucket, key, body, contentType),
+
+  s3DeleteObject: (connection: S3Connection, bucket: string, key: string): Promise<S3Result<null>> =>
+    ipcRenderer.invoke('s3:deleteObject', connection, bucket, key),
+
+  loadS3State: (): Promise<S3PageState> => ipcRenderer.invoke('s3:loadState'),
+
+  saveS3State: (state: S3PageState): Promise<S3PageState> =>
+    ipcRenderer.invoke('s3:saveState', state),
+
+  onS3StateChanged: (handler: (state: S3PageState) => void): (() => void) =>
+    on<[S3PageState]>('s3:state', handler),
 
   // ---- tunnels -----------------------------------------------------------
 

@@ -31,6 +31,7 @@ const TunnelsPage = lazy(() =>
   import('./TunnelsPage').then((m) => ({ default: m.TunnelsPage }))
 )
 const RestPage = lazy(() => import('./RestPage').then((m) => ({ default: m.RestPage })))
+const S3Page = lazy(() => import('./S3Page').then((m) => ({ default: m.S3Page })))
 
 interface PagesLayerProps {
   page: PageId
@@ -144,6 +145,12 @@ export function PagesLayer({
       {page === 'rest' && (
         <Suspense fallback={null}>
           <RestPage />
+        </Suspense>
+      )}
+
+      {page === 's3' && (
+        <Suspense fallback={null}>
+          <S3Page />
         </Suspense>
       )}
 

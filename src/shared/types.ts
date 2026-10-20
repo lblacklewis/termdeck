@@ -3,6 +3,14 @@
  * renderer. Keep this dependency-free so all three can import it.
  */
 
+/*
+ * The one module this file pulls a type from: the S3 tool's surface, which is
+ * big enough to be worth reading on its own. It is a type-only import of a
+ * sibling shared module, so "dependency-free" still holds — no runtime code, no
+ * Node APIs, nothing the renderer cannot also import.
+ */
+import type { S3Api } from './s3Types'
+
 export type SessionKind = 'local' | 'ssh' | 'telnet' | 'serial'
 
 export interface SessionInfo {
@@ -390,7 +398,7 @@ export interface KnownHostEntry {
 }
 
 /** Rail sections. `settings` opens a drawer rather than a page of its own. */
-export type PageId = 'terminal' | 'hosts' | 'known-hosts' | 'snippets' | 'logs' | 'tunnels' | 'rest' | 'settings'
+export type PageId = 'terminal' | 'hosts' | 'known-hosts' | 'snippets' | 'logs' | 'tunnels' | 'rest' | 's3' | 'settings'
 
 /** Persisted UI arrangement, restored on launch. */
 export interface LayoutState {
@@ -993,7 +1001,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 // ---- renderer bridge ---------------------------------------------------
 
 /** Shape of `window.termdeck`, exposed by the preload script. */
-export interface TermDeckApi {
+export interface TermDeckApi extends S3Api {
   createSshSession(payload: SshConnectPayload): Promise<CreateSessionResult>
   createLocalSession(payload: LocalConnectPayload): Promise<CreateSessionResult>
   createTelnetSession(payload: TelnetConnectPayload): Promise<CreateSessionResult>
