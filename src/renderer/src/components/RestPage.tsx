@@ -88,7 +88,16 @@ export function RestPage(): JSX.Element {
       setTemplateId(id)
       setSavedId('')
       const template = REST_TEMPLATES.find((entry) => entry.id === id)
-      if (!template) return
+      if (!template) {
+        /*
+         * "Blank request" has to mean blank. Leaving the previous template's URL
+         * in the form while the menu says otherwise is the kind of small lie that
+         * makes someone send a request they did not mean to send.
+         */
+        update({ ...EMPTY, headers: [] })
+        setResponse(null)
+        return
+      }
       // A copy: editing a loaded template must not rewrite the catalog, or the
       // next person to pick it gets somebody else's half-finished request.
       update({
@@ -163,6 +172,49 @@ export function RestPage(): JSX.Element {
       ...request,
       headers: request.headers.map((header, at) => (at === index ? { ...header, ...patch } : header))
     })
+  }
+
+  /**
+   * The same request as a `curl` line.
+   *
+   * The reason this exists next to a working client: the interesting moment is
+   * when something works here and has to be reproduced somewhere else — a runbook,
+   * a colleague's machine, a container. Retyping a signed-looking request by hand
+   * is how you end up wondering why it behaves differently there.
+   */
+  const asCurl = useMemo((): string => {
+    const quote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
+    const parts = [`curl -X ${request.method}`, quote(request.url)]
+    for (const header of request.headers) {
+      if (!header.name.trim()) continue
+      parts.push(`-H ${quote(`${header.name}: ${header.value}`)}`)
+    }
+    if (request.body && request.method !== 'GET' && request.method !== 'HEAD') {
+      parts.push(`--data ${quote(request.body)}`)
+    }
+    if (request.insecure) parts.push('--insecure')
+    return parts.join(' \\\n  ')
+  }, [request])
+
+  const [flash, setFlash] = useState('')
+
+  const copyCurl = async (): Promise<void> => {
+    await window.termdeck.copyToClipboard(asCurl)
+    setFlash('copied')
+    setTimeout(() => setFlash(''), 1600)
+  }
+
+  /** Pretty-print the request body, or say why it cannot be. */
+  const formatBody = (): void => {
+    const body = request.body ?? ''
+    try {
+      const pretty = JSON.stringify(JSON.parse(body), null, 2)
+      update({ ...request, body: pretty })
+      setFlash('formatted')
+    } catch {
+      setFlash('bad-json')
+    }
+    setTimeout(() => setFlash(''), 2000)
   }
 
   const status = useMemo(() => {
@@ -285,6 +337,19 @@ export function RestPage(): JSX.Element {
             >
               {busy ? t('restpage.sending', 'Sending…') : t('restpage.send', 'Send')}
             </button>
+            <button
+              className="td-btn"
+              data-testid="rest-copy-curl"
+              type="button"
+              onClick={() => void copyCurl()}
+            >
+              {t('restpage.copy_curl', 'Copy as cURL')}
+            </button>
+            {flash === 'copied' && (
+              <span className="td-page-meta" data-testid="rest-copied">
+                {t('restpage.copied', 'Copied')}
+              </span>
+            )}
           </div>
 
           <div className="td-field-row">
@@ -360,8 +425,23 @@ export function RestPage(): JSX.Element {
             </button>
           </div>
 
-          <label className="td-field">
-            <span>{t('restpage.body', 'Body')}</span>
+          <div className="td-field">
+            <span className="td-field-row">
+              <span>{t('restpage.body', 'Body')}</span>
+              <button
+                className="td-btn"
+                data-testid="rest-format"
+                type="button"
+                onClick={() => formatBody()}
+              >
+                {t('restpage.format', 'Format JSON')}
+              </button>
+              {flash === 'bad-json' && (
+                <span className="td-form-error" data-testid="rest-format-error">
+                  {t('restpage.not_json', 'That body is not JSON.')}
+                </span>
+              )}
+            </span>
             <textarea
               className="td-textarea"
               data-testid="rest-body"
@@ -370,7 +450,7 @@ export function RestPage(): JSX.Element {
               placeholder={t('restpage.body_placeholder', 'Only sent with POST, PUT and PATCH')}
               onChange={(e) => update({ ...request, body: e.target.value })}
             />
-          </label>
+          </div>
         </form>
 
         <section className="td-section" data-testid="rest-response">

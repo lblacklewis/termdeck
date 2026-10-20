@@ -174,6 +174,48 @@ async function main() {
           true,
         'method=' + ((field('rest-method') || {}).value || ''))
 
+      // ---- 2b. "Blank request" really is blank ---------------------------
+      setValue(select, '')
+      const cleared = await waitFor(() => valueOf('rest-url') === '', 4000)
+      push('picking "Blank request" clears the form', cleared, 'url=' + valueOf('rest-url'))
+
+      // ---- 2c. the request can leave as a curl line ----------------------
+      setValue(field('rest-method'), 'POST')
+      setValue(field('rest-url'), 'http://example.invalid/thing')
+      field('rest-header-add').click()
+      await wait(200)
+      setValue(field('rest-header-name'), 'X-Test')
+      setValue(field('rest-header-value'), "it's here")
+      setValue(field('rest-body'), '{"a":1}')
+      field('rest-copy-curl').click()
+      await wait(400)
+      const curl = await window.termdeck.readClipboard()
+      push('copy as cURL puts a command on the clipboard', curl.indexOf('curl -X POST') === 0,
+        String(curl).slice(0, 60))
+      push('it carries the URL, the header and the body',
+        curl.indexOf('http://example.invalid/thing') >= 0 &&
+          curl.indexOf('X-Test') >= 0 &&
+          curl.indexOf('--data') >= 0,
+        String(curl).slice(0, 140))
+      // A single quote inside a value has to be closed, escaped and reopened, or
+      // the pasted command silently truncates at that character.
+      const bs = String.fromCharCode(92)
+      push('a quote in a value is escaped for the shell',
+        curl.indexOf("'" + bs + "'" + "'") >= 0, String(curl).slice(0, 160))
+
+      // ---- 2d. the body can be formatted ---------------------------------
+      setValue(field('rest-body'), '{"a":1,"b":[2]}')
+      field('rest-format').click()
+      await wait(300)
+      // indexOf takes a string: the newline has to be built, not passed as a code point.
+      const nl = String.fromCharCode(10)
+      push('format json pretty-prints the body', valueOf('rest-body').indexOf(nl) >= 0,
+        JSON.stringify(valueOf('rest-body').slice(0, 24)))
+      setValue(field('rest-body'), 'not json at all')
+      field('rest-format').click()
+      const complained = await waitFor(() => !!field('rest-format-error'), 3000)
+      push('and says so when the body is not json', complained, text('rest-format-error'))
+
       // ---- 3. a real GET --------------------------------------------------
       step = 'GET'
       setValue(field('rest-method'), 'GET')
