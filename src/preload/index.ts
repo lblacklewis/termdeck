@@ -48,6 +48,7 @@ import type {
   S3Listing,
   S3ObjectPreview,
   S3PageState,
+  S3PickResult,
   S3Result
 } from '@shared/s3Types'
 
@@ -290,6 +291,27 @@ const api = {
 
   s3DeleteObject: (connection: S3Connection, bucket: string, key: string): Promise<S3Result<null>> =>
     ipcRenderer.invoke('s3:deleteObject', connection, bucket, key),
+
+  s3PickUpload: (): Promise<S3PickResult> => ipcRenderer.invoke('s3:pickUpload'),
+
+  s3PickDownload: (suggestedName: string): Promise<S3PickResult> =>
+    ipcRenderer.invoke('s3:pickDownload', suggestedName),
+
+  s3PutFile: (
+    connection: S3Connection,
+    bucket: string,
+    key: string,
+    localPath: string
+  ): Promise<S3Result<{ bytes: number }>> =>
+    ipcRenderer.invoke('s3:putFile', connection, bucket, key, localPath),
+
+  s3GetFile: (
+    connection: S3Connection,
+    bucket: string,
+    key: string,
+    localPath: string
+  ): Promise<S3Result<{ bytes: number }>> =>
+    ipcRenderer.invoke('s3:getFile', connection, bucket, key, localPath),
 
   loadS3State: (): Promise<S3PageState> => ipcRenderer.invoke('s3:loadState'),
 

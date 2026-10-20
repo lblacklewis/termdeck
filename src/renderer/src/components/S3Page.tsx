@@ -66,6 +66,8 @@ export function S3Page(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [uploaded, setUploaded] = useState('')
+  /** Result of the last upload or download, e.g. where a file went. */
+  const [note, setNote] = useState('')
 
   const set = <K extends keyof S3Connection>(key: K, value: S3Connection[K]): void => {
     setConnection((prev) => ({ ...prev, [key]: value }))
@@ -182,6 +184,51 @@ export function S3Page(): JSX.Element {
         // Re-read it rather than closing the preview: seeing what S3 now holds —
         // not what we hoped we sent — is the point of writing it back at all.
         await openObject(preview.key)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  /**
+   * Send a local file up, as an object under whatever folder is open.
+   *
+   * The key is the file's own name appended to the current prefix: that is what
+   * "upload here" means to everyone, and it keeps the browser's own navigation
+   * (the prefix field) as the single place that decides where things land.
+   */
+  const uploadFile = async (): Promise<void> => {
+    const picked = await api().s3PickUpload()
+    if (!picked.ok || !picked.filePath) return
+    const name = picked.filePath.split(/[\\/]/).pop() ?? 'file'
+    const key = `${prefix}${name}`
+    setBusy(true)
+    setError(null)
+    setNote('')
+    try {
+      const result = await api().s3PutFile(connection, bucket, key, picked.filePath)
+      if (!result.ok) setError(result.error ?? 'Could not upload that file.')
+      else {
+        setNote(`${t('s3page.uploaded', 'Uploaded')} ${key} · ${bytes(result.value?.bytes ?? 0)}`)
+        await openBucket(bucket, prefix)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const downloadFile = async (): Promise<void> => {
+    if (!preview) return
+    const picked = await api().s3PickDownload(preview.key.split('/').pop() ?? 'object')
+    if (!picked.ok || !picked.filePath) return
+    setBusy(true)
+    setError(null)
+    setNote('')
+    try {
+      const result = await api().s3GetFile(connection, bucket, preview.key, picked.filePath)
+      if (!result.ok) setError(result.error ?? 'Could not save that object.')
+      else {
+        setNote(`${t('s3page.saved', 'Saved')} ${picked.filePath} · ${bytes(result.value?.bytes ?? 0)}`)
       }
     } finally {
       setBusy(false)
@@ -385,8 +432,23 @@ export function S3Page(): JSX.Element {
                 <button className="td-btn" data-testid="s3-root" type="button" onClick={() => void openBucket(bucket)}>
                   {t('s3page.root', 'Root')}
                 </button>
+                <button
+                  className="td-btn"
+                  data-testid="s3-upload"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void uploadFile()}
+                >
+                  {t('s3page.upload', 'Upload a file')}
+                </button>
               </div>
             </div>
+
+            {note && (
+              <p className="td-hint" data-testid="s3-transfer-note">
+                {note}
+              </p>
+            )}
 
             {crumbs.length > 0 && (
               <p className="td-page-meta" data-testid="s3-breadcrumb">
@@ -467,6 +529,15 @@ export function S3Page(): JSX.Element {
                 {preview.truncated ? ` · ${t('s3page.truncated', 'showing the first part')}` : ''}
               </span>
               <div className="td-page-actions">
+                <button
+                  className="td-btn"
+                  data-testid="s3-download"
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void downloadFile()}
+                >
+                  {t('s3page.download', 'Save as…')}
+                </button>
                 <button
                   className="td-btn"
                   data-testid="s3-delete"

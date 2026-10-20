@@ -28,7 +28,7 @@ import { TunnelStore } from './store/TunnelStore'
 import { RestStore } from './store/RestStore'
 import { S3Store } from './store/S3Store'
 import { S3Client, S3Error } from './s3/S3Client'
-import type { S3Connection, S3PageState, S3Result } from '@shared/s3Types'
+import type { S3Connection, S3PageState, S3PickResult, S3Result } from '@shared/s3Types'
 import { TunnelManager } from './tunnels/TunnelManager'
 import { listFontChoices } from './fonts'
 import { clampScale, HistoryStore, SettingsStore, SessionStore } from './store/Stores'
@@ -771,6 +771,43 @@ export function registerIpc(): void {
   ipcMain.handle('s3:deleteObject', (_e, connection: S3Connection, bucket: string, key: string) =>
     withS3(connection, (client) => client.deleteObject(bucket, key).then(() => null))
   )
+
+  ipcMain.handle(
+    's3:putFile',
+    (_e, connection: S3Connection, bucket: string, key: string, localPath: string) =>
+      withS3(connection, (client) => client.putObjectFile(bucket, key, localPath))
+  )
+
+  ipcMain.handle(
+    's3:getFile',
+    (_e, connection: S3Connection, bucket: string, key: string, localPath: string) =>
+      withS3(connection, (client) => client.getObjectToFile(bucket, key, localPath))
+  )
+
+  /*
+   * Picking is separate from transferring: a native dialog cannot be clicked from
+   * a probe, and "does an upload actually put the right bytes in the bucket" is
+   * worth being able to test. The transfer methods take a path.
+   */
+  ipcMain.handle('s3:pickUpload', async (event): Promise<S3PickResult> => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showOpenDialog(win ?? undefined!, {
+      title: 'Upload a file',
+      properties: ['openFile']
+    })
+    if (result.canceled || result.filePaths.length === 0) return { ok: false, cancelled: true }
+    return { ok: true, filePath: result.filePaths[0] }
+  })
+
+  ipcMain.handle('s3:pickDownload', async (event, suggestedName: string): Promise<S3PickResult> => {
+    const win = BrowserWindow.fromWebContents(event.sender)
+    const result = await dialog.showSaveDialog(win ?? undefined!, {
+      title: 'Save the object',
+      defaultPath: suggestedName || 'object'
+    })
+    if (result.canceled || !result.filePath) return { ok: false, cancelled: true }
+    return { ok: true, filePath: result.filePath }
+  })
 
   ipcMain.handle('s3:loadState', () => getS3Store().load())
 

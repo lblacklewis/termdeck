@@ -1,8 +1,12 @@
+import { createHash } from 'node:crypto'
+import { createReadStream, createWriteStream } from 'node:fs'
 import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
+import type { Readable } from 'node:stream'
+import { pipeline } from 'node:stream'
 import { URL } from 'node:url'
 
-import { signRequest } from './sigv4'
+import { EMPTY_PAYLOAD_HASH, signRequest } from './sigv4'
 
 export interface S3Config {
   /** Base endpoint, e.g. `https://s3.amazonaws.com` or `http://127.0.0.1:9000`. */
@@ -107,18 +111,32 @@ export class S3Client {
     return url.toString()
   }
 
+  /**
+   * One request, with the body either in memory or streaming.
+   *
+   * The signature covers the *hash* of the body, never the bytes, so a file can
+   * be sent without ever being held whole: the digest is computed in a first pass
+   * and the bytes go out in a second. That is two reads of the file and constant
+   * memory, which is the right trade for uploads that may be gigabytes.
+   */
   private async send(
     method: string,
     url: string,
-    body: Buffer,
+    body: Buffer | { stream: Readable; size: number; sha256: string },
     extraHeaders: Record<string, string> = {}
   ): Promise<{ status: number; headers: IncomingMessage['headers']; body: string }> {
+    const streaming = !Buffer.isBuffer(body)
+    const contentLength = streaming ? body.size : body.length
     const now = new Date()
     const amzDate = `${now.toISOString().replace(/[-:]/g, '').split('.')[0]}Z`
     const signed = signRequest({
       method,
       url,
-      body,
+      // The bytes are not needed for signing when the digest is supplied.
+      body: Buffer.alloc(0),
+      payloadSha256: streaming
+        ? body.sha256
+        : createHash('sha256').update(body as Buffer).digest('hex'),
       accessKeyId: this.config.accessKeyId,
       secretAccessKey: this.config.secretAccessKey,
       region: this.config.region,
@@ -150,7 +168,7 @@ export class S3Client {
             ...Object.fromEntries(
               Object.entries(extraHeaders).map(([name, value]) => [name, value])
             ),
-            ...(body.length > 0 ? { 'Content-Length': String(body.length) } : {})
+            ...(contentLength > 0 ? { 'Content-Length': String(contentLength) } : {})
           }
         },
         (response) => {
@@ -168,8 +186,14 @@ export class S3Client {
       )
       request.setTimeout(30_000, () => request.destroy(new Error('S3 did not answer within 30s.')))
       request.on('error', reject)
-      if (body.length > 0) request.write(body)
-      request.end()
+      if (streaming) {
+        const source = (body as { stream: Readable }).stream
+        source.on('error', reject)
+        source.pipe(request)
+      } else {
+        request.write(body as Buffer)
+        request.end()
+      }
     })
 
     if (result.status >= 200 && result.status < 300) return result
@@ -242,6 +266,115 @@ export class S3Client {
   async deleteObject(bucket: string, key: string): Promise<void> {
     await this.send('DELETE', this.urlFor(bucket, key), Buffer.alloc(0))
   }
+
+  /** Send a local file as an object, without holding it in memory. */
+  async putObjectFile(
+    bucket: string,
+    key: string,
+    localPath: string,
+    contentType?: string
+  ): Promise<{ bytes: number }> {
+    const { sha256, size } = await hashFile(localPath)
+    const headers: Record<string, string> = {}
+    if (contentType) headers['Content-Type'] = contentType
+    await this.send(
+      'PUT',
+      this.urlFor(bucket, key),
+      { stream: createReadStream(localPath), size, sha256 },
+      headers
+    )
+    return { bytes: size }
+  }
+
+  /**
+   * Write an object straight to a file.
+   *
+   * Separate from `getObject` on purpose: that one is for *looking* at an object
+   * and caps the read so a mistaken click cannot pull a disk image into memory.
+   * This one is for saving it, so it streams and has no cap.
+   */
+  async getObjectToFile(
+    bucket: string,
+    key: string,
+    localPath: string
+  ): Promise<{ bytes: number }> {
+    const url = this.urlFor(bucket, key)
+    const now = new Date()
+    const amzDate = `${now.toISOString().replace(/[-:]/g, '').split('.')[0]}Z`
+    const signed = signRequest({
+      method: 'GET',
+      url,
+      body: Buffer.alloc(0),
+      payloadSha256: EMPTY_PAYLOAD_HASH,
+      accessKeyId: this.config.accessKeyId,
+      secretAccessKey: this.config.secretAccessKey,
+      region: this.config.region,
+      service: 's3',
+      amzDate,
+      sessionToken: this.config.sessionToken,
+      signContentSha256: true
+    })
+    const target = new URL(url)
+
+    return new Promise<{ bytes: number }>((resolve, reject) => {
+      const sender = target.protocol === 'https:' ? httpsRequest : httpRequest
+      const request = sender(
+        {
+          protocol: target.protocol,
+          hostname: target.hostname,
+          port: target.port || (target.protocol === 'https:' ? 443 : 80),
+          path: `${target.pathname}${target.search}`,
+          method: 'GET',
+          headers: signed.headers
+        },
+        (response) => {
+          const status = response.statusCode ?? 0
+          if (status < 200 || status >= 300) {
+            // An error body is small and worth reading: it says what went wrong.
+            const chunks: Buffer[] = []
+            response.on('data', (chunk: Buffer) => chunks.push(chunk))
+            response.on('end', () => {
+              const text = Buffer.concat(chunks).toString('utf8')
+              reject(
+                new S3Error(
+                  status,
+                  firstTag(text, 'Code') ?? 'HTTP_' + status,
+                  firstTag(text, 'Message') ?? 'S3 refused the request.'
+                )
+              )
+            })
+            return
+          }
+          let bytes = 0
+          response.on('data', (chunk: Buffer) => {
+            bytes += chunk.length
+          })
+          pipeline(response, createWriteStream(localPath), (err) => {
+            if (err) reject(err)
+            else resolve({ bytes })
+          })
+        }
+      )
+      request.setTimeout(60_000, () => request.destroy(new Error('S3 did not answer within 60s.')))
+      request.on('error', reject)
+      request.end()
+    })
+  }
+}
+
+/** SHA-256 and size of a file, read once and never held whole. */
+function hashFile(path: string): Promise<{ sha256: string; size: number }> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    let size = 0
+    const stream = createReadStream(path)
+    stream.on('data', (chunk) => {
+      size += chunk.length
+      hash.update(chunk)
+    })
+    stream.on('end', () => resolve({ sha256: hash.digest('hex'), size }))
+    stream.on('error', reject)
+  })
 }
 
 // ---- a very small XML reader ---------------------------------------------

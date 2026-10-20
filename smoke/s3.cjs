@@ -11,6 +11,8 @@
  * promise that the secret key is never written to disk.
  */
 const path = require('node:path')
+const os = require('node:os')
+const fs = require('node:fs')
 const http = require('node:http')
 const { app, BrowserWindow } = require('electron')
 
@@ -20,6 +22,8 @@ const all = []
 const DASH = String.fromCharCode(8212)
 
 const seen = []
+/** What PUT actually put here: the only proof an upload carried the right bytes. */
+const uploads = []
 
 function report(checks) {
   for (const c of checks) {
@@ -73,7 +77,17 @@ function startMock() {
       return res.end('second object')
     }
     if (req.method === 'DELETE') return xml(res, '<DeleteObjectResult/>')
-    if (req.method === 'PUT') return xml(res, '<PutObjectResult/>')
+    if (req.method === 'PUT') {
+      // Read the body before answering: otherwise the uploaded bytes are never
+      // actually seen, and "did the file arrive" would be an assumption.
+      const chunks = []
+      req.on('data', (chunk) => chunks.push(chunk))
+      req.on('end', () => {
+        uploads.push({ url: key, body: Buffer.concat(chunks) })
+        xml(res, '<PutObjectResult/>')
+      })
+      return
+    }
     return xml(
       res,
       '<Error><Code>NoSuchKey</Code><Message>The key does not exist.</Message></Error>',
@@ -114,6 +128,17 @@ async function main() {
   await win.reload()
   await sleep(3000)
   win.focus()
+
+  /*
+   * Real files for the transfer checks. The native dialogs cannot be clicked from
+   * a probe, which is why picking and transferring are separate methods: these
+   * call the transfer directly and the page's buttons are asserted separately.
+   */
+  const uploadSource = path.join(os.tmpdir(), 'td-s3-upload-' + process.pid + '.txt')
+  const uploadBody = 'uploaded from disk\n'
+  fs.writeFileSync(uploadSource, uploadBody, 'utf8')
+  const downloadTarget = path.join(os.tmpdir(), 'td-s3-download-' + process.pid + '.txt')
+  fs.rmSync(downloadTarget, { force: true })
 
   const probe = `
     (async () => {
@@ -215,6 +240,7 @@ async function main() {
       object.querySelector('button').click()
       const previewed = await waitFor(() => valueOf('s3-preview-body') === 'hello s3', 15000)
       push('an object opens with its contents', previewed, valueOf('s3-preview-body'))
+      push('the preview offers saving the object to a file', !!field('s3-download'))
 
       /*
        * An edit belongs to the object it was typed into. Switching objects used to
@@ -275,6 +301,41 @@ async function main() {
       push('keeping the same connection again updates it instead of duplicating',
         twice.profiles.length === 1, 'profiles=' + twice.profiles.length)
 
+      // ---- 8. real files, not just text ----------------------------------
+      /*
+       * The dialogs cannot be clicked from here, so the transfer is driven with
+       * explicit paths — which is exactly why picking and transferring are two
+       * methods. Whether the bytes really moved is asserted from the main process,
+       * where the socket and the disk are.
+       */
+      step = 'files'
+      const connection = {
+        endpoint: endpoint,
+        region: 'us-east-1',
+        accessKeyId: 'AKIDEXAMPLE',
+        secretAccessKey: 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY',
+        pathStyle: true
+      }
+      const uploadSourcePath = ${JSON.stringify(uploadSource)}
+      const downloadTargetPath = ${JSON.stringify(downloadTarget)}
+      const up = await window.termdeck.s3PutFile(
+        connection,
+        'alpha',
+        'dir/uploaded.txt',
+        uploadSourcePath
+      )
+      push('a local file can be uploaded as an object', up.ok,
+        up.ok ? up.value.bytes + ' bytes' : up.error)
+      const down = await window.termdeck.s3GetFile(
+        connection,
+        'alpha',
+        'dir/a.txt',
+        downloadTargetPath
+      )
+      push('an object can be saved to a local file', down.ok,
+        down.ok ? down.value.bytes + ' bytes' : down.error)
+      push('and the page offers uploading a file', !!field('s3-upload'))
+
       return out
       } catch (err) {
         out.push({ name: 'failed at step: ' + step, ok: false, detail: String((err && err.message) || err) })
@@ -301,6 +362,28 @@ async function main() {
       detail: seen.filter((l) => l.startsWith('DELETE')).join(',') || 'none'
     }
   ])
+
+  // ---- 9. the bytes, checked from the side that owns the socket and the disk
+  const downloadedFile = fs.existsSync(downloadTarget)
+    ? fs.readFileSync(downloadTarget, 'utf8')
+    : ''
+  const uploaded = uploads.find((entry) => entry.url === '/alpha/dir/uploaded.txt')
+  report([
+    {
+      name: 'the uploaded file arrived byte for byte',
+      ok: !!uploaded && uploaded.body.toString('utf8') === uploadBody,
+      detail: uploaded
+        ? uploaded.body.length + ' bytes: ' + JSON.stringify(uploaded.body.toString('utf8'))
+        : 'no PUT reached /alpha/dir/uploaded.txt'
+    },
+    {
+      name: 'the saved object has the object contents',
+      ok: downloadedFile === 'hello s3',
+      detail: JSON.stringify(downloadedFile)
+    }
+  ])
+  fs.rmSync(uploadSource, { force: true })
+  fs.rmSync(downloadTarget, { force: true })
 
   const failed = all.filter((c) => !c.ok)
   console.log(`\n${all.length - failed.length}/${all.length} checks passed`)

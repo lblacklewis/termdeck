@@ -26,6 +26,14 @@ export interface SignInput {
    * hash); other services may not have the header at all.
    */
   signContentSha256?: boolean
+  /**
+   * A SHA-256 of the body computed elsewhere.
+   *
+   * Needed for uploads that stream a file: the digest has to be known before the
+   * first byte goes out, so it is computed in a pass of its own over the file
+   * rather than from a buffer held in memory.
+   */
+  payloadSha256?: string
   /** Extra headers the caller set that must be part of the signed set. */
   extraHeaders?: Record<string, string>
 }
@@ -109,7 +117,8 @@ function dateStamp(amzDate: string): string {
 export function signRequest(input: SignInput): SignedRequest {
   const url = new URL(input.url)
   const body = typeof input.body === 'string' ? Buffer.from(input.body, 'utf8') : input.body
-  const contentSha256 = createHash('sha256').update(body).digest('hex')
+  const contentSha256 =
+    input.payloadSha256 ?? createHash('sha256').update(body).digest('hex')
 
   const headers: Record<string, string> = {
     ...(input.extraHeaders ?? {}),

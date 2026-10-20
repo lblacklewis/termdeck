@@ -81,6 +81,14 @@ export interface S3Result<T> {
   code?: string
 }
 
+/** What a native file dialog came back with. */
+export interface S3PickResult {
+  ok: boolean
+  /** True when the user closed the dialog: not a failure. */
+  cancelled?: boolean
+  filePath?: string
+}
+
 export interface S3PageState {
   /** The connection form as it was left, without the secret. */
   draft: Omit<S3Connection, 'secretAccessKey' | 'sessionToken'> | null
@@ -118,6 +126,28 @@ export interface S3Api {
     bucket: string,
     key: string
   ): Promise<S3Result<null>>
+  /** Ask where an object should be written. Cancelling is not an error. */
+  s3PickDownload(suggestedName: string): Promise<S3PickResult>
+  /** Ask which file to send. */
+  s3PickUpload(): Promise<S3PickResult>
+  /**
+   * Send a local file as an object, and write an object to a local file.
+   *
+   * Paths rather than dialogs, so the transfer itself can be driven and tested
+   * without a native window in the way.
+   */
+  s3PutFile(
+    connection: S3Connection,
+    bucket: string,
+    key: string,
+    localPath: string
+  ): Promise<S3Result<{ bytes: number }>>
+  s3GetFile(
+    connection: S3Connection,
+    bucket: string,
+    key: string,
+    localPath: string
+  ): Promise<S3Result<{ bytes: number }>>
   loadS3State(): Promise<S3PageState>
   saveS3State(state: S3PageState): Promise<S3PageState>
   onS3StateChanged(handler: (state: S3PageState) => void): () => void
