@@ -186,11 +186,21 @@ async function main() {
        * Reconnect button needs to work without a saved host.
        */
       step = 'ended overlay'
-      window.termdeck.writeSession(second.id, 'exit' + String.fromCharCode(13))
-      const overlayUp = await waitFor(
-        () => !!document.querySelector('[data-testid="session-ended-overlay"]'),
-        15000
-      )
+      /*
+       * The "exit" line is retried until the pane notices.
+       *
+       * A write that arrives while the SSH channel is still opening is dropped by
+       * the backend, and this suite runs at the end of a long chain where that
+       * window is wide — measured not by guessing a delay but by asking the pane.
+       */
+      let overlayUp = false
+      for (let attempt = 0; attempt < 20 && !overlayUp; attempt += 1) {
+        window.termdeck.writeSession(second.id, 'exit' + String.fromCharCode(13))
+        overlayUp = await waitFor(
+          () => !!document.querySelector('[data-testid="session-ended-overlay"]'),
+          1500
+        )
+      }
       push('a session that exits covers its pane with a notice', overlayUp)
       push('the notice says the session ended',
         !!document.querySelector('[data-testid="session-ended-title"]'),
@@ -205,7 +215,12 @@ async function main() {
         () => !document.querySelector('[data-testid="session-ended-overlay"]'),
         30000
       )
-      push('reconnecting clears the notice', revived, state())
+      /*
+       * Both halves are required: "there was a notice, and it is gone now". Asking
+       * only for the absence would pass in the case where no notice ever appeared —
+       * which is how this check passed while the one above it failed.
+       */
+      push('reconnecting clears the notice', overlayUp && revived, state())
       /*
        * The session list still holds the session that died — an exit does not
        * remove it, by design — so the pane itself is the honest source for "which
