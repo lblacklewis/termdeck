@@ -227,6 +227,36 @@ async function main() {
     'screen=' + completed.screen + ' history=' + recorded.slice(0, 3).join(' | '))
 
   /*
+   * ---- what does *not* get into history ---------------------------------------
+   *
+   * The store is the last line of defence. Everything refused below was seen in a
+   * real history file: `-s` and `lssc-s` came from the keystroke mirror drifting
+   * away from the screen (Tab completion never passes through the input path), and
+   * the prompt-shaped ones from a slice that started one column too early.
+   */
+  const guardSession = 'probe-guard'
+  const BS = String.fromCharCode(92)
+  const keptAfter = (command) => {
+    const before = stores.history.list(guardSession).length
+    stores.history.add(guardSession, 'guard', command)
+    return stores.history.list(guardSession).length > before
+  }
+  push('a bare argument is not a command', !keptAfter('-s'))
+  push('nor is a line that was typed with a leading space', !keptAfter(' secret-typed-here'))
+  push('nor a command with its prompt still attached',
+    !keptAfter('PS C:' + BS + 'Users' + BS + 'me> Get-Date') &&
+      !keptAfter('[root@host ~]# ls -ltr') &&
+      !keptAfter('me@host:~$ ls'))
+  push('and a real command still gets through', keptAfter('ls -ltr'))
+  stores.history.remember('-s')
+  stores.history.remember('me@host:~$ ls')
+  push('the suggestion list refuses the same shapes',
+    !stores.history.globalCommands().includes('-s') &&
+      !stores.history.globalCommands().some((c) => c.includes('~$')),
+    JSON.stringify(stores.history.globalCommands().slice(0, 6)))
+  stores.history.clear(guardSession)
+
+  /*
    * ---- a full-screen program is not a command line ----------------------------
    *
    * vim, less, man and htop all switch the terminal to the alternate screen buffer

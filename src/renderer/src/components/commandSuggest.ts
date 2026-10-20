@@ -87,6 +87,25 @@ export function attachSuggestions({
   let typed = 0
   /** Column the prompt ended at, i.e. where the command line starts on screen. */
   let promptLen = 0
+  /**
+   * Whether `promptLen` describes the line currently on screen.
+   *
+   * Cleared on submit and on any escape sequence, set again once the shell is seen
+   * sitting at a fresh prompt. Without it, a prompt whose length changed (`cd` into
+   * a deeper directory) or a line recalled with the Up key would be measured from
+   * the wrong column, and the slice taken at Enter would be off.
+   */
+  let measured = false
+  /**
+   * Has something moved the line without passing through `feed`?
+   *
+   * An arrow key makes the *shell* redraw the line as output, and that redraw looks
+   * exactly like a prompt being painted: empty mirror, text on the row, cursor at
+   * its end. Measuring there would put the prompt's end after the recalled command
+   * and record only what was typed next — the `-s` entry again. So the screen is
+   * left alone until the next command is submitted and a real prompt comes back.
+   */
+  let screenTouched = false
   let muted = false
 
   /**
@@ -97,6 +116,24 @@ export function attachSuggestions({
    * way in and back on the way out, which is exactly the lifetime we want.
    */
   const fullScreen = (): boolean => term.buffer.active.type === 'alternate'
+
+  /**
+   * Does the screen look like the shell is sitting at a prompt, waiting?
+   *
+   * Nothing typed, a non-empty row, and the cursor at the end of it. A full-screen
+   * program is excluded — its "prompt" is the program's own drawing — and so is an
+   * empty row, which is what the cursor sits on before the prompt is painted.
+   */
+  const settledPrompt = (): boolean => {
+    if (fullScreen()) return false
+    const buffer = term.buffer.active
+    const row = buffer.getLine(buffer.baseY + buffer.cursorY)
+    if (!row) return false
+    const text = row.translateToString(true)
+    if (!text) return false
+    // `>=`: a prompt normally ends with a space, which trimming removes.
+    return buffer.cursorX >= text.length
+  }
 
   /** Why the popup is or is not showing, for the probe (see `tdDebug`). */
   const debug = (): void => {
@@ -319,34 +356,43 @@ export function attachSuggestions({
       return
     }
     if (stripped.includes('\x1b')) {
+      /*
+       * Arrow keys, Home/End, a recalled history line: all of these move or fill the
+       * line without passing through here, so the mirror is no longer the line. It is
+       * dropped rather than completed from stale text — and, because the screen now
+       * holds text we never saw typed, the prompt length from the last line is not
+       * trustworthy either.
+       */
       if (open) close()
+      line = ''
+      screenTouched = true
       return
     }
     for (const char of stripped) {
       const code = char.codePointAt(0) ?? 0
       if (SUBMIT.has(code)) {
         /*
-         * Record what the shell is actually about to run, read off the screen.
+         * Record what the shell actually ran, read off the screen.
          *
-         * The keystroke mirror is not that line: pressing Tab inserts the shell's own
-         * completion, which never passes through us, so lssc + Tab + -s was stored
-         * as lssc-s instead of lsscsi -s. The screen has the truth; the prompt length
-         * is measured when the line starts (the cursor sits right after the prompt).
+         * The keystroke mirror is not that line, and this is the whole point of the
+         * feature: pressing Tab inserts the shell's own completion, arrow keys recall
+         * a line, and neither passes through `onData`. Storing the mirror is how
+         * history filled up with things like `-s` and `lssc-s` — fragments of a line
+         * that was never run. So when the prompt length is not known, nothing is
+         * recorded: a missing entry is a gap, a wrong one is a lie about what ran.
          */
         const buffer = term.buffer.active
         const row = buffer.getLine(buffer.baseY + buffer.cursorY)
         const text = row ? row.translateToString(true) : ''
-        /*
-         * Only when the prompt length is known. A zero there means the measurement
-         * missed (a shell that had not painted its prompt yet), and slicing from
-         * column 0 stores the prompt along with the command — worse than falling back
-         * to the keystroke mirror.
-         */
         const executed =
-          promptLen > 0 ? text.slice(promptLen, Math.max(promptLen, buffer.cursorX)).trim() : ''
+          promptLen > 0 && promptLen <= buffer.cursorX
+            ? text.slice(promptLen, buffer.cursorX).trim()
+            : ''
         if (executed) report(executed)
-        else if (line.trim()) report(line.trim())
         promptLen = 0
+        // The shell prints a fresh prompt next, and its length is measured again.
+        measured = false
+        screenTouched = false
         close()
         muted = false
       } else if (BACKSPACE.has(code)) {
@@ -357,10 +403,23 @@ export function attachSuggestions({
         } else if (open) void refresh()
       } else if (code === INTERRUPT) {
         close()
+        // The shell repaints its prompt after an interrupt, so its length is
+        // measured again rather than inherited.
+        measured = false
+        screenTouched = false
         muted = false
       } else if (code >= 32 && code !== 127) {
-        // First character of a new line: the cursor is exactly at the prompt's end.
-        if (!line) promptLen = Math.max(0, term.buffer.active.cursorX)
+        /*
+         * First character of a line: the cursor is exactly where the prompt ends.
+         *
+         * Only when the screen has not been edited behind our back — after an arrow
+         * key the line may already hold a recalled command, and the cursor then sits
+         * at the end of *that*, which would record only the characters typed after
+         * it. That is the `-s` entry this feature used to produce.
+         */
+        if (!line && !measured && !screenTouched) {
+          promptLen = Math.max(0, term.buffer.active.cursorX)
+        }
         line += char
         if (line.length > 240) {
           close()
@@ -394,10 +453,25 @@ export function attachSuggestions({
 
   return {
     feed,
-    /* Cheap on the hot path: it only does anything while the popup is open. */
+    /*
+     * A prompt may be being painted.
+     *
+     * The mirror is empty, so whatever is on the row is the shell's own text and the
+     * cursor ends it — the one moment the prompt's length can be read without
+     * guessing. It happens after every command, which is also how a prompt that
+     * changed length (`cd` into a deeper directory) is picked up again. Skipped once
+     * the screen has been edited behind our back, where the same shape means a
+     * recalled line rather than a prompt.
+     */
     sync: () => {
-      if (!open || !fullScreen()) return
-      close()
+      if (open && fullScreen()) {
+        close()
+        debug()
+      }
+      if (measured || screenTouched || line !== '') return
+      if (!settledPrompt()) return
+      promptLen = term.buffer.active.cursorX
+      measured = true
       debug()
     },
     dispose: () => {

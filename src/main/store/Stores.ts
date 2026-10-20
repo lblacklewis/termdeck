@@ -695,9 +695,10 @@ export class SessionStore {
 /**
  * Commands the user has run, one file per session, newest first.
  *
- * Recorded from what is *typed into a session*, so it is the shell's own history
- * rather than a log of everything that reached a pty: control keys, arrow keys
- * and terminal replies are assembled out by the caller and never appear here.
+ * What is stored is the line the shell *executed*, read off the screen by the
+ * renderer, never the keystrokes that produced it: Tab completion, arrow keys and
+ * history recall never pass through the input path, so a keystroke mirror drifts
+ * into fragments like `-s` that were never a command.
  *
  * A file per session, under `history/`, because the commands that belong to one
  * host should not be mixed into another's list — and because it makes expiry
@@ -705,6 +706,29 @@ export class SessionStore {
  * deleted whole. Nothing here is authority: the store can be emptied at any time
  * without touching settings, sessions or credentials.
  */
+/**
+ * Does this line look like something that was actually run?
+ *
+ * A last line of defence, now that the renderer only ever sends a line read off the
+ * screen: the shapes refused here can only come from a mis-read. A leading space is
+ * the shell's own "do not keep this" (the easiest way for a password typed by
+ * mistake to stay out of a plain-text file), a line that opens with a dash is an
+ * argument separated from its command, and a line that still carries a prompt is a
+ * slice that started one column too early.
+ */
+function looksExecutable(command: string): boolean {
+  if (!command) return false
+  if (/^\s/.test(command)) return false
+  if (/^-\S/.test(command)) return false
+  // `PS C:\dir>`, `C:\dir>`, `user@host:~$`, `[root@host ~]#`
+  if (/^[A-Za-z]:\\/.test(command)) return false
+  if (/^PS\s+[A-Za-z]:\\/i.test(command)) return false
+  if (/^\[[^\]]*\][#$]\s/.test(command)) return false
+  if (/^[\w.@-]+@[\w.-]+:[^$#%>]*[$#%>]\s/.test(command)) return false
+  if (/^[\w.@-]+[>$#%]\s/.test(command)) return false
+  return true
+}
+
 export class HistoryStore {
   private readonly dir: string
   /** Parsed files, keyed by session id. Loaded lazily. */
@@ -802,8 +826,12 @@ export class HistoryStore {
    * out of a capped list.
    */
   add(sessionId: string, session: string, command: string, at = Date.now()): HistoryEntry[] {
+    if (!sessionId) return this.list(sessionId)
+    // Checked before trimming: the leading space is what the shell reads as
+    // "do not keep this line".
+    if (/^\s/.test(command)) return this.list(sessionId)
     const text = command.trim().slice(0, HistoryStore.MAX_COMMAND)
-    if (!text || !sessionId) return this.list(sessionId)
+    if (!text || !looksExecutable(text)) return this.list(sessionId)
 
     const current = this.entries(sessionId)
     if (current[0]?.command === text) return this.list(sessionId)
@@ -834,9 +862,7 @@ export class HistoryStore {
   remember(command: string): void {
     const text = command.replace(/\s+$/, '')
     if (!text || text.length > HistoryStore.MAX_COMMAND) return
-    if (text.startsWith(' ')) return
-    // An older build recorded the prompt with the command; do not keep that shape.
-    if (/^[A-Za-z]:\\/i.test(text) || /^[\w.@-]+[>$#%]\s/.test(text)) return
+    if (!looksExecutable(text)) return
     if (text.length > HistoryStore.SUGGEST_MAX) return
 
     const current = this.globalCommands()
@@ -857,9 +883,7 @@ export class HistoryStore {
     const list = Array.isArray(stored)
       ? stored.filter((c): c is string => typeof c === 'string' && c.length > 0)
       : []
-    this.globalCache = list
-      .filter((c) => !/^[A-Za-z]:\\/i.test(c) && !/^[\w.@-]+[>$#%]\s/.test(c))
-      .slice(0, HistoryStore.SUGGEST_LIMIT)
+    this.globalCache = list.filter(looksExecutable).slice(0, HistoryStore.SUGGEST_LIMIT)
     return this.globalCache
   }
 
