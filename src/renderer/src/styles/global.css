@@ -776,6 +776,7 @@ kbd {
 /* ---- panel content ----------------------------------------------------- */
 
 .td-terminal {
+  position: relative;
   display: flex;
   /* Row so the optional timestamp gutter can sit beside the terminal. */
   flex-direction: row;
@@ -859,6 +860,51 @@ kbd {
   height: 100%;
 }
 
+/*
+ * The ended-session overlay.
+ *
+ * It covers the whole pane rather than sitting in a strip at the top: the pane is
+ * no longer a terminal, it is a dead one, and the one thing to do with it should
+ * be the thing in the middle. The output above stays visible underneath the
+ * scrim, because reading what just happened is why people look here first.
+ */
+.td-terminal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--td-bg-sunken) 82%, transparent);
+}
+
+.td-terminal-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  padding: 18px 20px;
+  text-align: center;
+  background: var(--td-bg-elevated);
+  border: 1px solid var(--td-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 28%);
+}
+
+.td-terminal-overlay-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text);
+}
+
+.td-terminal-overlay-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--td-text-dim);
+}
 .td-terminal-banner {
   flex: 0 0 auto;
   display: flex;
@@ -2390,6 +2436,51 @@ kbd {
   padding: 8px 4px 4px 10px;
 }
 
+/*
+ * The ended-session overlay.
+ *
+ * It covers the whole pane rather than sitting in a strip at the top: the pane is
+ * no longer a terminal, it is a dead one, and the one thing to do with it should
+ * be the thing in the middle. The output above stays visible underneath the
+ * scrim, because reading what just happened is why people look here first.
+ */
+.td-terminal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--td-bg-sunken) 82%, transparent);
+}
+
+.td-terminal-overlay-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  padding: 18px 20px;
+  text-align: center;
+  background: var(--td-bg-elevated);
+  border: 1px solid var(--td-border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 28%);
+}
+
+.td-terminal-overlay-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text);
+}
+
+.td-terminal-overlay-hint {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--td-text-dim);
+}
 .td-terminal-banner {
   background: var(--td-warn-soft);
   border-top: 1px solid var(--td-warn-border);

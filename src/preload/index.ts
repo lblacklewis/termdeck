@@ -78,6 +78,9 @@ const api = {
   duplicateSession: (sourceId: string): Promise<CreateSessionResult> =>
     ipcRenderer.invoke('session:duplicate', sourceId),
 
+  reconnectSession: (sourceId: string): Promise<CreateSessionResult> =>
+    ipcRenderer.invoke('session:reconnect', sourceId),
+
   writeSession: (id: string, data: string): void => ipcRenderer.send('session:write', id, data),
 
   resizeSession: (id: string, cols: number, rows: number): void =>

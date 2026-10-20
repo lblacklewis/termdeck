@@ -1021,6 +1021,9 @@ export interface TermDeckApi extends S3Api {
    * so the copy uses the same credentials without them crossing IPC again.
    */
   duplicateSession(sourceId: string): Promise<CreateSessionResult>
+
+  /** Rebuild a session whose pane is still on screen after it ended. */
+  reconnectSession(sourceId: string): Promise<CreateSessionResult>
   writeSession(id: string, data: string): void
   resizeSession(id: string, cols: number, rows: number): void
   closeSession(id: string): void

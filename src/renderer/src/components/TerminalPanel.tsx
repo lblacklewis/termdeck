@@ -22,6 +22,15 @@ interface TerminalPanelProps {
   onSessionEnded: (sessionId: string) => void
   /** Reconnect a restored pane. */
   onReconnect?: (savedSessionId: string, title: string) => void
+  /**
+   * Reopen the session behind *this* pane after it ended.
+   *
+   * Different from `onReconnect`, which is about a pane restored from a saved
+   * layout: this one has a live-then-dead session and no saved host to look up.
+   * Resolves false when the reconnect could not be started, so the button can
+   * stop saying "Reconnecting…".
+   */
+  onReconnectSession?: () => Promise<boolean>
 }
 
 /**
@@ -39,7 +48,8 @@ export function TerminalPanel({
   savedSessionId,
   disconnected,
   onSessionEnded,
-  onReconnect
+  onReconnect,
+  onReconnectSession
 }: TerminalPanelProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<TerminalHandle | null>(null)
@@ -47,6 +57,15 @@ export function TerminalPanel({
   // Pending multi-line paste awaiting confirmation.
   const [pending, setPending] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  /*
+   * A new session behind this pane means it is not ended any more. Without this
+   * the overlay would stay over the freshly reconnected terminal: `ended` is
+   * local state, so re-rendering with a new `session` prop does not clear it.
+   */
+  useEffect(() => {
+    if (session) setEnded(null)
+  }, [session?.id])
 
   const { settings, theme } = useSettings()
   const { terminal, clipboard } = settings
@@ -293,9 +312,34 @@ export function TerminalPanel({
       )}
 
       {ended !== null && (
-        <div className="td-terminal-banner">
-          <span>{t('terminalpanel.session_ended', 'Session ended')}{ended.code !== null ? ` with exit code ${ended.code}` : ''}.</span>
-          <span className="td-terminal-banner-hint">{t('terminalpanel.drag_or_close_this_tab_then', 'Drag or close this tab, then reconnect.')}</span>
+        <div className="td-terminal-overlay" data-testid="session-ended-overlay">
+          <div className="td-terminal-overlay-card">
+            <div className="td-terminal-overlay-title" data-testid="session-ended-title">
+              {t('terminalpanel.session_ended', 'Session ended')}
+              {ended.code !== null ? ` · exit ${ended.code}` : ''}
+            </div>
+            <p className="td-terminal-overlay-hint">
+              {t(
+                'terminalpanel.ended_hint',
+                'This pane is still here, and so is everything above it. Reconnect to keep working in it.'
+              )}
+            </p>
+            {onReconnectSession && (
+              <button
+                className="td-btn td-btn-primary"
+                data-testid="reconnect-session"
+                disabled={busy}
+                onClick={() => {
+                  setBusy(true)
+                  void onReconnectSession().finally(() => setBusy(false))
+                }}
+              >
+                {busy
+                  ? t('terminalpanel.reconnecting', 'Reconnecting…')
+                  : t('terminalpanel.reconnect', 'Reconnect')}
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

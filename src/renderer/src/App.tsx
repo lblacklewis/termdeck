@@ -532,6 +532,14 @@ export function App(): JSX.Element {
   const reconnectRef = useRef<(panelId: string, savedSessionId: string, title: string) => void>(
     () => {}
   )
+  /**
+   * Set once the connect helpers exist; called by an ended pane's overlay.
+   *
+   * Separate from `reconnectRef` because it is a different question: that one
+   * looks up a *saved* host, this one reopens the connection the pane itself was
+   * using, which may have been a one-off quick connect.
+   */
+  const reconnectEndedRef = useRef<(panelId: string) => Promise<boolean>>(async () => false)
   /** Latest connectSaved, so the reconnect effect need not re-run every render. */
   const connectSavedRef = useRef<(session: SavedSession, password?: string) => Promise<void>>(
     async () => {}
@@ -721,6 +729,7 @@ export function App(): JSX.Element {
                 savedSessionId={panelParams.savedSessionId}
                 disconnected={panelParams.disconnected}
                 onReconnect={(id, name) => reconnectRef.current(options.id, id, name)}
+                onReconnectSession={() => reconnectEndedRef.current(options.id)}
                 onSessionEnded={(id) => {
                   endedSessionsRef.current.add(id)
                   endedRef.current(id)
@@ -1156,6 +1165,43 @@ export function App(): JSX.Element {
     })?.id
   }, [])
 
+  /**
+   * Point an existing pane at a new session.
+   *
+   * One place for the bookkeeping that both "adopt the pane we already have" and
+   * "reconnect the ended pane in place" need: forget the session that died,
+   * record the one that replaced it, and tell dockview — whose params are what the
+   * layout is serialised from, so they have to be updated rather than re-rendered.
+   */
+  const bindSessionToPanel = useCallback(
+    (panelId: string, session: SessionInfo, savedSessionId?: string): boolean => {
+      const panel = dockApiRef.current?.getPanel(panelId)
+      if (!panel) return false
+      const previous = panel.api.getParameters<TerminalPanelMeta>() ?? {}
+      const wasLive = liveSessionRef.current.get(panelId) ?? panelId
+      endedSessionsRef.current.delete(wasLive)
+      endedSessionsRef.current.delete(session.id)
+      liveSessionRef.current.set(panelId, session.id)
+      panel.api.updateParameters({
+        session,
+        disconnected: false,
+        /*
+         * The link to the saved session is kept rather than cleared. This pane is
+         * live, but the layout is serialised from these params, and that link is
+         * what lets the pane restored from that layout reconnect again.
+         */
+        savedSessionId: savedSessionId ?? previous.savedSessionId,
+        title: session.title,
+        onEnded: (id: string) => endedRef.current(id)
+      })
+      refreshPanelParams(panelId)
+      panel.api.setTitle(session.title)
+      panel.api.setActive()
+      return true
+    },
+    [refreshPanelParams]
+  )
+
   const addSession = useCallback(
     (session: SessionInfo, fromSaved?: string) => {
       const dockApi = dockApiRef.current
@@ -1176,25 +1222,7 @@ export function App(): JSX.Element {
       if (fromSaved) pendingPaneRef.current.delete(fromSaved)
       const existing = adoptId ? dockApi.getPanel(adoptId) : undefined
       if (existing) {
-        // The session that died behind this pane is being replaced; forget it,
-        // or `Ctrl+D` keeps treating the pane as already-dead.
-        const wasLive = liveSessionRef.current.get(existing.id) ?? existing.id
-        endedSessionsRef.current.delete(wasLive)
-        liveSessionRef.current.set(existing.id, session.id)
-        existing.api.updateParameters({
-          session,
-          disconnected: false,
-          /*
-           * The link to the saved session is kept rather than cleared. This pane is
-           * live, but the layout is serialised from these params, and that link is
-           * what lets the pane restored from that layout reconnect again.
-           */
-          savedSessionId: fromSaved,
-          title: session.title
-        })
-        refreshPanelParams(existing.id)
-        existing.api.setTitle(session.title)
-        existing.api.setActive()
+        bindSessionToPanel(existing.id, session, fromSaved)
         return
       }
 
@@ -1474,7 +1502,25 @@ export function App(): JSX.Element {
       pendingPaneRef.current.set(matches[0].id, panelId)
       void connectSavedRef.current(matches[0])
     }
-  }, [connectSaved])
+
+    /*
+     * The ended pane's overlay: reopen the connection that pane was using.
+     *
+     * The main process kept that connection's details after the exit precisely so
+     * this could work without a saved host — a quick connect has none, and asking
+     * the user to type it all again is not a fix for "the session ended".
+     */
+    reconnectEndedRef.current = async (panelId) => {
+      const oldSession = liveSessionRef.current.get(panelId) ?? panelId
+      const result = await api.reconnectSession(oldSession)
+      if (!result.ok) {
+        setAlert({ message: result.error.message })
+        return false
+      }
+      setSessions((prev) => [...prev, result.session])
+      return bindSessionToPanel(panelId, result.session)
+    }
+  }, [bindSessionToPanel, connectSaved])
 
   // Broadcast mode lives outside React so terminal input handlers see the current
   // value; this keeps the button in step with it.

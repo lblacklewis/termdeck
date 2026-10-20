@@ -58,6 +58,15 @@ export const zh: Catalog = {
   'app.to_connect': '即可连接。',
   'app.welcome': '欢迎',
 
+  // ---- the quick script sent to every pane (broadcast) --------------------
+  'appscript.nothing_open': '没有窗格接收',
+  'appscript.placeholder': '发送一行到所有窗格…',
+  'appscript.script': '发给每个窗格的一行命令或脚本',
+  'appscript.send': '发送',
+  'appscript.sent': '已发送至 {n} 个窗格',
+  'appscript.snippets': '已保存的片段',
+  'appscript.snippets_2': '片段…',
+
   // ---- break reminder ------------------------------------------------------
   'breakbar.back_to_work': '继续工作',
   'breakbar.break': '休息 ——',
@@ -275,6 +284,7 @@ export const zh: Catalog = {
   'hostspage.rename_group': '重命名分组…',
   'hostspage.rows': '列表',
   'hostspage.rows_2': '列表',
+  'hostspage.clear_tags': '清除标签筛选',
   'hostspage.show_as_cards': '以卡片显示',
   'hostspage.show_as_rows': '以列表显示',
   'hostspage.to_connect_without_saving': '可不保存直接连接。',
@@ -371,9 +381,11 @@ export const zh: Catalog = {
 
   // ---- terminal pane / welcome --------------------------------------------
   'terminalpanel.cancel': '取消',
-  'terminalpanel.drag_or_close_this_tab_then': '拖动或关闭此标签页，然后重连。',
+  'terminalpanel.ended_hint': '这个窗格还在，上面的内容也还在。重连即可继续在这里工作。',
   'terminalpanel.paste': '粘贴',
   'terminalpanel.paste_2': '粘贴',
+  'terminalpanel.reconnect': '重连',
+  'terminalpanel.reconnecting': '正在重连…',
   'terminalpanel.session_ended': '会话已结束',
   'terminalpanel.this_pane_was_restored_from':
     '这个窗格是从上次的布局恢复的，不会自动重连。',

@@ -477,10 +477,15 @@ export function stopAllTunnels(): void {
 export function registerIpc(): void {
   sessionManager.on('data', (id, chunk, seq) => broadcast('session:data', id, chunk, seq))
   sessionManager.on('exit', (id, code, signal) => {
-    // The blueprint describes a live session; drop it with the session so a
-    // duplicated pane can never reconnect with options belonging to a dead one,
-    // and release the SFTP session that was riding on the same connection.
-    blueprints.delete(id)
+    /*
+     * The blueprint is deliberately *kept* after an exit.
+     *
+     * It is the only record of how that pane connected — host, credentials, key,
+     * port — and the pane left on screen offers a Reconnect button that needs
+     * exactly that. It is per-pane state released when the pane closes (see the
+     * `session:close` handler), so it does not accumulate: the pane you can see
+     * is what holds it.
+     */
     closeSftp(id)
     broadcast('session:exit', id, { code, signal })
   })
@@ -670,18 +675,14 @@ export function registerIpc(): void {
     return { ok: true, session: info }
   })
 
-  ipcMain.handle('session:duplicate', async (_e, sourceId: string): Promise<CreateSessionResult> => {
-    const blueprint = blueprints.get(sourceId)
-    if (!blueprint) {
-      return {
-        ok: false,
-        error: {
-          code: 'NOT_DUPLICABLE',
-          message: 'This pane has no live connection to duplicate. Reconnect it first.'
-        }
-      }
-    }
-
+  /**
+   * Rebuild a session from a recorded blueprint.
+   *
+   * The shared half of "duplicate this pane" and "reconnect this pane": both need
+   * a new session with the same target and the same credentials, and the only
+   * difference is what the caller does with it.
+   */
+  async function createFromBlueprint(blueprint: SessionBlueprint): Promise<CreateSessionResult> {
     if (blueprint.kind === 'local') {
       const info = await sessionManager.create(
         (_id, c, r) => Promise.resolve(new LocalShellBackend({}, c, r)),
@@ -718,6 +719,44 @@ export function registerIpc(): void {
     }
 
     return openSsh(blueprint.options, blueprint.cols, blueprint.rows)
+  }
+
+  ipcMain.handle('session:duplicate', async (_e, sourceId: string): Promise<CreateSessionResult> => {
+    const blueprint = blueprints.get(sourceId)
+    if (!blueprint) {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_DUPLICABLE',
+          message: 'This pane has no live connection to duplicate. Reconnect it first.'
+        }
+      }
+    }
+    return createFromBlueprint(blueprint)
+  })
+
+  /**
+   * Reopen a session whose pane is still on screen.
+   *
+   * This is what the ended-pane overlay's Reconnect button calls. The blueprint
+   * outlives an exit on purpose (see the `exit` handler), so the credentials that
+   * were used the first time are still the ones that get used again — including a
+   * password that only ever existed in this process.
+   */
+  ipcMain.handle('session:reconnect', async (_e, sourceId: string): Promise<CreateSessionResult> => {
+    const blueprint = blueprints.get(sourceId)
+    if (!blueprint) {
+      return {
+        ok: false,
+        error: {
+          code: 'NOT_RECONNECTABLE',
+          message: 'This pane has nothing left to reconnect with. Open the host again.'
+        }
+      }
+    }
+    // The old backend is done; drop anything riding on it before rebuilding.
+    closeSftp(sourceId)
+    return createFromBlueprint(blueprint)
   })
 
   // ---- REST tool ---------------------------------------------------------

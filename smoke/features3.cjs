@@ -608,7 +608,7 @@ async function main() {
         let banner = false
         for (let i = 0; i < 30; i++) {
           await wait(300)
-          if (document.querySelector('.td-terminal-banner')) { banner = true; break }
+          if (document.querySelector('[data-testid="session-ended-overlay"]')) { banner = true; break }
         }
         push('the pane says the session ended', banner,
           'banner=' + banner + ' panels=' + panelsNow())

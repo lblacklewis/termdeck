@@ -164,10 +164,62 @@ async function main() {
       push('the original tab is the one that is still there',
         tabs().length === 1 && panelIds()[0] === first.id,
         'expected=' + first.id + ' got=' + state())
+      // The pane adopts the session through dockview params and a re-render, so
+      // wait for the adoption rather than for a fixed number of milliseconds.
+      await waitFor(() => panes()[0] === second.id, 15000)
       push('and it now holds the new session',
-        panes().length === 1 && panes()[0] === second.id, state())
+        panes().length === 1 && panes()[0] === second.id,
+        state() + ' params=' + JSON.stringify(
+          window.__tdDockApi.panels.map((p) => {
+            const q = p.api.getParameters() || {}
+            return { id: p.id, session: q.session ? q.session.id : null }
+          })
+        ))
       push('the pane is live again, not a placeholder',
         !document.querySelector('[data-testid="restored-pane"]'), state())
+
+      /*
+       * ---- 4. the ended pane reconnects itself ------------------------------
+       * Ended by *exiting the shell*, not by closing the session from the page:
+       * those are deliberately different. Closing a session releases the record of
+       * how it connected; an exit leaves it, which is what the pane's own
+       * Reconnect button needs to work without a saved host.
+       */
+      step = 'ended overlay'
+      window.termdeck.writeSession(second.id, 'exit' + String.fromCharCode(13))
+      const overlayUp = await waitFor(
+        () => !!document.querySelector('[data-testid="session-ended-overlay"]'),
+        15000
+      )
+      push('a session that exits covers its pane with a notice', overlayUp)
+      push('the notice says the session ended',
+        !!document.querySelector('[data-testid="session-ended-title"]'),
+        (document.querySelector('[data-testid="session-ended-title"]') || {}).textContent || 'none')
+      const revive = document.querySelector('[data-testid="reconnect-session"]')
+      push('and offers a reconnect button', !!revive)
+      push('the old drag-or-close hint is gone', !document.querySelector('.td-terminal-banner-hint'))
+
+      step = 'reconnect from the overlay'
+      if (revive) revive.click()
+      const revived = await waitFor(
+        () => !document.querySelector('[data-testid="session-ended-overlay"]'),
+        30000
+      )
+      push('reconnecting clears the notice', revived, state())
+      /*
+       * The session list still holds the session that died — an exit does not
+       * remove it, by design — so the pane itself is the honest source for "which
+       * session is in there now".
+       */
+      const adopted = await waitFor(() => !!panes()[0] && panes()[0] !== second.id, 20000)
+      const third = { id: panes()[0] }
+      push('a new session is behind the pane', adopted,
+        'old=' + second.id + ' new=' + (third.id || 'none'))
+      push('the reconnect reused the tab rather than adding one',
+        tabs().length === 1 && panelIds()[0] === first.id,
+        'tabs=' + tabs().length + ' panel=' + panelIds()[0] + ' expected=' + first.id)
+      push('and the pane holds the new session',
+        panes().length === 1 && !!third && panes()[0] === third.id, state())
 
       return out
       } catch (err) {

@@ -741,24 +741,81 @@ async function main() {
   ])
 
   if (historyRow) {
-    win.webContents.sendInputEvent({ type: 'mouseMove', x: historyRow.x, y: historyRow.y })
-    await sleep(400)
-    const hoveredOpacity = await win.webContents.executeJavaScript(
-      `(() => {
-        const meta = document.querySelector('[data-testid="history-list"] .td-history-item .td-history-meta')
-        return meta ? getComputedStyle(meta).opacity : 'no-meta'
-      })()`
-    )
+    /*
+     * The hover is forced through the debugger rather than produced by moving the
+     * pointer there.
+     *
+     * CSS `:hover` is the compositor's answer to where the pointer is, and that
+     * position only updates while this window owns the foreground — which it may
+     * well not, two suites and a dozen windows later in the chain. Both
+     * `sendInputEvent` and `Input.dispatchMouseEvent` were tried: the first silently
+     * does nothing when the window is in the background, the second moves the
+     * compositor's idea of the pointer but Chromium still skips the hit test. So
+     * this asks devtools to force the pseudo-class, which is the same switch the
+     * inspector's ":hov" toggle flips — what is measured is then the rule itself,
+     * not the window manager.
+     */
+    const opacityOfMeta = () =>
+      win.webContents.executeJavaScript(
+        `(() => {
+          const meta = document.querySelector('[data-testid="history-list"] .td-history-item .td-history-meta')
+          return meta ? getComputedStyle(meta).opacity : 'no-meta'
+        })()`
+      )
+
+    let hoveredOpacity = 'debugger-unavailable'
+    try {
+      if (!win.webContents.debugger.isAttached()) win.webContents.debugger.attach('1.3')
+      await win.webContents.debugger.sendCommand('DOM.enable')
+      await win.webContents.debugger.sendCommand('CSS.enable')
+      const root = await win.webContents.debugger.sendCommand('DOM.getDocument', { depth: 1 })
+      const found = await win.webContents.debugger.sendCommand('DOM.querySelector', {
+        nodeId: root.root.nodeId,
+        selector: '[data-testid="history-list"] .td-history-item'
+      })
+      if (found.nodeId) {
+        await win.webContents.debugger.sendCommand('CSS.forcePseudoState', {
+          nodeId: found.nodeId,
+          forcedPseudoClasses: ['hover']
+        })
+        await sleep(400)
+        hoveredOpacity = await opacityOfMeta()
+      }
+    } catch (err) {
+      hoveredOpacity = 'error: ' + String((err && err.message) || err)
+    }
+
     report([
       {
-        name: 'and appears once the pointer is on it',
+        name: 'and hovering the row reveals its timestamp',
         ok: hoveredOpacity === '1',
         detail: 'opacity=' + hoveredOpacity
       }
     ])
-    // Park the pointer away from the list so nothing later inherits the hover.
-    win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4 })
-    await sleep(250)
+
+    /*
+     * With the pseudo-class released the timestamp goes back to being a detail
+     * rather than a column — the pair of readings is what makes "hidden until you
+     * look at it" a claim that can fail in either direction.
+     */
+    try {
+      await win.webContents.debugger.sendCommand('CSS.forcePseudoState', {
+        nodeId: 0,
+        forcedPseudoClasses: []
+      })
+    } catch {
+      // Clearing by node 0 is not supported everywhere; detaching does the same.
+    }
+    if (win.webContents.debugger.isAttached()) win.webContents.debugger.detach()
+    await sleep(400)
+    const released = await opacityOfMeta()
+    report([
+      {
+        name: 'and hides again when the pointer leaves',
+        ok: released === '0',
+        detail: 'opacity=' + released
+      }
+    ])
   }
 
   // ---- 6. focus mode (driven from the main process, as the app does) -------
