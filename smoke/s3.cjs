@@ -83,7 +83,7 @@ function startMock() {
       const chunks = []
       req.on('data', (chunk) => chunks.push(chunk))
       req.on('end', () => {
-        uploads.push({ url: key, body: Buffer.concat(chunks) })
+        uploads.push({ url: key, body: Buffer.concat(chunks), type: req.headers['content-type'] })
         xml(res, '<PutObjectResult/>')
       })
       return
@@ -137,6 +137,11 @@ async function main() {
   const uploadSource = path.join(os.tmpdir(), 'td-s3-upload-' + process.pid + '.txt')
   const uploadBody = 'uploaded from disk\n'
   fs.writeFileSync(uploadSource, uploadBody, 'utf8')
+  // A second file with a known extension: the stored Content-Type is what decides
+  // whether a browser opens an object or downloads it.
+  const uploadSource2 = path.join(os.tmpdir(), 'td-s3-upload-' + process.pid + '.json')
+  const uploadBody2 = '{"ok":true}'
+  fs.writeFileSync(uploadSource2, uploadBody2, 'utf8')
   const downloadTarget = path.join(os.tmpdir(), 'td-s3-download-' + process.pid + '.txt')
   fs.rmSync(downloadTarget, { force: true })
 
@@ -317,6 +322,7 @@ async function main() {
         pathStyle: true
       }
       const uploadSourcePath = ${JSON.stringify(uploadSource)}
+      const uploadSourcePath2 = ${JSON.stringify(uploadSource2)}
       const downloadTargetPath = ${JSON.stringify(downloadTarget)}
       const up = await window.termdeck.s3PutFile(
         connection,
@@ -326,6 +332,13 @@ async function main() {
       )
       push('a local file can be uploaded as an object', up.ok,
         up.ok ? up.value.bytes + ' bytes' : up.error)
+      const up2 = await window.termdeck.s3PutFile(
+        connection,
+        'alpha',
+        'dir/config.json',
+        uploadSourcePath2
+      )
+      push('a second file uploads too', up2.ok, up2.ok ? up2.value.bytes + ' bytes' : up2.error)
       const down = await window.termdeck.s3GetFile(
         connection,
         'alpha',
@@ -368,6 +381,7 @@ async function main() {
     ? fs.readFileSync(downloadTarget, 'utf8')
     : ''
   const uploaded = uploads.find((entry) => entry.url === '/alpha/dir/uploaded.txt')
+  const uploadedJson = uploads.find((entry) => entry.url === '/alpha/dir/config.json')
   report([
     {
       name: 'the uploaded file arrived byte for byte',
@@ -377,12 +391,18 @@ async function main() {
         : 'no PUT reached /alpha/dir/uploaded.txt'
     },
     {
+      name: 'and carried the content type its extension implies',
+      ok: !!uploadedJson && String(uploadedJson.type).indexOf('application/json') === 0,
+      detail: uploadedJson ? String(uploadedJson.type) + ' (' + uploadedJson.body.length + ' bytes)' : 'no PUT'
+    },
+    {
       name: 'the saved object has the object contents',
       ok: downloadedFile === 'hello s3',
       detail: JSON.stringify(downloadedFile)
     }
   ])
   fs.rmSync(uploadSource, { force: true })
+  fs.rmSync(uploadSource2, { force: true })
   fs.rmSync(downloadTarget, { force: true })
 
   const failed = all.filter((c) => !c.ok)

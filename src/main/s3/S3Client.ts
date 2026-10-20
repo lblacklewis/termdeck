@@ -276,7 +276,13 @@ export class S3Client {
   ): Promise<{ bytes: number }> {
     const { sha256, size } = await hashFile(localPath)
     const headers: Record<string, string> = {}
-    if (contentType) headers['Content-Type'] = contentType
+    /*
+     * Guess when the caller did not say. An object stored without a type comes
+     * back as `binary/octet-stream`, so a JSON or HTML file uploaded here would
+     * download instead of opening — a small detail with a very visible symptom.
+     */
+    const type = contentType ?? guessContentType(key)
+    if (type) headers['Content-Type'] = type
     await this.send(
       'PUT',
       this.urlFor(bucket, key),
@@ -375,6 +381,45 @@ function hashFile(path: string): Promise<{ sha256: string; size: number }> {
     stream.on('end', () => resolve({ sha256: hash.digest('hex'), size }))
     stream.on('error', reject)
   })
+}
+
+/**
+ * The types worth knowing by name.
+ *
+ * Deliberately short: it covers what people put in a bucket and then look at in
+ * a browser. Anything else keeps its `application/octet-stream`, which is honest
+ * about not knowing.
+ */
+const CONTENT_TYPES: Record<string, string> = {
+  json: 'application/json',
+  txt: 'text/plain; charset=utf-8',
+  log: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  csv: 'text/csv; charset=utf-8',
+  html: 'text/html; charset=utf-8',
+  htm: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  xml: 'application/xml',
+  yml: 'application/yaml',
+  yaml: 'application/yaml',
+  svg: 'image/svg+xml',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  pdf: 'application/pdf',
+  zip: 'application/zip',
+  gz: 'application/gzip',
+  tar: 'application/x-tar'
+}
+
+function guessContentType(key: string): string | undefined {
+  const name = key.split('/').pop() ?? key
+  const at = name.lastIndexOf('.')
+  if (at < 0) return undefined
+  return CONTENT_TYPES[name.slice(at + 1).toLowerCase()]
 }
 
 // ---- a very small XML reader ---------------------------------------------
