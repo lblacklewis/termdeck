@@ -12,9 +12,12 @@ import {
   applyCursorInk,
   applyCursorShape,
   fitsArePaused,
+  forgetSelectionState,
+  noteClickCount,
   registerRefit,
   registerStamps,
   registerTerminal,
+  selectionTextFor,
   unregisterRefit,
   unregisterStamps,
   unregisterTerminal
@@ -394,11 +397,23 @@ export function useTerminal(
     // How a keystroke typed in another pane reaches this one.
     registerSink(sessionId, (data) => api.writeSession(sessionId, data))
 
+    /*
+     * Remember how many clicks a press was.
+     *
+     * A triple-click selects the whole line, and xterm does not report the click count
+     * back through any event — so it is noted here, on the way in, and read by the copy
+     * paths. `detail` is the browser's own click counter, which is what xterm itself
+     * dispatches on.
+     */
+    const onMouseDown = (event: MouseEvent): void => noteClickCount(sessionId, event.detail)
+    container.addEventListener('mousedown', onMouseDown, true)
+
     // Copy-on-select: mirror any new selection straight to the OS clipboard, so
-    // Ctrl+C stays free for the remote shell.
+    // Ctrl+C stays free for the remote shell. A line selection is copied with its
+    // newline; see `selectionTextFor`.
     const selectionSub = term.onSelectionChange(() => {
       if (!optionsRef.current.clipboard.copyOnSelect) return
-      const selection = term.getSelection()
+      const selection = selectionTextFor(sessionId)
       if (selection) void api.copyToClipboard(selection)
     })
 
@@ -464,6 +479,8 @@ export function useTerminal(
       unregisterRefit(sessionId)
       unregisterStamps(sessionId)
       unregisterSink(sessionId)
+      forgetSelectionState(sessionId)
+      container.removeEventListener('mousedown', onMouseDown, true)
       stamps.dispose()
       if (window.localStorage.getItem('tdDebug') === '1') {
         const debug = (window as unknown as Record<string, unknown>)['__tdTerminals'] as

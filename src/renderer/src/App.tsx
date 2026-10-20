@@ -76,7 +76,7 @@ import { ShareDialog } from './components/ShareDialog'
 import { NavRail, type PageId } from './components/NavRail'
 import { useTabMenu } from './components/useTabMenu'
 import type { LogEntry } from './components/LogsPage'
-import { getTerminal, readScrollback, setFitsPaused } from './components/terminalRegistry'
+import { getTerminal, readScrollback, selectionTextFor, setFitsPaused } from './components/terminalRegistry'
 import {
   broadcastSummary,
   isBroadcasting,
@@ -2830,10 +2830,14 @@ export function App(): JSX.Element {
     tilePanes: () => openTileDialog(),
     copy: () => {
       const active = dockApiRef.current?.activePanel
-      if (!active) return
-      // The terminal writes its own selection on change; Ctrl+Shift+C re-copies
-      // from the window selection as a fallback.
-      const text = window.getSelection()?.toString()
+      if (!active || active.id === 'welcome') return
+      /*
+       * The pane's own selection comes first: it is the one that knows whether the
+       * selection was a triple-click line, and a line copied without its newline
+       * cannot be pasted as a line. The window selection stays as the fallback for
+       * text selected anywhere else in the app.
+       */
+      const text = selectionTextFor(liveIdFor(active.id)) ?? window.getSelection()?.toString()
       if (text) void api.copyToClipboard(text)
     },
     paste: () => {

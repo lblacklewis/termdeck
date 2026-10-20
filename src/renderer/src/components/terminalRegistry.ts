@@ -74,6 +74,46 @@ export function getTerminal(sessionId: string): Terminal | undefined {
   return terminals.get(sessionId)
 }
 
+/*
+ * Which panes have just had a whole line selected with a triple-click.
+ *
+ * Selecting a line is only useful if the line can be pasted as a line, and the text
+ * xterm hands over has no newline: pasting it lands glued to whatever follows. The
+ * click count is not reported back through any xterm event, so it is remembered here
+ * when the mouse goes down and consumed by both copy paths.
+ *
+ * Timed rather than sticky: a selection can also change by dragging or by a click
+ * elsewhere, and a plain selection copied two minutes later must not grow a newline.
+ */
+const lineSelections = new Map<string, number>()
+const LINE_SELECTION_WINDOW_MS = 2000
+
+/** Remember that this pane's selection came from a triple-click, or from something else. */
+export function noteClickCount(sessionId: string, detail: number): void {
+  if (detail >= 3) lineSelections.set(sessionId, Date.now())
+  else lineSelections.delete(sessionId)
+}
+
+export function forgetSelectionState(sessionId: string): void {
+  lineSelections.delete(sessionId)
+}
+
+/**
+ * The pane's selected text, ready for the clipboard.
+ *
+ * A line selection gets the newline it implies; anything else is copied verbatim.
+ * Returns null when nothing is selected, so callers can fall back to another source.
+ */
+export function selectionTextFor(sessionId: string): string | null {
+  const term = terminals.get(sessionId)
+  if (!term) return null
+  const text = term.getSelection()
+  if (!text) return null
+  const at = lineSelections.get(sessionId)
+  const isLine = !!at && Date.now() - at < LINE_SELECTION_WINDOW_MS
+  return isLine && !text.endsWith('\n') ? text + '\n' : text
+}
+
 /**
  * The full scrollback as plain text, one line per row.
  *

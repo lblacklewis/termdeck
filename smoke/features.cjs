@@ -814,6 +814,68 @@ async function main() {
         clip.trim().length > 0 && clip === selected,
         JSON.stringify(clip.slice(0, 30)))
 
+      // --- word and line selection -----------------------------------------
+      /*
+       * The colon used to be part of a word: xterm's default separator is only
+       * brackets and quotes, so double-clicking alpha in "alpha:beta" put "alpha:"
+       * on the clipboard. A triple-click then selects the whole line, and a line
+       * copied without its newline cannot be pasted as a line.
+       */
+      const cellBox = screen.getBoundingClientRect()
+      const cellW = cellBox.width / term.cols
+      const cellH = cellBox.height / term.rows
+      const press = (col, row, detail) => {
+        const x = Math.round(cellBox.left + cellW * col + cellW / 2)
+        const y = Math.round(cellBox.top + cellH * row + cellH / 2)
+        for (const type of ['mousedown', 'mouseup']) {
+          screen.dispatchEvent(new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            clientX: x,
+            clientY: y,
+            button: 0,
+            buttons: type === 'mousedown' ? 1 : 0,
+            detail
+          }))
+        }
+      }
+      const clipNow = async (want) => {
+        let text = ''
+        for (let i = 0; i < 25; i++) {
+          text = await window.termdeck.readClipboard()
+          if (want(text)) break
+          await new Promise((r) => setTimeout(r, 120))
+        }
+        return text
+      }
+
+      term.reset()
+      term.write('alpha:beta gamma' + String.fromCharCode(13) + String.fromCharCode(10))
+      await new Promise((r) => setTimeout(r, 500))
+
+      press(1, 0, 2)
+      await new Promise((r) => setTimeout(r, 400))
+      const wordSel = term.getSelection()
+      push('a double-click selects the word, not the colon after it',
+        wordSel === 'alpha', JSON.stringify(wordSel))
+
+      press(1, 0, 3)
+      await new Promise((r) => setTimeout(r, 400))
+      const lineSel = term.getSelection()
+      push('a triple-click selects the whole line',
+        lineSel.includes('alpha:beta gamma'), JSON.stringify(lineSel))
+      const lineClip = await clipNow((text) => text.includes('alpha:beta'))
+      push('and the copied line ends with a newline',
+        lineClip.endsWith(String.fromCharCode(10)), JSON.stringify(lineClip))
+
+      // Back to a word: the newline belongs to the line selection, not to every copy
+      // that happens after it.
+      press(1, 0, 2)
+      await new Promise((r) => setTimeout(r, 400))
+      const wordClip = await clipNow((text) => text.includes('alpha'))
+      push('a word copied afterwards has no newline added',
+        !wordClip.endsWith(String.fromCharCode(10)), JSON.stringify(wordClip))
+
       // --- paste on right click -------------------------------------------
       // A single-line payload, because multi-line text deliberately raises the
       // confirmation guard (covered separately below).

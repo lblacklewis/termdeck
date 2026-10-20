@@ -47,6 +47,17 @@ export function xtermCursorStyle(
   return style === 'outline' ? 'block' : style
 }
 
+/**
+ * What a double-click stops at.
+ *
+ * xterm's default is ` ()[]{}',"` plus a backtick, which leaves the colon inside a
+ * word: double-clicking `key` in `key: value` selected `key:` and put the separator on
+ * the clipboard, where it is purely in the way. The comma and semicolon are the same
+ * kind of trailing punctuation, so they go in too. The `=` is deliberately *not* here —
+ * it sits inside a token (`--flag=value`, `KEY=value`) far more often than after one.
+ */
+const WORD_SEPARATOR = ' ()[]{}\',"`:,;'
+
 /** Terminal options derived from user settings. */
 export function buildTerminalOptions(settings: TerminalSettings): ITerminalOptions {
   return {
@@ -61,6 +72,7 @@ export function buildTerminalOptions(settings: TerminalSettings): ITerminalOptio
     macOptionIsMeta: true,
     // Selection is handled by copy-on-select, not by right-click word select.
     rightClickSelectsWord: false,
+    wordSeparator: WORD_SEPARATOR,
     // Padding comes from the surrounding panel, not xterm.
     scrollOnUserInput: true
   }
