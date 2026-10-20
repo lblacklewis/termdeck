@@ -1117,6 +1117,33 @@ export function App(): JSX.Element {
     })?.id
   }, [])
 
+  /**
+   * A pane that still stands for this saved session behind a *dead* session.
+   *
+   * Nothing closes a pane when its backend exits — the output stays on screen,
+   * which is what you want after a dropped link — so the tab and the pane are
+   * both still there. Connecting the same saved host again then used to add a
+   * second tab beside the corpse; this is how that pane is found instead, so
+   * reconnecting revives it in place.
+   *
+   * `endedSessionsRef` is the renderer's own record of "this session ended", and
+   * it is keyed on the session rather than the pane, so it survives a reload.
+   * A pane whose session is still *live* is deliberately not matched: opening a
+   * second login to a host that is already connected is what "duplicate
+   * connection" is for, and silently reusing that pane would connect to a host
+   * the user did not ask to touch.
+   */
+  const deadPaneFor = useCallback((savedSessionId: string): string | undefined => {
+    const dockApi = dockApiRef.current
+    if (!dockApi) return undefined
+    return dockApi.panels.find((panel) => {
+      const params = panel.api.getParameters<TerminalPanelMeta>() ?? {}
+      if (params.savedSessionId !== savedSessionId) return false
+      const live = liveSessionRef.current.get(panel.id) ?? panel.id
+      return endedSessionsRef.current.has(live)
+    })?.id
+  }, [])
+
   const addSession = useCallback(
     (session: SessionInfo, fromSaved?: string) => {
       const dockApi = dockApiRef.current
@@ -1126,12 +1153,21 @@ export function App(): JSX.Element {
 
       // A restored pane for this saved session is still sitting there as a
       // placeholder; give it the live session instead of adding a second tab.
+      // A pane whose session has ended is the same case one step later: it is
+      // still on screen and still belongs to this saved session, so the new
+      // connection belongs in it.
       const adoptId = fromSaved
-        ? (pendingPaneRef.current.get(fromSaved) ?? restoredPaneFor(fromSaved))
+        ? (pendingPaneRef.current.get(fromSaved) ??
+           restoredPaneFor(fromSaved) ??
+           deadPaneFor(fromSaved))
         : undefined
       if (fromSaved) pendingPaneRef.current.delete(fromSaved)
       const existing = adoptId ? dockApi.getPanel(adoptId) : undefined
       if (existing) {
+        // The session that died behind this pane is being replaced; forget it,
+        // or `Ctrl+D` keeps treating the pane as already-dead.
+        const wasLive = liveSessionRef.current.get(existing.id) ?? existing.id
+        endedSessionsRef.current.delete(wasLive)
         liveSessionRef.current.set(existing.id, session.id)
         existing.api.updateParameters({
           session,
