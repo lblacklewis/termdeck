@@ -488,6 +488,40 @@ async function main() {
         push('edit opens the session editor', editor,
           'form=' + !!editor +
             ' name=' + (editor ? (editor.querySelector('[aria-label="session-name"]') || {}).value : null))
+
+        /*
+         * A tag typed into the editor becomes a chip in the form, and after saving
+         * a chip on the row. Fixtures written through the store cannot show that:
+         * this is the half of "hosts support tags" that lives in the UI.
+         */
+        const tagBox = editor ? editor.querySelector('.td-tag-input') : null
+        push('the editor offers a tag field', !!tagBox)
+        if (tagBox && editor) {
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value'
+          ).set
+          setter.call(tagBox, 'probe-tag')
+          tagBox.dispatchEvent(new Event('input', { bubbles: true }))
+          tagBox.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+          )
+          await wait(400)
+          const chips = [...editor.querySelectorAll('.td-tag')].map((c) => c.textContent || '')
+          push('pressing enter turns it into a tag in the form',
+            chips.some((text) => text.includes('probe-tag')), chips.join(','))
+
+          const save = [...editor.querySelectorAll('.td-drawer-actions button')]
+            .find((b) => /save|apply/i.test(b.textContent || ''))
+          if (save) {
+            save.click()
+            await wait(1200)
+          }
+          const rows = [...document.querySelectorAll('[data-host-row]')]
+          push('and saving puts the tag on the host row',
+            rows.some((row) => (row.textContent || '').includes('probe-tag')),
+            'rows=' + rows.length)
+        }
         const close = editor
           ? [...editor.querySelectorAll('.td-drawer-actions button')]
               .find((b) => /cancel|close/i.test(b.textContent || ''))
@@ -497,6 +531,74 @@ async function main() {
           await wait(500)
         }
         push('the editor can be dismissed', !document.querySelector('.td-drawer-form'))
+
+        /*
+         * ---- tags narrow the list ------------------------------------------
+         * Asserted as "every row that is left satisfies the filter" rather than
+         * an exact count: the fixtures are a moving target, the invariant is not.
+         */
+        const rowsNow = () =>
+          [...document.querySelectorAll('[data-host-row]')].map((row) => ({
+            id: row.getAttribute('data-host-row'),
+            text: row.textContent || ''
+          }))
+        const chips = () => [...document.querySelectorAll('[data-testid="hosts-tag-filter"]')]
+        const beforeFilter = rowsNow().length
+        const labels = chips().map((chip) => chip.getAttribute('data-tag'))
+        push('the tags in use are offered as filters', labels.includes('probe-tag'),
+          labels.join(','))
+
+        const probeChip = chips().find((chip) => chip.getAttribute('data-tag') === 'probe-tag')
+        if (probeChip) {
+          probeChip.click()
+          await wait(500)
+          const narrowed = rowsNow()
+          push('clicking a tag shows only hosts carrying it',
+            narrowed.length > 0 &&
+              narrowed.length <= beforeFilter &&
+              narrowed.every((row) => row.text.includes('probe-tag')),
+            'rows=' + narrowed.length + ' of ' + beforeFilter)
+        }
+
+        const webChip = chips().find((chip) => chip.getAttribute('data-tag') === 'web')
+        if (webChip) {
+          webChip.click()
+          await wait(500)
+          const both = rowsNow()
+          push('a second tag narrows further rather than widening',
+            both.every((row) => row.text.includes('web') && row.text.includes('probe-tag')),
+            both.map((row) => row.id).join(',') || 'none')
+        }
+
+        const clearChip = document.querySelector('[data-testid="hosts-tag-clear"]')
+        push('there is a way to clear the tag filter', !!clearChip)
+        if (clearChip) {
+          clearChip.click()
+          await wait(500)
+          push('clearing brings the whole list back', rowsNow().length === beforeFilter,
+            rowsNow().length + ' of ' + beforeFilter)
+        }
+
+        // The same box searches tags, not just names and addresses.
+        const searchBox = document.querySelector('[data-testid="hosts-search"]')
+        if (searchBox) {
+          const setter = Object.getOwnPropertyDescriptor(
+            window.HTMLInputElement.prototype,
+            'value'
+          ).set
+          setter.call(searchBox, 'probe-tag')
+          searchBox.dispatchEvent(new Event('input', { bubbles: true }))
+          await wait(500)
+          const byTag = rowsNow()
+          push('typing a tag into the search box finds it',
+            byTag.length > 0 && byTag.every((row) => row.text.includes('probe-tag')),
+            'rows=' + byTag.length)
+          setter.call(searchBox, '')
+          searchBox.dispatchEvent(new Event('input', { bubbles: true }))
+          await wait(400)
+        } else {
+          push('the hosts page has a search box', false)
+        }
       }
 
       // ---- connecting switches to Terminal ---------------------------------

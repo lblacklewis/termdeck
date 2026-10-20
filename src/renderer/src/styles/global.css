@@ -611,6 +611,18 @@ kbd {
   color: var(--td-on-accent);
 }
 
+/* The "clear the tag filter" chip: same shape as a tag, visibly an action. */
+.td-tag-clear {
+  cursor: pointer;
+  background: none;
+  color: var(--td-text-faint);
+  border-style: dashed;
+}
+
+.td-tag-clear:hover {
+  color: var(--td-text);
+  border-color: var(--td-border-strong);
+}
 .td-tag-remove {
   background: none;
   border: none;

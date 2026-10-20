@@ -80,7 +80,13 @@ export function HostsPage({
   onImportShare
 }: HostsPageProps): JSX.Element {
   const [filter, setFilter] = useState('')
-  const [tagFilter, setTagFilter] = useState<string | null>(null)
+  /**
+   * Tags the list is narrowed to.
+   *
+   * A set, not one tag: "which of my boxes are both web and prod" is the question
+   * tags are for. Chips toggle, and a host has to carry all of them.
+   */
+  const [tagFilters, setTagFilters] = useState<string[]>([])
   const [menu, setMenu] = useState<{
     x: number
     y: number
@@ -117,15 +123,22 @@ export function HostsPage({
   const matches = useMemo(() => {
     const needle = filter.trim().toLowerCase()
     return (session: SavedSession): boolean => {
-      if (tagFilter && !session.tags.includes(tagFilter)) return false
+      if (tagFilters.length > 0 && !tagFilters.every((tag) => session.tags.includes(tag))) {
+        return false
+      }
       if (!needle) return true
       return (
         session.name.toLowerCase().includes(needle) ||
         session.host.toLowerCase().includes(needle) ||
-        session.username.toLowerCase().includes(needle)
+        session.username.toLowerCase().includes(needle) ||
+        /*
+         * Tags are part of how people remember a host, so the same box searches
+         * them: typing "web" should find it whether it is the name or a label.
+         */
+        session.tags.some((tag) => tag.toLowerCase().includes(needle))
       )
     }
-  }, [filter, tagFilter])
+  }, [filter, tagFilters])
 
   /*
    * Build the group tree.
@@ -140,7 +153,7 @@ export function HostsPage({
    * matching host anywhere below it is noise, so it is dropped.
    */
   const groups = useMemo(() => {
-    const filtering = filter.trim().length > 0 || tagFilter !== null
+    const filtering = filter.trim().length > 0 || tagFilters.length > 0
 
     const build = (parentId: string | null, depth: number, prefix: string): GroupNode[] => {
       const nodes: GroupNode[] = []
@@ -176,7 +189,7 @@ export function HostsPage({
       })
     }
     return treeNodes
-  }, [childFolders, hostsByFolder, matches, filter, tagFilter])
+  }, [childFolders, hostsByFolder, matches, filter, tagFilters])
 
   const total = tree.sessions.length
   const groupCount = tree.folders.length
@@ -433,6 +446,7 @@ export function HostsPage({
           <span className="td-page-search-icon" aria-hidden="true" />
           <input
             className="td-page-search"
+            data-testid="hosts-search"
             aria-label="filter-hosts"
             placeholder={t('hostspage.filter_hosts_or_user_hostnam', 'Filter hosts or user@hostname…')}
             value={filter}
@@ -474,16 +488,38 @@ export function HostsPage({
             */}
             {knownTags.length > 0 && (
               <div className="td-page-filters">
-                {knownTags.map((tag) => (
+                {knownTags.map((tag) => {
+                  const on = tagFilters.includes(tag)
+                  return (
+                    <button
+                      key={tag}
+                      className={`td-tag td-tag-filterable${on ? ' is-on' : ''}`}
+                      data-testid="hosts-tag-filter"
+                      data-tag={tag}
+                      aria-pressed={on}
+                      onClick={() =>
+                        setTagFilters((prev) =>
+                          prev.includes(tag)
+                            ? prev.filter((entry) => entry !== tag)
+                            : [...prev, tag]
+                        )
+                      }
+                      title={on ? `Clear filter: ${tag}` : `Filter by: ${tag}`}
+                    >
+                      {tag}
+                    </button>
+                  )
+                })}
+                {tagFilters.length > 0 && (
                   <button
-                    key={tag}
-                    className={`td-tag td-tag-filterable${tagFilter === tag ? ' is-on' : ''}`}
-                    onClick={() => setTagFilter(tagFilter === tag ? null : tag)}
-                    title={tagFilter === tag ? `Clear filter: ${tag}` : `Filter by: ${tag}`}
+                    className="td-tag td-tag-clear"
+                    data-testid="hosts-tag-clear"
+                    onClick={() => setTagFilters([])}
+                    title={t('hostspage.clear_tags', 'Clear the tag filter')}
                   >
-                    {tag}
+                    ×
                   </button>
-                ))}
+                )}
               </div>
             )}
           </div>
