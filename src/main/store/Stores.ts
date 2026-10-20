@@ -308,6 +308,7 @@ function sanitiseSnippets(input: unknown): Snippet[] {
       description: typeof s.description === 'string' ? s.description : undefined,
       // Rebuilt field by field, so anything not named here is lost on reload.
       keys: typeof s.keys === 'string' && s.keys.trim() ? s.keys.trim() : undefined,
+      color: typeof s.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(s.color) ? s.color : undefined,
       createdAt: typeof s.createdAt === 'number' ? s.createdAt : Date.now(),
       updatedAt: typeof s.updatedAt === 'number' ? s.updatedAt : Date.now()
     }))
@@ -346,6 +347,7 @@ export class SettingsStore {
       // A shortcut can be cleared (empty string) as well as set, so it is copied
       // whenever the caller mentions it at all.
       if (input.keys !== undefined) existing.keys = input.keys.trim() || undefined
+      if (input.color !== undefined) existing.color = normaliseColor(input.color)
       existing.updatedAt = now
     } else {
       this.settings.snippets.push({
@@ -355,6 +357,7 @@ export class SettingsStore {
         group: input.group ?? '',
         description: input.description,
         keys: input.keys?.trim() || undefined,
+        color: normaliseColor(input.color),
         createdAt: now,
         updatedAt: now
       })
@@ -716,6 +719,13 @@ export class SessionStore {
  * argument separated from its command, and a line that still carries a prompt is a
  * slice that started one column too early.
  */
+/** A colour is either a full `#rrggbb` or nothing at all. */
+function normaliseColor(input: string | undefined): string | undefined {
+  if (typeof input !== 'string') return undefined
+  const text = input.trim()
+  return /^#[0-9a-fA-F]{6}$/.test(text) ? text.toLowerCase() : undefined
+}
+
 function looksExecutable(command: string): boolean {
   if (!command) return false
   if (/^\s/.test(command)) return false

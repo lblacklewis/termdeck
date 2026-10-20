@@ -4,6 +4,23 @@ import { Drawer } from './Drawer'
 import { formatEvent, isValidBinding } from './useShortcuts'
 import { t } from '../i18n'
 
+/**
+ * The colours offered as one-click swatches.
+ *
+ * Chosen to be distinguishable on both the dark default and the light themes, and to
+ * survive being drawn three pixels tall — a muted palette disappears at that size.
+ */
+const SWATCHES = [
+  '#f7768e',
+  '#ff9e64',
+  '#e0af68',
+  '#9ece6a',
+  '#7dcfff',
+  '#7aa2f7',
+  '#bb9af7',
+  '#c0caf5'
+]
+
 interface SnippetEditorProps {
   /** Existing snippet to edit, or null when creating. */
   snippet: Snippet | null
@@ -36,6 +53,7 @@ export function SnippetEditor({
   const [newGroup, setNewGroup] = useState('')
   const [description, setDescription] = useState(snippet?.description ?? '')
   const [keys, setKeys] = useState(snippet?.keys ?? '')
+  const [color, setColor] = useState(snippet?.color ?? '')
   const [recording, setRecording] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -85,7 +103,8 @@ export function SnippetEditor({
         command,
         group: effectiveGroup.trim(),
         description: description.trim() || undefined,
-        keys: keys.trim() || undefined
+        keys: keys.trim() || undefined,
+        color: color || undefined
       })
       setError(null)
     } catch (err) {
@@ -210,6 +229,50 @@ export function SnippetEditor({
               {t(
                 'snippeteditor.shortcut_hint',
                 'Runs this snippet from anywhere in the app, like any other shortcut.'
+              )}
+            </span>
+          </div>
+
+          <div className="td-field">
+            <span>{t('snippeteditor.color_optional', 'Colour (optional)')}</span>
+            <div className="td-swatch-row">
+              <button
+                type="button"
+                className={`td-swatch td-swatch-none${color ? '' : ' is-on'}`}
+                data-testid="snippet-color-none"
+                title={t('snippeteditor.no_colour', 'No colour')}
+                onClick={() => setColor('')}
+              >
+                ✕
+              </button>
+              {SWATCHES.map((swatch) => (
+                <button
+                  key={swatch}
+                  type="button"
+                  className={`td-swatch${color.toLowerCase() === swatch ? ' is-on' : ''}`}
+                  style={{ background: swatch }}
+                  data-testid={'snippet-color-' + swatch.slice(1)}
+                  title={swatch}
+                  onClick={() => setColor(swatch)}
+                />
+              ))}
+              {/*
+                The native picker for anything outside the palette. Not every theme or
+                brand colour is in eight swatches, and "custom" is what the field says.
+              */}
+              <input
+                type="color"
+                className="td-swatch-custom"
+                data-testid="snippet-color-custom"
+                value={color || SWATCHES[5]}
+                title={t('snippeteditor.custom_colour', 'Any colour')}
+                onChange={(e) => setColor(e.target.value)}
+              />
+            </div>
+            <span className="td-hint">
+              {t(
+                'snippeteditor.color_hint',
+                'Shown as a stripe along the bottom of the button, so similar commands can be told apart.'
               )}
             </span>
           </div>

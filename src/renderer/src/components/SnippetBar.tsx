@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { Snippet } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { t } from '../i18n'
@@ -13,26 +13,29 @@ interface SnippetBarProps {
   onDelete: (id: string) => void
   /** Move a snippet to another group; an empty string means the default group. */
   onSetGroup: (id: string, group: string) => void
-  /** Reorder the whole list, which is what the tab strip is derived from. */
+  /** Reorder the whole list, which is what the strip is derived from. */
   onReorder: (ids: string[]) => void
   onHide: () => void
 }
 
-const ALL = '__all__'
 const UNGROUPED = 'Ungrouped'
 
 /**
  * Bottom bar of saved commands.
  *
- * Snippets are grouped by their `group` field; the tab strip is derived from the
+ * Snippets are grouped by their `group` field; the group list is derived from the
  * data, so creating a group needs no separate registry. Clicking sends to the
  * active terminal. Right-clicking opens the shared context menu, and dragging a
- * chip onto another chip reorders it while dragging it onto a group tab moves it
- * to that group — the two things a bar of saved commands is actually used for.
+ * chip onto another chip reorders it.
+ *
+ * Groups are one control, not a row of tabs: a bar of tabs spends the whole left
+ * end on labels that are usually not the thing being looked for. The button shows
+ * "All" until some groups are ticked off, and the list opens upwards because the
+ * bar lives at the bottom of the window.
  *
  * The menu is the portalled `ContextMenu` rather than an absolutely-positioned
- * child: the bar scrolls horizontally, so a menu drawn inside it was clipped by
- * the bar's own overflow and appeared cut off.
+ * child: the strip of chips scrolls horizontally, so a menu drawn inside it was
+ * clipped by the strip's own overflow and appeared cut off.
  */
 export function SnippetBar({
   snippets,
@@ -45,10 +48,13 @@ export function SnippetBar({
   onReorder,
   onHide
 }: SnippetBarProps): JSX.Element {
-  const [activeGroup, setActiveGroup] = useState<string>(ALL)
+  /** Empty means "no filter", which is the default the button reports as All. */
+  const [activeGroups, setActiveGroups] = useState<string[]>([])
+  const [groupMenu, setGroupMenu] = useState(false)
   const [menu, setMenu] = useState<{ x: number; y: number; snippet: Snippet } | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const groupsRef = useRef<HTMLDivElement | null>(null)
 
   const groupOf = (snippet: Snippet): string => snippet.group || UNGROUPED
 
@@ -61,13 +67,49 @@ export function SnippetBar({
     return seen
   }, [snippets])
 
+  /*
+   * Ticks for groups that no longer exist are ignored rather than pruned: deleting
+   * the last snippet of a group should not silently widen the filter when that group
+   * comes back.
+   */
+  const ticked = activeGroups.filter((group) => groups.includes(group))
+  const filtering = ticked.length > 0
+
   const visible = useMemo(
-    () => (activeGroup === ALL ? snippets : snippets.filter((s) => groupOf(s) === activeGroup)),
-    [snippets, activeGroup]
+    () => (filtering ? snippets.filter((s) => ticked.includes(groupOf(s))) : snippets),
+    [snippets, filtering, ticked]
   )
 
-  // A tab can disappear when its last snippet is deleted or renamed.
-  const effectiveGroup = groups.includes(activeGroup) || activeGroup === ALL ? activeGroup : ALL
+  /** The one group new snippets default to, when exactly one is ticked. */
+  const soleGroup = ticked.length === 1 ? (ticked[0] === UNGROUPED ? '' : ticked[0]) : ''
+
+  /*
+   * Dismiss the checklist the way every other popup in the app is dismissed: a press
+   * anywhere else, or Escape. Captured, so a click inside a chip cannot leave it open
+   * behind the context menu.
+   */
+  useEffect(() => {
+    if (!groupMenu) return
+    const onPointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node | null
+      if (target && groupsRef.current?.contains(target)) return
+      setGroupMenu(false)
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setGroupMenu(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown, true)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown, true)
+    }
+  }, [groupMenu])
+
+  const toggleGroup = (group: string): void =>
+    setActiveGroups((prev) =>
+      prev.includes(group) ? prev.filter((g) => g !== group) : [...prev, group]
+    )
 
   /** Drop `dragId` immediately before `targetId`, or at the end when null. */
   const reorderAround = (targetId: string | null): void => {
@@ -78,71 +120,90 @@ export function SnippetBar({
     onReorder(ids)
   }
 
-  const menuItems = (snippet: Snippet): MenuItem[] => [
-    { id: 'send', label: t('snippetbar.send_to_terminal', 'Send to terminal'), disabled: !canSend },
-    { id: 'edit', label: t('snippetbar.edit', 'Edit…') },
-    { id: 'duplicate', label: t('snippetbar.duplicate', 'Duplicate') },
-    {
-      id: 'ungroup',
-      label: t('snippetbar.move_to_ungrouped', 'Move to Ungrouped'),
-      separatorBefore: true,
-      // Only offer it when it would do something.
-      disabled: groupOf(snippet) === UNGROUPED
-    },
-    { id: 'delete', label: t('snippetbar.delete', 'Delete'), danger: true, separatorBefore: true }
-  ]
+  const menuItems = (snippet: Snippet): MenuItem[] => {
+    /*
+     * Ungrouped is always a destination, even when no snippet is in it right now:
+     * taking a snippet out of its group must not depend on whether some other
+     * snippet happens to be ungrouped.
+     */
+    const destinations: string[] = []
+    for (const group of [...groups, UNGROUPED]) {
+      if (group !== groupOf(snippet) && !destinations.includes(group)) destinations.push(group)
+    }
+    return [
+      { id: 'send', label: t('snippetbar.send_to_terminal', 'Send to terminal'), disabled: !canSend },
+      { id: 'edit', label: t('snippetbar.edit', 'Edit…') },
+      { id: 'duplicate', label: t('snippetbar.duplicate', 'Duplicate') },
+      // Regrouping lives here now that the group tabs are gone; each destination is
+      // one item rather than a submenu, which this menu does not have.
+      ...destinations.map((group, index) => ({
+        id: 'move:' + group,
+        label: t('snippetbar.move_to', 'Move to {group}', { group }),
+        separatorBefore: index === 0
+      })),
+      { id: 'delete', label: t('snippetbar.delete', 'Delete'), danger: true, separatorBefore: true }
+    ]
+  }
 
   const runMenuAction = (snippet: Snippet, actionId: string): void => {
     if (actionId === 'send') onSend(snippet)
     else if (actionId === 'edit') onEdit(snippet)
     else if (actionId === 'duplicate') onEdit({ ...snippet, id: '', label: `${snippet.label} copy` })
-    else if (actionId === 'ungroup') onSetGroup(snippet.id, '')
-    else if (actionId === 'delete') onDelete(snippet.id)
+    else if (actionId.startsWith('move:')) {
+      const group = actionId.slice('move:'.length)
+      onSetGroup(snippet.id, group === UNGROUPED ? '' : group)
+    } else if (actionId === 'delete') onDelete(snippet.id)
   }
 
   return (
     <div className="td-snippet-bar" data-testid="snippet-bar">
-      <div className="td-snippet-groups">
+      <div className="td-snippet-groups" ref={groupsRef}>
         <button
-          className={`td-snippet-group${effectiveGroup === ALL ? ' is-active' : ''}`}
-          onClick={() => setActiveGroup(ALL)}
-          data-group={ALL}
+          className={`td-snippet-group${filtering ? ' is-active' : ''}`}
+          data-testid="snippet-group-toggle"
+          aria-expanded={groupMenu}
+          title={t('snippetbar.filter_by_group', 'Filter by group')}
+          onClick={() => setGroupMenu((open) => !open)}
         >
-          {t('snippetbar.all', 'All')}
+          {filtering ? ticked.join(' · ') : t('snippetbar.all', 'All')}
           <span className="td-snippet-count" data-contrast-exempt>
-            {snippets.length}
+            {visible.length}
+          </span>
+          <span className="td-snippet-caret" aria-hidden="true">
+            ⌄
           </span>
         </button>
-        {groups.map((group) => (
-          <button
-            key={group}
-            className={
-              `td-snippet-group${effectiveGroup === group ? ' is-active' : ''}` +
-              // A group tab is a drop target for "move here", which is the only
-              // way to regroup without going through the editor.
-              (dropTarget === 'group:' + group ? ' is-drop' : '')
-            }
-            onClick={() => setActiveGroup(group)}
-            data-group={group}
-            onDragOver={(e) => {
-              if (!dragId) return
-              e.preventDefault()
-              setDropTarget('group:' + group)
-            }}
-            onDragLeave={() => setDropTarget((t) => (t === 'group:' + group ? null : t))}
-            onDrop={(e) => {
-              e.preventDefault()
-              setDropTarget(null)
-              if (dragId) onSetGroup(dragId, group === UNGROUPED ? '' : group)
-              setDragId(null)
-            }}
-          >
-            {group}
-            <span className="td-snippet-count" data-contrast-exempt>
-              {snippets.filter((s) => groupOf(s) === group).length}
-            </span>
-          </button>
-        ))}
+
+        {groupMenu && (
+          <div className="td-group-pop" data-testid="snippet-group-menu" role="menu">
+            <label className="td-group-row">
+              <input
+                type="checkbox"
+                data-testid="snippet-group-all"
+                checked={!filtering}
+                onChange={() => setActiveGroups([])}
+              />
+              <span className="td-group-name">{t('snippetbar.all', 'All')}</span>
+              <span className="td-group-count" data-contrast-exempt>
+                {snippets.length}
+              </span>
+            </label>
+            {groups.map((group) => (
+              <label key={group} className="td-group-row">
+                <input
+                  type="checkbox"
+                  data-testid={'snippet-group-' + group}
+                  checked={ticked.includes(group)}
+                  onChange={() => toggleGroup(group)}
+                />
+                <span className="td-group-name">{group}</span>
+                <span className="td-group-count" data-contrast-exempt>
+                  {snippets.filter((s) => groupOf(s) === group).length}
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       <div
@@ -160,7 +221,14 @@ export function SnippetBar({
       >
         {visible.length === 0 && (
           <span className="td-snippet-empty">
-            {t('snippetbar.no_snippets_yet_click', 'No snippets yet — click')}<b>+</b> {t('snippetbar.to_save_a_command', 'to save a command.')}
+            {snippets.length > 0
+              ? t('snippetbar.no_snippets_in_these_group', 'No snippets in those groups.')
+              : t('snippetbar.no_snippets_yet_click', 'No snippets yet — click')}
+            {snippets.length === 0 && (
+              <>
+                <b>+</b> {t('snippetbar.to_save_a_command', 'to save a command.')}
+              </>
+            )}
           </span>
         )}
 
@@ -180,7 +248,7 @@ export function SnippetBar({
                 (snippet.description ? snippet.description + '\n' : '') +
                 snippet.command +
                 (canSend ? '' : '\n(no active terminal)') +
-                '\n\nClick to send · right-click to edit · drag to reorder or regroup'
+                '\n\nClick to send · right-click to edit · drag to reorder'
               }
               disabled={!canSend}
               onClick={() => onSend(snippet)}
@@ -214,6 +282,20 @@ export function SnippetBar({
               }}
             >
               {snippet.label}
+              {/*
+                The colour is a stripe along the bottom edge rather than a tinted chip:
+                three pixels of full-strength colour is readable at this size, while a
+                tinted background would have to be strong enough to fight the label's
+                contrast.
+              */}
+              {snippet.color && (
+                <span
+                  className="td-snippet-stripe"
+                  data-testid={'snippet-stripe-' + snippet.id}
+                  style={{ background: snippet.color }}
+                  aria-hidden="true"
+                />
+              )}
             </button>
           </div>
         ))}
@@ -223,10 +305,10 @@ export function SnippetBar({
         <button
           className="td-icon-btn"
           title={
-            effectiveGroup === ALL ? 'New snippet' : `New snippet in “${effectiveGroup}”`
+            soleGroup ? `New snippet in “${soleGroup}”` : t('snippetbar.new_snippet', 'New snippet')
           }
           data-testid="snippet-new"
-          onClick={() => onNew(effectiveGroup === ALL ? '' : effectiveGroup)}
+          onClick={() => onNew(soleGroup)}
         >
           +
         </button>

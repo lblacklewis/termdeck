@@ -399,46 +399,64 @@ async function main() {
         saved ? 'group=' + saved.group + ' sendEnter=' + saved.sendEnter : 'missing')
       push('snippet stored in the chosen group', saved && saved.group === 'probe-group')
 
-      const groupTab = [...document.querySelectorAll('.td-snippet-group')]
-        .find((b) => b.textContent.startsWith('probe-group'))
-      push('group tab derived from snippets', !!groupTab,
-        [...document.querySelectorAll('.td-snippet-group')].map((b) => b.textContent.trim()).join(' | '))
+      /*
+       * Groups are one control with a checklist, not a row of tabs. The group name is
+       * still derived from the snippets, so what gets checked is that it appears in
+       * that checklist and that ticking it filters the bar.
+       */
+      const groupToggle = document.querySelector('[data-testid="snippet-group-toggle"]')
+      push('the snippet bar has one group control', !!groupToggle)
+      groupToggle.click()
+      await new Promise((r) => setTimeout(r, 300))
+      const groupBox = document.querySelector('[data-testid="snippet-group-probe-group"]')
+      push('group derived from snippets', !!groupBox,
+        [...document.querySelectorAll('.td-group-pop .td-group-name')]
+          .map((el) => el.textContent.trim()).join(' | '))
 
       const button = document.querySelector('[data-snippet-label="whoami-check"]')
       push('snippet button rendered', !!button)
-      if (button) {
-        groupTab.click()
-        await new Promise((r) => setTimeout(r, 300))
+      if (button && groupBox) {
+        groupBox.click()
+        await new Promise((r) => setTimeout(r, 400))
         push('group filter keeps the snippet visible',
           !!document.querySelector('[data-snippet-label="whoami-check"]'))
       }
 
-      // ---- drag to regroup ------------------------------------------------
-      // Dropping a chip on a group tab is the only way to regroup without
-      // opening the editor, so it is checked through the real drag sequence.
+      // ---- regrouping, now a menu item --------------------------------------
+      /*
+       * Regrouping moved out of the bar when the group tabs went away: the bar keeps a
+       * single group control, so a move is an explicit menu item rather than a drop
+       * target.
+       */
       await api.saveSnippet({ label: 'drag-me', command: 'uptime', group: '', sendEnter: true })
-      await new Promise((r) => setTimeout(r, 500))
-      // Show every group, otherwise the target tab for the move may be filtered out.
-      document.querySelector('.td-snippet-group[data-group="__all__"]').click()
-      await new Promise((r) => setTimeout(r, 300))
+      await new Promise((r) => setTimeout(r, 600))
+      // Back to All first, otherwise the chip may be filtered out of the bar.
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
+      const allBox = document.querySelector('[data-testid="snippet-group-all"]')
+      if (allBox) allBox.click()
+      await new Promise((r) => setTimeout(r, 400))
 
       const chip = document.querySelector('[data-snippet-label="drag-me"]')
-      const targetTab = [...document.querySelectorAll('.td-snippet-group')]
-        .find((b) => b.textContent.startsWith('probe-group'))
       push('a chip starts in the ungrouped list', !!chip && chip.dataset.group === 'Ungrouped',
         chip ? 'group=' + chip.dataset.group : 'no chip')
 
-      if (chip && targetTab) {
-        const drag = (el, type) => el.dispatchEvent(new Event(type, { bubbles: true, cancelable: true }))
-        drag(chip, 'dragstart')
-        await new Promise((r) => setTimeout(r, 100))
-        drag(targetTab, 'dragover')
-        drag(targetTab, 'drop')
-        await new Promise((r) => setTimeout(r, 800))
-        const moved = (await api.loadSettings()).snippets.find((s) => s.label === 'drag-me')
-        push('dropping a chip on a group tab moves it there',
-          !!moved && moved.group === 'probe-group',
-          moved ? 'group=' + JSON.stringify(moved.group) : 'missing')
+      if (chip) {
+        chip.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+        await new Promise((r) => setTimeout(r, 400))
+        const menuItems = [...document.querySelectorAll('[data-testid="snippet-menu"] .td-menu-item')]
+        const moveItem = menuItems.find(
+          (el) => /Move to/i.test(el.textContent || '') && /probe-group/i.test(el.textContent || '')
+        )
+        push('the menu offers the other groups', !!moveItem,
+          menuItems.map((el) => el.textContent.trim()).join(' | '))
+        if (moveItem) {
+          moveItem.click()
+          await new Promise((r) => setTimeout(r, 800))
+          const moved = (await api.loadSettings()).snippets.find((s) => s.label === 'drag-me')
+          push('choosing a group moves the snippet there',
+            !!moved && moved.group === 'probe-group',
+            moved ? 'group=' + JSON.stringify(moved.group) : 'missing')
+        }
       }
 
       return out
@@ -541,8 +559,14 @@ async function main() {
       if (!menu) return out
 
       const actions = [...menu.querySelectorAll('[data-menu-id]')].map((b) => b.getAttribute('data-menu-id'))
-      push('snippet menu has send/edit/duplicate/ungroup/delete',
-        ['send', 'edit', 'duplicate', 'ungroup', 'delete'].every((a) => actions.includes(a)),
+      /*
+       * Regrouping is a "Move to <group>" item now, ungrouped included, rather than a
+       * single "ungroup" action: the group tabs are gone, so the menu is where a
+       * snippet changes group and every destination is offered by name.
+       */
+      push('snippet menu has send/edit/duplicate/move-to-group/delete',
+        ['send', 'edit', 'duplicate', 'delete'].every((a) => actions.includes(a)) &&
+          actions.some((a) => (a || '').startsWith('move:')),
         actions.join(','))
       push('the menu is portalled out of the bar so it cannot be clipped',
         menu.parentElement === document.body, menu.parentElement ? menu.parentElement.tagName : 'detached')
@@ -603,7 +627,7 @@ async function main() {
       await api.saveSnippet({ label: 'second', command: 'two', group: 'order', sendEnter: true })
       await api.saveSnippet({ label: 'third', command: 'three', group: 'order', sendEnter: true })
       await new Promise((r) => setTimeout(r, 600))
-      document.querySelector('.td-snippet-group[data-group="__all__"]').click()
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }))
       await new Promise((r) => setTimeout(r, 300))
 
       const labels = () =>

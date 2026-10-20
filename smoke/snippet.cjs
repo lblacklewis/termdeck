@@ -300,9 +300,110 @@ async function main() {
       if (closeSettings) closeSettings.click()
       await wait(400)
 
+      /*
+       * ---- a colour, drawn as a stripe --------------------------------------
+       *
+       * The colour is the only way to tell two similarly named commands apart at a
+       * glance, so it has to survive the round trip and actually be painted on the
+       * button — a stored field nobody renders is worse than no field.
+       */
+      const coloured = await api.saveSnippet({
+        label: 'coloured',
+        command: 'echo colour' + String.fromCharCode(13),
+        group: 'snip',
+        color: '#7aa2f7'
+      })
+      const keptColor = coloured.snippets.find((s) => s.label === 'coloured')
+      await wait(900)
+      const stripe = document.querySelector('[data-snippet-label="coloured"] [data-testid^="snippet-stripe-"]')
+      const plain = document.querySelector('[data-snippet-label="run-it"] [data-testid^="snippet-stripe-"]')
+      push('a snippet keeps a custom colour',
+        !!keptColor && keptColor.color === '#7aa2f7', JSON.stringify(keptColor && keptColor.color))
+      push('and the button shows it as a stripe',
+        // Compared as a string rather than a pattern: the probe strings are template
+        // literals, where a backslash escape would be eaten before it reached the regex.
+        !!stripe && getComputedStyle(stripe).backgroundColor === 'rgb(122, 162, 247)',
+        stripe ? getComputedStyle(stripe).backgroundColor : 'no stripe')
+      push('a snippet without a colour has no stripe', !plain)
+
+      /*
+       * ---- the groups are one control, ticked off on demand ------------------
+       *
+       * A row of group tabs spends the left end of the bar on labels that are not
+       * usually what is being looked for. One button, a checklist, and "All" until
+       * something is ticked.
+       */
+      await api.saveSnippet({
+        label: 'restart-nginx',
+        command: 'systemctl restart nginx' + String.fromCharCode(13),
+        group: 'ops'
+      })
+      await wait(900)
+      const toggle = document.querySelector('[data-testid="snippet-group-toggle"]')
+      push('the groups are one control, not a row of tabs',
+        !!toggle && document.querySelectorAll('.td-snippet-group').length === 1,
+        'toggles=' + document.querySelectorAll('.td-snippet-group').length)
+      push('and it says All to begin with', !!toggle && /All/i.test(toggle.textContent || ''),
+        toggle ? toggle.textContent : '')
+
+      const chips = () => [...document.querySelectorAll('[data-snippet-label]')]
+        .map((el) => el.getAttribute('data-snippet-label'))
+      const everyone = chips()
+      toggle.click()
+      await wait(300)
+      const pop = document.querySelector('[data-testid="snippet-group-menu"]')
+      const boxes = pop ? [...pop.querySelectorAll('input[type="checkbox"]')] : []
+      push('clicking it opens a checklist with a box per group plus All',
+        !!pop && boxes.length >= 3, 'boxes=' + boxes.length)
+      push('All is ticked while nothing is filtered',
+        !!document.querySelector('[data-testid="snippet-group-all"]')?.checked)
+
+      const snipBox = document.querySelector('[data-testid="snippet-group-snip"]')
+      if (snipBox) {
+        snipBox.click()
+        await wait(350)
+        const narrowed = chips()
+        push('ticking a group narrows the bar to it',
+          narrowed.length > 0 && narrowed.length < everyone.length &&
+            narrowed.every((label) => ['coloured', 'typed-only', 'run-it', 'two-lines',
+              'focus-check', 'hotkey-run'].includes(label)),
+          narrowed.join(',') + ' of ' + everyone.join(','))
+        push('and All stops being ticked',
+          !document.querySelector('[data-testid="snippet-group-all"]')?.checked)
+      }
+
+      const opsBox = document.querySelector('[data-testid="snippet-group-ops"]')
+      if (opsBox) {
+        opsBox.click()
+        await wait(350)
+        const both = chips()
+        push('a second group is added rather than replacing the first',
+          both.includes('restart-nginx') && both.some((label) => label !== 'restart-nginx'),
+          both.join(','))
+      }
+
+      // Unticking everything is the same as All.
+      if (snipBox) snipBox.click()
+      if (opsBox) opsBox.click()
+      await wait(400)
+      push('and unticking them all shows everything again', chips().length === everyone.length,
+        chips().length + ' of ' + everyone.length)
+
+      // A press outside puts the checklist away. Opened first, because the clicks
+      // above may have left it open (in which case this would close it instead).
+      if (!document.querySelector('[data-testid="snippet-group-menu"]')) toggle.click()
+      await wait(300)
+      const reopened = !!document.querySelector('[data-testid="snippet-group-menu"]')
+      document.body.dispatchEvent(
+        new PointerEvent('pointerdown', { bubbles: true, cancelable: true }))
+      await wait(350)
+      push('a click outside closes the checklist',
+        reopened && !document.querySelector('[data-testid="snippet-group-menu"]'),
+        'opened=' + reopened)
+
       // Clean up.
       const settings = await api.loadSettings()
-      for (const s of settings.snippets.filter((x) => x.group === 'snip')) {
+      for (const s of settings.snippets.filter((x) => x.group === 'snip' || x.group === 'ops')) {
         await api.deleteSnippet(s.id)
       }
 

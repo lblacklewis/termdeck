@@ -852,6 +852,12 @@ export interface Snippet {
    * the snippet it pointed at is how a key ends up doing nothing.
    */
   keys?: string
+  /**
+   * A colour for the chip, as `#rrggbb`. Drawn as a stripe along the bottom edge of
+   * the button, so a wall of similar-looking commands can be told apart at a glance.
+   * Absent means "no stripe".
+   */
+  color?: string
   createdAt: number
   updatedAt: number
 }
