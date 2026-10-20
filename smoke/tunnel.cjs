@@ -178,6 +178,27 @@ async function main() {
         push('the row says it is running',
           !!rowEl && rowEl.getAttribute('data-tunnel-status') === 'running',
           rowEl ? rowEl.getAttribute('data-tunnel-status') : 'no row')
+        /*
+         * Editing a running tunnel stops it (the listener cannot be re-pointed),
+         * so the form has to say so before the user presses Save — otherwise the
+         * forward just disappears.
+         */
+        const editButton = rowEl ? rowEl.querySelector('[data-testid="tunnel-edit"]') : null
+        if (editButton) {
+          editButton.click()
+          const warned = await waitFor(
+            () => !!document.querySelector('[data-testid="tunnel-edit-warning"]'),
+            6000
+          )
+          const warning = document.querySelector('[data-testid="tunnel-edit-warning"]')
+          push('editing a running tunnel warns that saving stops it', warned,
+            warning ? (warning.textContent || '').slice(0, 60) : 'no warning')
+          const cancel = document.querySelector('[data-testid="tunnel-cancel"]')
+          if (cancel) cancel.click()
+          await wait(300)
+        } else {
+          push('the row offers an edit button', false)
+        }
         // Back to the terminal, where the rest of this suite does not care.
         const terminalTab = railItems.find((b) => /terminal|终端/i.test(b.textContent || ''))
         if (terminalTab) terminalTab.click()

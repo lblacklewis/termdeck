@@ -95,6 +95,20 @@ export function TunnelsPage({ hosts }: TunnelsPageProps): JSX.Element {
     setForm(asForm(tunnel))
   }
 
+  /** Only a tunnel that is actually up needs the "saving stops it" warning. */
+  const runningEditing = useMemo(
+    () =>
+      Boolean(
+        editingId &&
+          tunnels.some(
+            (tunnel) =>
+              tunnel.id === editingId &&
+              (tunnel.status === 'running' || tunnel.status === 'starting')
+          )
+      ),
+    [editingId, tunnels]
+  )
+
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (!form) return
@@ -250,6 +264,21 @@ export function TunnelsPage({ hosts }: TunnelsPageProps): JSX.Element {
             </p>
 
             {error && <p className="td-form-error">{error}</p>}
+
+            {/*
+              A running forward cannot be re-pointed: its listener and its SSH
+              channel were built from the numbers in this form, so saving a change
+              to them stops it. Saying so beforehand is the difference between a
+              deliberate restart and "why did my tunnel die?".
+            */}
+            {editingId && runningEditing && (
+              <p className="td-hint" data-testid="tunnel-edit-warning">
+                {t(
+                  'tunnelspage.edit_running',
+                  'This tunnel is running. Changing where it points stops it — press Start again afterwards.'
+                )}
+              </p>
+            )}
 
             <div className="td-page-actions">
               <button className="td-btn td-btn-primary" data-testid="tunnel-save" disabled={busy} type="submit">
