@@ -10,6 +10,8 @@ import type {
   KnownHostEntry,
   LayoutState,
   LocalConnectPayload,
+  SerialConnectPayload,
+  TelnetConnectPayload,
   LockStatus,
   QuitRequest,
   SaveLockRequest,
@@ -52,6 +54,12 @@ const api = {
 
   createLocalSession: (payload: LocalConnectPayload): Promise<CreateSessionResult> =>
     ipcRenderer.invoke('session:createLocal', payload),
+
+  createTelnetSession: (payload: TelnetConnectPayload): Promise<CreateSessionResult> =>
+    ipcRenderer.invoke('session:createTelnet', payload),
+
+  createSerialSession: (payload: SerialConnectPayload): Promise<CreateSessionResult> =>
+    ipcRenderer.invoke('session:createSerial', payload),
 
   duplicateSession: (sourceId: string): Promise<CreateSessionResult> =>
     ipcRenderer.invoke('session:duplicate', sourceId),

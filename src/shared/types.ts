@@ -3,7 +3,7 @@
  * renderer. Keep this dependency-free so all three can import it.
  */
 
-export type SessionKind = 'local' | 'ssh'
+export type SessionKind = 'local' | 'ssh' | 'telnet' | 'serial'
 
 export interface SessionInfo {
   id: string
@@ -47,12 +47,46 @@ export interface SshConnectPayload {
    * the main process and never travel through this payload.
    */
   savedSessionId?: string
+  /**
+   * Lines to run once the session is up, in order (see
+   * `SavedSession.postConnectCommands`). Sent by the main process so they reach
+   * the shell the same way for every transport.
+   */
+  postConnectCommands?: string[]
 }
 
 export interface LocalConnectPayload {
   title?: string
   cols?: number
   rows?: number
+  /** Lines to type into the session once it is up. */
+  postConnectCommands?: string[]
+}
+
+export interface TelnetConnectPayload {
+  host: string
+  port?: number
+  title?: string
+  cols?: number
+  rows?: number
+  /** Lines to type into the session once it is up. */
+  postConnectCommands?: string[]
+  savedSessionId?: string
+}
+
+export interface SerialConnectPayload {
+  /** `COM3` on Windows, `/dev/ttyUSB0` elsewhere. */
+  path: string
+  baudRate?: number
+  dataBits?: 5 | 6 | 7 | 8
+  parity?: 'none' | 'even' | 'odd' | 'mark' | 'space'
+  stopBits?: 1 | 2
+  title?: string
+  cols?: number
+  rows?: number
+  /** Lines to type into the session once it is up. */
+  postConnectCommands?: string[]
+  savedSessionId?: string
 }
 
 export interface SessionExitInfo {
@@ -151,6 +185,25 @@ export interface SavedSession {
   notes?: string
   /** Folder id, or null when the session sits at the root. */
   parentId: string | null
+  /**
+   * What this entry connects as. Absent — every entry saved before telnet and
+   * serial existed — means SSH.
+   */
+  kind?: 'ssh' | 'telnet' | 'serial'
+  /** Line settings. Only meaningful when `kind` is 'serial'. */
+  serial?: {
+    path: string
+    baudRate: number
+    dataBits: 5 | 6 | 7 | 8
+    parity: 'none' | 'even' | 'odd' | 'mark' | 'space'
+    stopBits: 1 | 2
+  }
+  /**
+   * Lines typed into the session once it is up: `sudo -i`, `cd /var/log`, a
+   * pager setting, anything you retype every single time. Sent in order, a
+   * moment after the connection is established.
+   */
+  postConnectCommands?: string[]
   createdAt: number
   updatedAt: number
 }
@@ -864,6 +917,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
 export interface TermDeckApi {
   createSshSession(payload: SshConnectPayload): Promise<CreateSessionResult>
   createLocalSession(payload: LocalConnectPayload): Promise<CreateSessionResult>
+  createTelnetSession(payload: TelnetConnectPayload): Promise<CreateSessionResult>
+  createSerialSession(payload: SerialConnectPayload): Promise<CreateSessionResult>
   /**
    * Open a second, independent connection to the same host as a live session.
    *

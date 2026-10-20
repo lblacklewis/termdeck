@@ -8,6 +8,32 @@ const api = window.termdeck
 /** How the form is being filled: one host, or a list of them. */
 type EditorMode = 'one' | 'many'
 
+/**
+ * What a saved host may connect as.
+ *
+ * `SessionKind` also carries `local`, which is deliberately not offered here:
+ * the machine you are already sitting at is not a host, there is nothing about it
+ * worth remembering, and every entry saved before telnet and serial existed is an
+ * SSH one.
+ */
+type SavedKind = NonNullable<SavedSession['kind']>
+
+/** The line settings of `SavedSession.serial`, named so the state can use them. */
+type SerialDataBits = NonNullable<SavedSession['serial']>['dataBits']
+type SerialParity = NonNullable<SavedSession['serial']>['parity']
+type SerialStopBits = NonNullable<SavedSession['serial']>['stopBits']
+
+/**
+ * Line speeds the serial form offers.
+ *
+ * A menu rather than a text box because the four or five speeds that matter are
+ * known, and a typo in this field is a port that opens and talks nonsense. It is
+ * not a closed list: a saved rate that is not in here is added to the menu
+ * instead of dropped, since a select whose value matches no option renders empty
+ * and the next save would silently replace 1200 with whatever came first.
+ */
+const SERIAL_BAUD_RATES = [9600, 19200, 38400, 57600, 115200]
+
 export interface SessionEditorProps {
   /** Existing session to edit, or null when creating a new one. */
   session: SavedSession | null
@@ -69,6 +95,35 @@ export function SessionEditor({
   const [username, setUsername] = useState(session?.username ?? 'root')
   const [authMethod, setAuthMethod] = useState<AuthMethod>(session?.authMethod ?? 'password')
   const [privateKeyPath, setPrivateKeyPath] = useState(session?.privateKeyPath ?? '')
+
+  /**
+   * What kind of connection this entry is.
+   *
+   * Absent on everything saved before telnet and serial existed, and an absent
+   * kind has always meant SSH, so that is the default here too.
+   */
+  const [kind, setKind] = useState<SavedKind>(session?.kind ?? 'ssh')
+
+  /*
+   * Serial line settings, held one state each rather than as one object: the
+   * fields are edited independently and a change to the baud rate must not be
+   * able to drop the other three.
+   */
+  const [serialPath, setSerialPath] = useState(session?.serial?.path ?? 'COM1')
+  const [baudRate, setBaudRate] = useState(session?.serial?.baudRate ?? 115200)
+  const [dataBits, setDataBits] = useState<SerialDataBits>(session?.serial?.dataBits ?? 8)
+  const [parity, setParity] = useState<SerialParity>(session?.serial?.parity ?? 'none')
+  const [stopBits, setStopBits] = useState<SerialStopBits>(session?.serial?.stopBits ?? 1)
+
+  /**
+   * Commands to type into the session once it is up, as one text block.
+   *
+   * Kept as a single string because a textarea is the whole editor: the line
+   * structure only matters in one place, when the form is saved.
+   */
+  const [postCommands, setPostCommands] = useState(
+    (session?.postConnectCommands ?? []).join('\n')
+  )
 
   /**
    * Batch mode: a list of hosts instead of one form.
@@ -133,9 +188,34 @@ export function SessionEditor({
     return { add, skipped }
   }, [batch.entries, existing, sharedPort, username])
 
+  /*
+   * Where the connection points.
+   *
+   * A serial line has no host, but a saved session does — the store keys entries
+   * by it and the tree prints it — so the device path doubles as one. That is
+   * also the string someone scanning the list is looking for.
+   */
+  const address = kind === 'serial' ? serialPath.trim() : host.trim()
+
+  /*
+   * The SSH-only half of the form: user name, authentication and the credential
+   * fields. Telnet authenticates with nothing at all and a serial line is a wire,
+   * so those fields are hidden rather than left to be filled in for nothing.
+   */
+  const sshOnly = batching || kind === 'ssh'
+
+  /*
+   * The speeds to offer. A saved rate missing from the common list is merged in
+   * at its place in the order, so opening an old 1200-baud entry and saving it
+   * again does not quietly change the line speed.
+   */
+  const baudChoices = SERIAL_BAUD_RATES.includes(baudRate)
+    ? SERIAL_BAUD_RATES
+    : [...SERIAL_BAUD_RATES, baudRate].sort((a, b) => a - b)
+
   const canSave = batching
     ? batchPlan.add.length > 0 && username.trim().length > 0
-    : host.trim().length > 0 && username.trim().length > 0
+    : address.length > 0 && (kind !== 'ssh' || username.trim().length > 0)
 
   /**
    * What the box currently means, in words.
@@ -186,9 +266,43 @@ export function SessionEditor({
     setPasswordTouched(false)
   }
 
+  /**
+   * Switch the connection type without losing what has already been typed.
+   *
+   * The fields are only hidden, never cleared, so going SSH → serial → SSH hands
+   * back the host that was in the box. The port is the single thing that follows
+   * the kind: leaving 22 in the box when the entry becomes telnet would dial the
+   * SSH port on nothing, and 23 left behind when it goes back to SSH is the same
+   * mistake in reverse — but only a value that is still somebody's *default* is
+   * replaced, since a port the user typed (2222) is their number, not ours.
+   */
+  const changeKind = (next: SavedKind): void => {
+    if (next === kind) return
+    const wasDefault = port.trim() === '' || port.trim() === (kind === 'telnet' ? '23' : '22')
+    if (next !== 'serial' && wasDefault) setPort(next === 'telnet' ? '23' : '22')
+    setKind(next)
+  }
+
   const submit = async (e: FormEvent): Promise<void> => {
     e.preventDefault()
-    if (!canSave || busy) return
+    if (busy) return
+
+    /*
+     * An empty address is reported in words rather than only by the disabled Save
+     * button. It is the one half-filled state whose reason is not on screen — a
+     * serial entry's address is a device path, which the host field cannot show —
+     * and a dead button with no explanation is what the batch form was already
+     * criticised for.
+     */
+    if (!batching && !address) {
+      setError(
+        kind === 'serial'
+          ? t('sessioneditor.device_required', 'Enter the serial device path, for example COM3.')
+          : t('sessioneditor.host_required', 'Enter a host name or address.')
+      )
+      return
+    }
+    if (!canSave) return
 
     setBusy(true)
     setError(null)
@@ -222,21 +336,71 @@ export function SessionEditor({
 
       const parsedPort = Number.parseInt(port, 10)
 
+      /*
+       * Each kind has its own default port and a serial line has none at all —
+       * `0` rather than an invented number, because a device path is the whole
+       * address of a serial entry.
+       */
+      const defaultPort = kind === 'telnet' ? 23 : 22
+      const resolvedPort =
+        kind === 'serial'
+          ? 0
+          : Number.isFinite(parsedPort) && parsedPort > 0
+            ? parsedPort
+            : defaultPort
+
+      /*
+       * One command per line, trimmed, with the empty lines dropped: a trailing
+       * newline or the blank line someone leaves between two blocks is not a
+       * command, and sending it would just press Enter on the shell.
+       */
+      const commands = postCommands
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+
+      /*
+       * The name a host gets when none was typed. SSH keeps the `user@host` it has
+       * always had; a telnet host has no user name to prefix and a serial line is
+       * identified by its device.
+       */
+      const defaultName = kind === 'ssh' ? `${username.trim()}@${address}` : address
+
       // Only send credentials the user actually edited; omitted keys keep
       // whatever is already stored (the store merges partial updates), and an
-      // empty string is how a field is explicitly cleared.
+      // empty string is how a field is explicitly cleared. Only SSH has
+      // credentials at all — for the other kinds the fields are hidden, and
+      // sealing a password nobody can see is a secret nothing would read.
       const credential: { password?: string; passphrase?: string } = {}
-      if (passwordTouched) credential.password = password
-      if (passphraseTouched) credential.passphrase = passphrase
+      if (kind === 'ssh') {
+        if (passwordTouched) credential.password = password
+        if (passphraseTouched) credential.passphrase = passphrase
+      }
 
       const tree = await api.saveSession({
         id: session?.id,
-        name: name.trim() || `${username.trim()}@${host.trim()}`,
-        host: host.trim(),
-        port: Number.isFinite(parsedPort) && parsedPort > 0 ? parsedPort : 22,
+        name: name.trim() || defaultName,
+        host: address,
+        port: resolvedPort,
         username: username.trim(),
         authMethod,
         privateKeyPath: privateKeyPath.trim() || undefined,
+        kind,
+        /*
+         * The serial block is written only for a serial entry. The store treats a
+         * *present* key as a write even when the value is `undefined`, so leaving
+         * the key out entirely is what stops an SSH host from growing a block it
+         * has no use for. (Converting an existing serial entry to SSH therefore
+         * leaves the old block in the store — harmless, since `kind` is what
+         * decides how the entry connects, and better than writing a block that
+         * describes a device the user has just moved away from.)
+         */
+        ...(kind === 'serial'
+          ? { serial: { path: address, baudRate, dataBits, parity, stopBits } }
+          : {}),
+        // Same rule for the commands: a host with none does not gain `[]`, it
+        // simply has no list.
+        ...(commands.length > 0 ? { postConnectCommands: commands } : {}),
         tags,
         notes: notes.trim() || undefined,
         parentId,
@@ -265,6 +429,29 @@ export function SessionEditor({
   return (
     <form className="td-drawer-form" onSubmit={(e) => void submit(e)} data-testid="session-form">
       <div className="td-form">
+        {/*
+          What the entry connects as decides which of the fields below exist at
+          all, so it is asked first. Not offered while filling in a batch: that
+          form is a list of addresses, and neither a serial device nor a telnet
+          line is something a range of hosts can stand for.
+        */}
+        {!batching && (
+          <label className="td-field">
+            <span>{t('sessioneditor.connection_type', 'Connection type')}</span>
+            <select
+              aria-label="session-kind"
+              className="td-select"
+              data-testid="session-kind"
+              value={kind}
+              onChange={(e) => changeKind(e.target.value as SavedKind)}
+            >
+              <option value="ssh">SSH</option>
+              <option value="telnet">Telnet</option>
+              <option value="serial">Serial</option>
+            </select>
+          </label>
+        )}
+
         {/*
           One host or many. Only offered when creating: editing is about a session
           that exists, and there is no such thing as editing six of them at once.
@@ -323,6 +510,111 @@ export function SessionEditor({
               {batchSummary}
             </p>
           </>
+        ) : kind === 'serial' ? (
+          <>
+            {/*
+              A serial console: the device instead of an address, the line speed
+              beside it, and the three small line settings below. They are on a
+              second row on purpose — 8 / none / 1 is what almost every console
+              wants, so they should be readable without competing with the two
+              values that actually change per cable.
+            */}
+            <div className="td-field-row">
+              <label className="td-field td-field-grow">
+                <span>{t('sessioneditor.device', 'Device')}</span>
+                <input
+                  aria-label="session-serial-path"
+                  data-testid="session-serial-path"
+                  value={serialPath}
+                  onChange={(e) => setSerialPath(e.target.value)}
+                  placeholder="COM3"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="td-field">
+                <span>{t('sessioneditor.baud_rate', 'Baud rate')}</span>
+                <select
+                  aria-label="session-baud"
+                  className="td-select"
+                  data-testid="session-baud"
+                  value={String(baudRate)}
+                  onChange={(e) => setBaudRate(Number(e.target.value))}
+                >
+                  {baudChoices.map((rate) => (
+                    <option key={rate} value={rate}>
+                      {rate}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="td-field-row">
+              <label className="td-field td-field-grow">
+                <span>{t('sessioneditor.data_bits', 'Data bits')}</span>
+                <select
+                  aria-label="session-data-bits"
+                  className="td-select"
+                  data-testid="session-data-bits"
+                  value={String(dataBits)}
+                  onChange={(e) => setDataBits(Number(e.target.value) as SerialDataBits)}
+                >
+                  {([5, 6, 7, 8] as SerialDataBits[]).map((bits) => (
+                    <option key={bits} value={bits}>
+                      {bits}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="td-field td-field-grow">
+                <span>{t('sessioneditor.parity', 'Parity')}</span>
+                <select
+                  aria-label="session-parity"
+                  className="td-select"
+                  data-testid="session-parity"
+                  value={parity}
+                  onChange={(e) => setParity(e.target.value as SerialParity)}
+                >
+                  {(
+                    [
+                      ['none', 'None'],
+                      ['even', 'Even'],
+                      ['odd', 'Odd'],
+                      ['mark', 'Mark'],
+                      ['space', 'Space']
+                    ] as Array<[SerialParity, string]>
+                  ).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="td-field td-field-grow">
+                <span>{t('sessioneditor.stop_bits', 'Stop bits')}</span>
+                <select
+                  aria-label="session-stop-bits"
+                  className="td-select"
+                  data-testid="session-stop-bits"
+                  value={String(stopBits)}
+                  onChange={(e) => setStopBits(Number(e.target.value) as SerialStopBits)}
+                >
+                  {([1, 2] as SerialStopBits[]).map((bits) => (
+                    <option key={bits} value={bits}>
+                      {bits}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <span className="td-hint">
+              {t(
+                'sessioneditor.serial_path_hint',
+                'COM3 on Windows, /dev/ttyUSB0 or /dev/ttyS0 elsewhere. The path is also used as the host, so the entry stays findable in the list.'
+              )}
+            </span>
+          </>
         ) : (
           <div className="td-field-row">
             <label className="td-field td-field-grow">
@@ -352,28 +644,30 @@ export function SessionEditor({
           together on one row there; the port is only a per-host field in the
           single form, where it has already been asked for above.
         */}
-        <div className={batching ? 'td-field-row' : undefined}>
-          <label className={batching ? 'td-field td-field-grow' : 'td-field'}>
-            <span>{t('sessioneditor.username', 'Username')}</span>
-            <input
-              aria-label="session-username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              spellCheck={false}
-            />
-          </label>
-          {batching && (
-            <label className="td-field td-field-port">
-              <span>{t('sessioneditor.port_2', 'Port')}</span>
+        {sshOnly && (
+          <div className={batching ? 'td-field-row' : undefined}>
+            <label className={batching ? 'td-field td-field-grow' : 'td-field'}>
+              <span>{t('sessioneditor.username', 'Username')}</span>
               <input
-                aria-label="session-port"
-                value={port}
-                onChange={(e) => setPort(e.target.value)}
-                inputMode="numeric"
+                aria-label="session-username"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                spellCheck={false}
               />
             </label>
-          )}
-        </div>
+            {batching && (
+              <label className="td-field td-field-port">
+                <span>{t('sessioneditor.port_2', 'Port')}</span>
+                <input
+                  aria-label="session-port"
+                  value={port}
+                  onChange={(e) => setPort(e.target.value)}
+                  inputMode="numeric"
+                />
+              </label>
+            )}
+          </div>
+        )}
 
         <label className="td-field">
           <span>{t('sessioneditor.folder', 'Folder')}</span>
@@ -392,29 +686,37 @@ export function SessionEditor({
           </select>
         </label>
 
-        <div className="td-field">
-          <span>{t('sessioneditor.authentication', 'Authentication')}</span>
-          <div className="td-segmented">
-            {(
-              [
-                ['password', 'Password'],
-                ['key', 'Private key'],
-                ['agent', 'SSH agent']
-              ] as Array<[AuthMethod, string]>
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={authMethod === value ? 'is-active' : ''}
-                onClick={() => setAuthMethod(value)}
-              >
-                {label}
-              </button>
-            ))}
+        {/*
+          Authentication, and the credential fields it selects, exist only for
+          SSH. A telnet session has no user name or key to give and a serial line
+          is not authenticated at all, so the whole group is hidden for them
+          rather than left on screen implying a secret is needed.
+        */}
+        {sshOnly && (
+          <div className="td-field">
+            <span>{t('sessioneditor.authentication', 'Authentication')}</span>
+            <div className="td-segmented">
+              {(
+                [
+                  ['password', 'Password'],
+                  ['key', 'Private key'],
+                  ['agent', 'SSH agent']
+                ] as Array<[AuthMethod, string]>
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={authMethod === value ? 'is-active' : ''}
+                  onClick={() => setAuthMethod(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {authMethod === 'password' && (
+        {sshOnly && authMethod === 'password' && (
           <label className="td-field">
             <span>
               {t('sessioneditor.password', 'Password')}
@@ -448,7 +750,7 @@ export function SessionEditor({
           </label>
         )}
 
-        {authMethod === 'key' && (
+        {sshOnly && authMethod === 'key' && (
           <>
             <label className="td-field">
               <span>{t('sessioneditor.private_key_file', 'Private key file')}</span>
@@ -497,10 +799,40 @@ export function SessionEditor({
           </>
         )}
 
-        {authMethod === 'agent' && (
+        {sshOnly && authMethod === 'agent' && (
           <p className="td-hint">
             {t('sessioneditor.uses', 'Uses')}<code>SSH_AUTH_SOCK</code>{t('sessioneditor.or_pageant_on_windows', ', or Pageant on Windows.')}
           </p>
+        )}
+
+        {/*
+          Commands typed into the session once it is up — `sudo -i`, a tail, a
+          pager setting, whatever gets retyped every single time. Offered for all
+          three kinds because a telnet console and a serial switch have exactly
+          the same "first four things" problem an SSH session does. Hidden while
+          filling in a batch: those entries are addresses, and the same commands
+          on twenty hosts at once is a guess rather than a convenience.
+        */}
+        {!batching && (
+          <label className="td-field">
+            <span>{t('sessioneditor.post_connect_commands', 'Commands to run after login')}</span>
+            <textarea
+              aria-label="session-post-commands"
+              className="td-textarea"
+              data-testid="session-post-commands"
+              rows={4}
+              spellCheck={false}
+              placeholder={'sudo -i\ncd /var/log\nless -R app.log'}
+              value={postCommands}
+              onChange={(e) => setPostCommands(e.target.value)}
+            />
+            <span className="td-hint">
+              {t(
+                'sessioneditor.post_connect_hint',
+                'One command per line. Each is typed into the session once it is up, in order, with a moment in between; blank lines are ignored.'
+              )}
+            </span>
+          </label>
         )}
 
         <div className="td-field">

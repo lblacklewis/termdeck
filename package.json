@@ -43,6 +43,7 @@
     "smoke:dragdrop": "npm run build && electron smoke/dragdrop.cjs --user-data-dir=node_modules/.smoke-data/dragdrop",
     "smoke:duplicate": "npm run build && electron smoke/duplicate.cjs --user-data-dir=node_modules/.smoke-data/duplicate",
     "smoke:reconnect": "npm run build && electron smoke/reconnect.cjs --user-data-dir=node_modules/.smoke-data/reconnect",
+    "smoke:transport": "npm run build && electron smoke/transport.cjs --user-data-dir=node_modules/.smoke-data/transport",
     "smoke:quit": "npm run build && electron smoke/quit.cjs --user-data-dir=node_modules/.smoke-data/quit",
     "smoke:drawer": "npm run build && electron smoke/drawer.cjs --user-data-dir=node_modules/.smoke-data/drawer",
     "smoke:wellbeing": "npm run build && electron smoke/wellbeing.cjs --user-data-dir=node_modules/.smoke-data/wellbeing",
@@ -51,7 +52,7 @@
     "smoke:gesture": "npm run build && electron smoke/gesture.cjs --user-data-dir=node_modules/.smoke-data/gesture",
     "smoke:share": "npm run build && electron smoke/share.cjs --user-data-dir=node_modules/.smoke-data/share",
     "smoke:type": "npm run build && electron smoke/type.cjs --user-data-dir=node_modules/.smoke-data/type",
-    "verify": "npm run check:probes && npm run check:i18n && npm run typecheck && npm run smoke:deps && npm run smoke:ssh && npm run smoke:ui && npm run smoke:features && npm run smoke:regress && npm run smoke:ui2 && npm run smoke:ui3 && npm run smoke:ui4 && npm run smoke:ui5 && npm run smoke:ctxmenu && npm run smoke:tabmenu && npm run smoke:features2 && npm run smoke:features3 && npm run smoke:geom && npm run smoke:repeat && npm run smoke:chrome && npm run smoke:scale && npm run smoke:migrate && npm run smoke:hosts && npm run smoke:dragdrop && npm run smoke:duplicate && npm run smoke:reconnect && npm run smoke:quit && npm run smoke:drawer && npm run smoke:wellbeing && npm run smoke:nav && npm run smoke:batch && npm run smoke:gesture && npm run smoke:type && npm run smoke:share && npm run smoke:snippet && npm run smoke:layout && npm run smoke:i18n && npm run smoke:tile && npm run smoke:suggest && npm run smoke:knownhosts && npm run smoke:onboarding && npm run smoke:contrast",
+    "verify": "npm run check:probes && npm run check:i18n && npm run typecheck && npm run smoke:deps && npm run smoke:ssh && npm run smoke:ui && npm run smoke:features && npm run smoke:regress && npm run smoke:ui2 && npm run smoke:ui3 && npm run smoke:ui4 && npm run smoke:ui5 && npm run smoke:ctxmenu && npm run smoke:tabmenu && npm run smoke:features2 && npm run smoke:features3 && npm run smoke:geom && npm run smoke:repeat && npm run smoke:chrome && npm run smoke:scale && npm run smoke:migrate && npm run smoke:hosts && npm run smoke:dragdrop && npm run smoke:duplicate && npm run smoke:reconnect && npm run smoke:transport && npm run smoke:quit && npm run smoke:drawer && npm run smoke:wellbeing && npm run smoke:nav && npm run smoke:batch && npm run smoke:gesture && npm run smoke:type && npm run smoke:share && npm run smoke:snippet && npm run smoke:layout && npm run smoke:i18n && npm run smoke:tile && npm run smoke:suggest && npm run smoke:knownhosts && npm run smoke:onboarding && npm run smoke:contrast",
     "smoke:geom": "npm run build && electron smoke/geom.cjs --user-data-dir=node_modules/.smoke-data/geom",
     "smoke:chrome": "npm run build && electron smoke/chrome.cjs --user-data-dir=node_modules/.smoke-data/chrome",
     "build:win": "npm run build && electron-builder --win --dir",
@@ -67,7 +68,8 @@
     "ssh2": "^1.17.0"
   },
   "optionalDependencies": {
-    "@lydell/node-pty": "^1.2.0-beta.15"
+    "@lydell/node-pty": "^1.2.0-beta.15",
+    "serialport": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

@@ -29,9 +29,20 @@ import {
   type SidebarSectionId,
   type SidebarSide,
   type Snippet,
+  type SerialConnectPayload,
   type SshConnectPayload,
+  type TelnetConnectPayload,
   type TerminalPanelMeta
 } from '@shared/types'
+
+/**
+ * A connect attempt's own payload, whichever transport it belongs to.
+ *
+ * Only SSH carries credentials and host-key decisions; telnet and serial just
+ * need enough to come back to the right saved entry and to know which lines to
+ * type in afterwards.
+ */
+type ConnectPayload = SshConnectPayload | TelnetConnectPayload | SerialConnectPayload
 import { ReactContentRenderer, ReactWatermarkRenderer, refreshPanelParams } from './components/ReactRenderer'
 import { TerminalPanel } from './components/TerminalPanel'
 import { WelcomePanel } from './components/WelcomePanel'
@@ -1283,12 +1294,14 @@ export function App(): JSX.Element {
 
   /** Applies a connection result, surfacing host-key decisions to the user. */
   const handleResult = useCallback(
-    (result: CreateSessionResult, payload: SshConnectPayload) => {
+    (result: CreateSessionResult, payload: ConnectPayload) => {
       setConnectingId(null)
 
       if (result.ok) {
         addSession(result.session, payload.savedSessionId)
-        void autoSaveQuickConnect(payload)
+        // Only SSH can arrive anonymous: the connect dialog is SSH-only, so a
+        // telnet or serial session always came from an entry in the tree.
+        if ('auth' in payload) void autoSaveQuickConnect(payload)
         setDialogOpen(false)
         setConnectError(null)
         setAlert(null)
@@ -1296,7 +1309,7 @@ export function App(): JSX.Element {
       }
 
       const { error } = result
-      if (error.code === 'HOST_KEY_REQUIRED' && error.prompt) {
+      if ('auth' in payload && error.code === 'HOST_KEY_REQUIRED' && error.prompt) {
         // The prompt carries the exact key that was presented, so approving it
         // records precisely what the user was shown.
         setHostKeyRequest({
@@ -1352,32 +1365,77 @@ export function App(): JSX.Element {
     [addSession, dialogOpen]
   )
 
+  /**
+   * Connect one saved entry, whichever transport it is.
+   *
+   * The pane, the tree row and the reconnect path all come through here, so the
+   * kind is resolved in exactly one place. Telnet and serial deliberately carry
+   * no credentials: telnet's login is part of the stream (that is what the
+   * session's post-connect commands are for) and a serial line has no login at
+   * all.
+   */
   const connectSaved = useCallback(
     async (session: SavedSession, password?: string) => {
-      const payload: SshConnectPayload = {
-        host: session.host,
-        port: session.port,
-        username: session.username,
-        title: session.name,
-        // Credentials for a saved session are read by the main process from the
-        // encrypted store; an explicit password here is a one-off typed by the
-        // user in the connect prompt and takes precedence.
-        savedSessionId: session.id,
-        auth:
-          session.authMethod === 'agent'
-            ? { useAgent: true }
-            : session.authMethod === 'key'
-              ? { privateKeyPath: session.privateKeyPath }
-              : password !== undefined
-                ? { password }
-                : {}
-      }
-
       setAlert(null)
       setConnectingId(session.id)
+
       try {
-        const result = await api.createSshSession(payload)
-        handleResult(result, payload)
+        if (session.kind === 'serial') {
+          // `serial` is the authority; `host` is only a fallback for an entry
+          // written before the settings were stored (the tree shows the path).
+          const serial = session.serial ?? {
+            path: session.host,
+            baudRate: 115200,
+            dataBits: 8 as const,
+            parity: 'none' as const,
+            stopBits: 1 as const
+          }
+          const payload: SerialConnectPayload = {
+            path: serial.path,
+            baudRate: serial.baudRate,
+            dataBits: serial.dataBits,
+            parity: serial.parity,
+            stopBits: serial.stopBits,
+            title: session.name,
+            postConnectCommands: session.postConnectCommands,
+            savedSessionId: session.id
+          }
+          handleResult(await api.createSerialSession(payload), payload)
+          return
+        }
+
+        if (session.kind === 'telnet') {
+          const payload: TelnetConnectPayload = {
+            host: session.host,
+            port: session.port || 23,
+            title: session.name,
+            postConnectCommands: session.postConnectCommands,
+            savedSessionId: session.id
+          }
+          handleResult(await api.createTelnetSession(payload), payload)
+          return
+        }
+
+        const payload: SshConnectPayload = {
+          host: session.host,
+          port: session.port,
+          username: session.username,
+          title: session.name,
+          // Credentials for a saved session are read by the main process from the
+          // encrypted store; an explicit password here is a one-off typed by the
+          // user in the connect prompt and takes precedence.
+          savedSessionId: session.id,
+          postConnectCommands: session.postConnectCommands,
+          auth:
+            session.authMethod === 'agent'
+              ? { useAgent: true }
+              : session.authMethod === 'key'
+                ? { privateKeyPath: session.privateKeyPath }
+                : password !== undefined
+                  ? { password }
+                  : {}
+        }
+        handleResult(await api.createSshSession(payload), payload)
       } catch (err) {
         // A transport-level rejection would otherwise leave the row spinning.
         setConnectingId(null)

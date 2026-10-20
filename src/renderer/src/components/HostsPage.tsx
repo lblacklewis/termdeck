@@ -1,6 +1,7 @@
 import { useMemo, useState, type JSX } from 'react'
 import type { HostsView, SavedSession, SessionFolder, SessionInfo, SessionTree } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
+import { describeTarget } from './sessionLabel'
 import { t } from '../i18n'
 
 interface HostsPageProps {
@@ -340,7 +341,7 @@ export function HostsPage({
             <div className="td-host-main">
               <span className="td-host-name">{session.name}</span>
               <span className="td-host-address td-mono">
-                {session.username}@{session.host}:{session.port}
+                {describeTarget(session)}
               </span>
             </div>
 

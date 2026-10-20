@@ -350,6 +350,35 @@ export class SettingsStore {
   }
 }
 
+/**
+ * A stored serial block, with anything unusable replaced by a default.
+ *
+ * Returns `undefined` for an entry with no device: a serial record without a
+ * path is not a serial entry, and keeping a half-filled one would make the tree
+ * show a device that cannot be opened.
+ */
+function sanitiseSerial(input: SavedSession['serial']): SavedSession['serial'] {
+  if (!input || typeof input.path !== 'string' || input.path.trim() === '') return undefined
+  const { dataBits, parity } = input
+  return {
+    path: input.path,
+    baudRate: typeof input.baudRate === 'number' && input.baudRate > 0 ? input.baudRate : 115200,
+    dataBits: dataBits === 5 || dataBits === 6 || dataBits === 7 || dataBits === 8 ? dataBits : 8,
+    parity:
+      parity === 'even' || parity === 'odd' || parity === 'mark' || parity === 'space'
+        ? parity
+        : 'none',
+    stopBits: input.stopBits === 2 ? 2 : 1
+  }
+}
+
+/** The post-connect list, minus blank lines and anything that is not a string. */
+function sanitiseCommands(input: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(input)) return undefined
+  const lines = input.filter((line) => typeof line === 'string' && line.trim() !== '')
+  return lines.length > 0 ? lines : undefined
+}
+
 function sanitiseTree(stored: Partial<SessionTree> | null): SessionTree {
   const folders: SessionFolder[] = Array.isArray(stored?.folders)
     ? stored.folders
@@ -377,6 +406,12 @@ function sanitiseTree(stored: Partial<SessionTree> | null): SessionTree {
           username: s.username || 'root',
           authMethod: s.authMethod === 'key' || s.authMethod === 'agent' ? s.authMethod : 'password',
           privateKeyPath: s.privateKeyPath,
+          // Transport and its extras survive a reload only because this list is
+          // explicit: it is the read path, and anything not named here is
+          // silently dropped on the next launch.
+          kind: s.kind === 'telnet' || s.kind === 'serial' ? s.kind : 'ssh',
+          serial: sanitiseSerial(s.serial),
+          postConnectCommands: sanitiseCommands(s.postConnectCommands),
           tags: Array.isArray(s.tags) ? s.tags.filter((t) => typeof t === 'string') : [],
           color: s.color,
           notes: s.notes,
@@ -466,6 +501,9 @@ export class SessionStore {
         'username',
         'authMethod',
         'privateKeyPath',
+        'kind',
+        'serial',
+        'postConnectCommands',
         'tags',
         'color',
         'notes',
@@ -486,6 +524,9 @@ export class SessionStore {
       username: input.username ?? 'root',
       authMethod: input.authMethod ?? 'password',
       privateKeyPath: input.privateKeyPath,
+      kind: input.kind,
+      serial: input.serial,
+      postConnectCommands: input.postConnectCommands,
       tags: input.tags ?? [],
       color: input.color,
       notes: input.notes,

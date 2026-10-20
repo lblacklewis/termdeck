@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type DragEvent, type JSX } from 'react'
 import type { SavedSession, SessionFolder, SessionTree as Tree } from '@shared/types'
+import { describeTarget } from './sessionLabel'
 import { t } from '../i18n'
 
 export type DragPayload =
@@ -226,7 +227,7 @@ export function SessionTree({
               // double click does not also fire the connect action once.
               onClick={() => onSelectSession(session)}
               onDoubleClick={() => onOpenSession(session)}
-              title={`${session.username}@${session.host}:${session.port} — double-click to connect`}
+              title={`${describeTarget(session)} — double-click to connect`}
             >
               <span
                 className="td-node-dot"

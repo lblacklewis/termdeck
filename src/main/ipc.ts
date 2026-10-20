@@ -5,6 +5,8 @@ import { timingSafeEqual } from 'node:crypto'
 
 import { sessionManager } from './sessions/SessionManager'
 import { LocalShellBackend, isLocalShellAvailable } from './sessions/LocalShellBackend'
+import { TelnetBackend, type TelnetOptions } from './sessions/TelnetBackend'
+import { SerialBackend, isSerialAvailable, type SerialOptions } from './sessions/SerialBackend'
 import {
   buildShareDocument,
   packShare,
@@ -32,6 +34,7 @@ import type {
   HostKeyPrompt,
   LayoutState,
   LockStatus,
+  LocalConnectPayload,
   SaveLockRequest,
   SavedSession,
   SaveTextFileRequest,
@@ -47,10 +50,12 @@ import type {
   ShareImportResult,
   SharePeekResult,
   SharePickResult,
+  SerialConnectPayload,
   SftpListResult,
   SftpTransferResult,
   Snippet,
   SshConnectPayload,
+  TelnetConnectPayload,
   TrustHostKeyRequest
 } from '@shared/types'
 
@@ -74,8 +79,31 @@ const HANDSHAKE_WATCH_MS = 8_000
  * entry.
  */
 type SessionBlueprint =
-  | { kind: 'ssh'; options: SshConnectOptions; cols: number; rows: number }
-  | { kind: 'local'; title: string; cols: number; rows: number }
+  | { kind: 'ssh'; options: SshConnectOptions; cols: number; rows: number; post?: string[] }
+  | { kind: 'local'; title: string; cols: number; rows: number; post?: string[] }
+  | { kind: 'telnet'; options: TelnetOptions; cols: number; rows: number; post?: string[] }
+  | { kind: 'serial'; options: SerialOptions; cols: number; rows: number; post?: string[] }
+
+/**
+ * Type a session's post-connect lines in, once it is up.
+ *
+ * Spaced rather than pasted as one blob on purpose: the far end needs a moment
+ * to finish its banner and reach a prompt, and a console that is still booting
+ * drops whatever arrives before it is listening. The first delay is longer than
+ * the rest because that is the one covering the login banner.
+ */
+function runPostConnect(sessionId: string, commands: string[] | undefined, delay = 900): void {
+  const lines = (commands ?? []).map((line) => line.trim()).filter((line) => line.length > 0)
+  if (lines.length === 0) return
+  let at = delay
+  for (const line of lines) {
+    setTimeout(() => {
+      // A session that died in the meantime is a no-op rather than a throw.
+      sessionManager.write(sessionId, line + '\r')
+    }, at)
+    at += 400
+  }
+}
 
 const blueprints = new Map<string, SessionBlueprint>()
 
@@ -365,10 +393,12 @@ export function registerIpc(): void {
       }
     }
 
-    return openSsh(options, cols, rows)
+    const result = await openSsh(options, cols, rows)
+    if (result.ok) runPostConnect(result.session.id, payload.postConnectCommands)
+    return result
   })
 
-  ipcMain.handle('session:createLocal', async (_e, payload: CreateBase & { title?: string }) => {
+  ipcMain.handle('session:createLocal', async (_e, payload: LocalConnectPayload) => {
     if (!isLocalShellAvailable()) {
       throw new Error('Local shell is unavailable on this machine. Use an SSH connection instead.')
     }
@@ -383,7 +413,8 @@ export function registerIpc(): void {
       cols,
       rows
     )
-    blueprints.set(info.id, { kind: 'local', title, cols, rows })
+    blueprints.set(info.id, { kind: 'local', title, cols, rows, post: payload.postConnectCommands })
+    runPostConnect(info.id, payload.postConnectCommands)
 
     return { ok: true, session: info }
   })
@@ -397,6 +428,79 @@ export function registerIpc(): void {
    * password resolved from the vault) never leave this process, so the renderer
    * cannot get the host or the credentials wrong.
    */
+  /**
+   * Telnet: a bare TCP terminal, no login of our own.
+   *
+   * Nothing here negotiates credentials, because telnet has none — the login
+   * prompt is part of the stream. What `postConnectCommands` is for.
+   */
+  ipcMain.handle('session:createTelnet', async (_e, payload: TelnetConnectPayload) => {
+    const cols = payload.cols ?? 80
+    const rows = payload.rows ?? 24
+    const title = payload.title?.trim() || `${payload.host}:${payload.port ?? 23}`
+    const options: TelnetOptions = { host: payload.host, port: payload.port }
+
+    const info = await sessionManager.create(
+      (_id, c, r) => Promise.resolve(new TelnetBackend(options, c, r)),
+      { kind: 'telnet', title },
+      cols,
+      rows
+    )
+    blueprints.set(info.id, {
+      kind: 'telnet',
+      options,
+      cols,
+      rows,
+      post: payload.postConnectCommands
+    })
+    runPostConnect(info.id, payload.postConnectCommands)
+
+    return { ok: true, session: info }
+  })
+
+  /**
+   * Serial: a console line, for gear that has no network stack at all.
+   *
+   * A missing `serialport` is reported the same way as a missing node-pty build
+   * — as a refused connection with a reason, not as a crash.
+   */
+  ipcMain.handle('session:createSerial', async (_e, payload: SerialConnectPayload) => {
+    if (!isSerialAvailable()) {
+      throw new Error(
+        'Serial is unavailable in this build: the optional `serialport` module is missing.'
+      )
+    }
+
+    const cols = payload.cols ?? 80
+    const rows = payload.rows ?? 24
+    const title = payload.title?.trim() || payload.path
+    const options: SerialOptions = {
+      path: payload.path,
+      baudRate: payload.baudRate,
+      dataBits: payload.dataBits,
+      parity: payload.parity,
+      stopBits: payload.stopBits
+    }
+
+    const info = await sessionManager.create(
+      (_id, c, r) => Promise.resolve(new SerialBackend(options)),
+      { kind: 'serial', title },
+      cols,
+      rows
+    )
+    blueprints.set(info.id, {
+      kind: 'serial',
+      options,
+      cols,
+      rows,
+      post: payload.postConnectCommands
+    })
+    // Serial lines are already open, so there is no banner to wait for.
+    runPostConnect(info.id, payload.postConnectCommands, 300)
+
+    return { ok: true, session: info }
+  })
+
   ipcMain.handle('session:duplicate', async (_e, sourceId: string): Promise<CreateSessionResult> => {
     const blueprint = blueprints.get(sourceId)
     if (!blueprint) {
@@ -417,6 +521,30 @@ export function registerIpc(): void {
         blueprint.rows
       )
       blueprints.set(info.id, { ...blueprint })
+      return { ok: true, session: info }
+    }
+
+    if (blueprint.kind === 'telnet') {
+      const info = await sessionManager.create(
+        (_id, c, r) => Promise.resolve(new TelnetBackend(blueprint.options, c, r)),
+        { kind: 'telnet', title: blueprint.options.host },
+        blueprint.cols,
+        blueprint.rows
+      )
+      blueprints.set(info.id, { ...blueprint })
+      runPostConnect(info.id, blueprint.post)
+      return { ok: true, session: info }
+    }
+
+    if (blueprint.kind === 'serial') {
+      const info = await sessionManager.create(
+        (_id, c, r) => Promise.resolve(new SerialBackend(blueprint.options)),
+        { kind: 'serial', title: blueprint.options.path },
+        blueprint.cols,
+        blueprint.rows
+      )
+      blueprints.set(info.id, { ...blueprint })
+      runPostConnect(info.id, blueprint.post, 300)
       return { ok: true, session: info }
     }
 
