@@ -266,6 +266,15 @@ async function main() {
         state.profiles[0] ? String(state.profiles[0].secretAccessKey) : 'none')
       push('nor in the draft', !state.draft || state.draft.secretAccessKey === undefined)
 
+      // Keeping the same connection twice must not produce two rows: the first
+      // version compared a scheme-stripped name against the full endpoint, so it
+      // matched nothing and appended a duplicate every click.
+      field('s3-profile-save').click()
+      await wait(600)
+      const twice = await window.termdeck.loadS3State()
+      push('keeping the same connection again updates it instead of duplicating',
+        twice.profiles.length === 1, 'profiles=' + twice.profiles.length)
+
       return out
       } catch (err) {
         out.push({ name: 'failed at step: ' + step, ok: false, detail: String((err && err.message) || err) })

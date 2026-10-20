@@ -231,20 +231,26 @@ export function S3Page(): JSX.Element {
               className="td-btn"
               data-testid="s3-profile-save"
               type="button"
-              onClick={() =>
-                void persist([
-                  ...profiles.filter((entry) => entry.name !== connection.endpoint),
-                  {
-                    id: profileId || `${Date.now().toString(36)}`,
-                    name: connection.endpoint.replace(/^https?:\/\//, ''),
-                    endpoint: connection.endpoint,
-                    region: connection.region,
-                    accessKeyId: connection.accessKeyId,
-                    pathStyle: connection.pathStyle,
-                    insecure: connection.insecure
-                  }
-                ])
-              }
+              onClick={() => {
+                /*
+                 * Keyed by id, not by name. Two profiles may point at the same
+                 * endpoint with different keys, and a new one has no id yet — so
+                 * the only reliable rule is: replace the entry being edited, append
+                 * otherwise.
+                 */
+                const id = profileId || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+                const entry: S3Profile = {
+                  id,
+                  name: connection.endpoint.replace(/^https?:\/\//, ''),
+                  endpoint: connection.endpoint,
+                  region: connection.region,
+                  accessKeyId: connection.accessKeyId,
+                  pathStyle: connection.pathStyle,
+                  insecure: connection.insecure
+                }
+                setProfileId(id)
+                void persist([...profiles.filter((other) => other.id !== id), entry])
+              }}
             >
               {t('s3page.keep', 'Keep')}
             </button>
