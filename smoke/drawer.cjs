@@ -138,6 +138,32 @@ async function main() {
         ))
 
       /*
+       * ---- 1a. the footer stays a row --------------------------------------
+       * Measured, not eyeballed. It may wrap on a narrow drawer — there are eight
+       * icon buttons — so what is asserted is that the first line holds several of
+       * them, which is what tells a wrapping row from a column. That distinction is
+       * not hypothetical: a stylesheet edit once cut a selector in half and turned
+       * "the collapsed rail stacks its icons" into an unconditional column, and the
+       * whole bottom bar went vertical.
+       */
+      step = 'footer row'
+      const footerIcons = [...document.querySelectorAll('.td-sidebar-footer .td-icon-btn')].map(
+        (el) => el.getBoundingClientRect()
+      )
+      push('the footer has its icon buttons', footerIcons.length >= 5,
+        'icons=' + footerIcons.length)
+      const firstLine = footerIcons.filter(
+        (rect) => Math.abs(rect.top - footerIcons[0].top) < 4
+      ).length
+      const runsRight = footerIcons
+        .filter((rect) => Math.abs(rect.top - footerIcons[0].top) < 4)
+        .every((rect, i, line) => i === 0 || rect.left > line[i - 1].left)
+      push('and a row of them, not one per line',
+        footerIcons.length > 1 && firstLine >= 3 && runsRight,
+        'first line=' + firstLine + ' of ' + footerIcons.length +
+          ' lefts=' + footerIcons.map((r) => Math.round(r.left)).join(','))
+
+      /*
        * ---- 1b. searching the session list ----------------------------------
        * Name, address and tag are the three things people look a host up by, and
        * the tags are already chips below this box — so the check is that the box
