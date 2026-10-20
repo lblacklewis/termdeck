@@ -137,10 +137,20 @@ function mergeSidebarSections(stored: unknown): SidebarSectionState[] {
     if (typeof id !== 'string' || !known.has(id)) continue
     if (merged.some((s) => s.id === id)) continue
     const state = entry as SidebarSectionState
+    const definition = DEFAULT_SIDEBAR_SECTIONS.find((s) => s.id === id)
     merged.push({
       id: id as SidebarSectionId,
       visible: state.visible !== false,
-      collapsed: state.collapsed === true,
+      /*
+       * A section nobody has ever folded follows its built-in default; one the
+       * user has toggled keeps what they chose (`collapsed: false` is written
+       * explicitly when a section is expanded).
+       *
+       * This is what gives existing installs the folded SFTP panel: they never
+       * stored a `collapsed` at all, so there is no choice here to override.
+       */
+      collapsed:
+        state.collapsed === undefined ? definition?.collapsed === true : state.collapsed === true,
       height: clampSectionHeight(state.height)
     })
   }

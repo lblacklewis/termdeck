@@ -573,6 +573,25 @@ async function main() {
           !localEntries.some((e) => e.command.includes('TD_SSH_HISTORY')),
         'ssh=' + JSON.stringify(sshEntries.map((e) => e.command.slice(0, 24))))
 
+      /*
+       * Folded by default, and folded means *not connected*: the panel is not
+       * mounted at all, so no second channel to the host is opened until someone
+       * asks to see a directory listing.
+       */
+      const sftpSection = document.querySelector('[data-section="sftp"]')
+      push('the sftp panel starts folded',
+        !!sftpSection && sftpSection.getAttribute('data-collapsed') === 'true',
+        sftpSection ? 'collapsed=' + sftpSection.getAttribute('data-collapsed') : 'no section')
+      push('and nothing is listed before it is opened',
+        document.querySelectorAll('[data-sftp-entry]').length === 0,
+        'rows=' + document.querySelectorAll('[data-sftp-entry]').length)
+      const sftpToggle = document.querySelector('[data-testid="toggle-sftp"]')
+      if (sftpToggle) sftpToggle.click()
+      push('opening it expands the section', await waitFor(
+        () => (document.querySelector('[data-section="sftp"]') || {}).getAttribute?.('data-collapsed') === 'false',
+        8000
+      ))
+
       const listed2 = await waitFor(
         () => (document.querySelectorAll('[data-sftp-entry]').length > 0),
         20000

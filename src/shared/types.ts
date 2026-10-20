@@ -622,7 +622,15 @@ export const DEFAULT_SIDEBAR_SECTIONS: SidebarSectionState[] = [
   { id: 'sessions', visible: true },
   { id: 'openSessions', visible: true },
   { id: 'history', visible: true },
-  { id: 'sftp', visible: true }
+  /*
+   * Folded by default, and it stays folded until someone opens it.
+   *
+   * The SFTP panel is not just a list: opening it opens a *second* connection to
+   * the host — a channel, a directory listing, a handle on the far side. Someone
+   * sitting in a terminal has not asked for any of that, so none of it is created
+   * until the section is expanded.
+   */
+  { id: 'sftp', visible: true, collapsed: true }
 ]
 
 export const SIDEBAR_SECTION_LABELS: Record<SidebarSectionId, string> = {
