@@ -107,6 +107,39 @@ export function sinkCount(): number {
   return sinksBySession.size
 }
 
+/**
+ * Write a whole command — or a whole script — to every visible pane at once.
+ *
+ * Different from `routeInput` in the two ways that matter for a deliberate
+ * fan-out: it includes the pane the user is typing in (broadcast is for "run this
+ * everywhere", and everywhere includes here), and it takes a line rather than a
+ * keystroke, so the callers are a button and a snippet rather than a key handler.
+ *
+ * Every line is submitted on its own: a script pasted as one blob into a shared
+ * readline would be interpreted as one very long command.
+ *
+ * Returns how many panes took it, so the UI can report what actually happened
+ * instead of implying success.
+ */
+export function sendToAll(text: string): number {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+  if (lines.length === 0) return 0
+
+  const payload = lines.map((line) => line + '\r').join('')
+  let sent = 0
+  for (const [sessionId, sink] of sinksBySession) {
+    // Same rule as typing: a hidden tab is not on screen, so it is not a target.
+    if (visibleSessions.size > 0 && !visibleSessions.has(sessionId)) continue
+    writesBySink.set(sessionId, (writesBySink.get(sessionId) ?? 0) + 1)
+    sink(payload)
+    sent += 1
+  }
+  return sent
+}
+
 /** The sessions a keystroke would reach, for diagnostics and probes. */
 export function sinkIds(): string[] {
   return [...sinksBySession.keys()]

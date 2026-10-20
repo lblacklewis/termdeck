@@ -81,6 +81,7 @@ import {
   broadcastSummary,
   isBroadcasting,
   onBroadcastChange,
+  sendToAll,
   setVisibleSessions,
   sinkIds,
   toggleBroadcasting,
@@ -2946,6 +2947,8 @@ export function App(): JSX.Element {
             panelCount={panelCount}
             broadcastSummary={broadcastSummary()}
             onToggleBroadcast={() => setBroadcasting(toggleBroadcasting())}
+            snippets={settings.snippets}
+            onSendScript={(text) => sendToAll(text)}
             showTimestamps={settings.terminal.showTimestamps}
             onToggleTimestamps={() => {
               const next = !settings.terminal.showTimestamps

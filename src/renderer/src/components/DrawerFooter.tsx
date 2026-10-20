@@ -1,6 +1,6 @@
-import { type JSX, type PointerEvent } from 'react'
+import { useState, type FormEvent, type JSX, type PointerEvent } from 'react'
 
-import type { SidebarSide } from '@shared/types'
+import type { SidebarSide, Snippet } from '@shared/types'
 import { WellnessChip } from './WellnessChip'
 import { t } from '../i18n'
 
@@ -11,6 +11,10 @@ interface DrawerFooterProps {
   /** Human summary of the same, also only used in the tooltip. */
   broadcastSummary: string
   onToggleBroadcast: () => void
+  /** Saved snippets offered as one-click scripts while broadcasting. */
+  snippets: Snippet[]
+  /** Write a script to every pane. Returns how many took it. */
+  onSendScript: (text: string) => number
   showTimestamps: boolean
   onToggleTimestamps: () => void
   onArrange: () => void
@@ -54,6 +58,8 @@ export function DrawerFooter({
   panelCount,
   broadcastSummary,
   onToggleBroadcast,
+  snippets,
+  onSendScript,
   showTimestamps,
   onToggleTimestamps,
   onArrange,
@@ -75,8 +81,75 @@ export function DrawerFooter({
   onResizeStart,
   platformLabel
 }: DrawerFooterProps): JSX.Element {
+  /*
+   * The quick script: a command, or a whole script, typed once and sent to every
+   * pane. Broadcast already carries keystrokes; this is for the case broadcast was
+   * invented for — three shells that each need the same three lines — without
+   * having to type it into one pane and watch the others take it character by
+   * character.
+   */
+  const [script, setScript] = useState('')
+  const [sent, setSent] = useState('')
+
+  const submitScript = (event: FormEvent): void => {
+    event.preventDefault()
+    const reached = onSendScript(script)
+    setSent(
+      reached === 0
+        ? t('appscript.nothing_open', 'No pane took it')
+        : `${t('appscript.sent', 'Sent to')} ${reached} ${reached === 1 ? 'pane' : 'panes'}`
+    )
+    setScript('')
+    setTimeout(() => setSent(''), 2500)
+  }
+
   return (
     <>
+      {broadcasting && (
+        <form className="td-broadcast-script" data-testid="broadcast-script-row" onSubmit={submitScript}>
+          <input
+            className="td-broadcast-script-input"
+            data-testid="broadcast-script"
+            value={script}
+            spellCheck={false}
+            aria-label={t('appscript.script', 'Command or script for every pane')}
+            placeholder={t('appscript.placeholder', 'Send a line to every pane…')}
+            onChange={(e) => setScript(e.target.value)}
+          />
+          <button
+            className="td-btn td-btn-primary"
+            data-testid="broadcast-send"
+            type="submit"
+            disabled={script.trim() === ''}
+          >
+            {t('appscript.send', 'Send')}
+          </button>
+          {snippets.length > 0 && (
+            <select
+              className="td-broadcast-script-snippets"
+              data-testid="broadcast-snippet"
+              aria-label={t('appscript.snippets', 'Saved snippets')}
+              value=""
+              onChange={(e) => {
+                const snippet = snippets.find((entry) => entry.id === e.target.value)
+                if (snippet) setScript(snippet.command)
+              }}
+            >
+              <option value="">{t('appscript.snippets_2', 'Snippets…')}</option>
+              {snippets.map((snippet) => (
+                <option key={snippet.id} value={snippet.id}>
+                  {snippet.label}
+                </option>
+              ))}
+            </select>
+          )}
+          {sent && (
+            <span className="td-broadcast-script-note" data-testid="broadcast-script-sent">
+              {sent}
+            </span>
+          )}
+        </form>
+      )}
       <div className="td-sidebar-footer">
         <button
           className={`td-icon-btn${broadcasting ? ' is-on' : ''}`}

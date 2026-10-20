@@ -356,6 +356,60 @@ async function main() {
       push('the typed-in pane does not receive the input twice', twice <= 2,
         twice + ' occurrence(s) — 2 is input plus the echoed output')
 
+      /*
+       * ---- 3b. a quick script, sent once, run everywhere -------------------
+       * Broadcast carries keystrokes; this is the other half of "same input on
+       * every pane" — the line you would otherwise have to type into one pane and
+       * watch the others take character by character.
+       */
+      const scriptRow = document.querySelector('[data-testid="broadcast-script-row"]')
+      push('while broadcasting, a quick-script row is offered', !!scriptRow)
+      const scriptBox = document.querySelector('[data-testid="broadcast-script"]')
+      const scriptSend = document.querySelector('[data-testid="broadcast-send"]')
+      push('the row has a command box and a send button', !!scriptBox && !!scriptSend)
+      if (scriptBox && scriptSend) {
+        const scriptMarker = 'SCRIPT_' + Date.now()
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        ).set
+        /*
+         * Counted through the fan-out's own write counters rather than by reading
+         * the panes: two of these are stacked tabs, and a tab that is not on screen
+         * is not painted — its absence from the text is not absence of a write.
+         */
+        const sinks = window.__tdBroadcast ? window.__tdBroadcast.sinks() : []
+        const before = window.__tdBroadcast
+          ? Object.fromEntries(window.__tdBroadcast.writes)
+          : {}
+        setter.call(scriptBox, 'echo ' + scriptMarker)
+        scriptBox.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(300)
+        scriptSend.click()
+        // The note fades by itself, so it is read before waiting on the panes.
+        await wait(400)
+        const note = document.querySelector('[data-testid="broadcast-script-sent"]')
+        push('it says how many panes took the script', !!note,
+          note ? (note.textContent || '').trim() : 'no note')
+          await wait(2600)
+        const after = window.__tdBroadcast
+          ? Object.fromEntries(window.__tdBroadcast.writes)
+          : {}
+        const wrote = sinks.filter((id) => (after[id] || 0) > (before[id] || 0))
+        const claimed = Number(((note && note.textContent) || '').replace(/[^0-9]+/g, '')) || 0
+        /*
+         * These two panes are stacked tabs, so only one of them is on screen and
+         * only one is a target — the same rule that keeps a hidden tab from
+         * receiving keystrokes. What has to hold here is that the report matches
+         * what was written; the "all of them" case is the split below.
+         */
+        push('one send writes into the panes that are on screen',
+          wrote.length === claimed && wrote.length > 0,
+          'wrote=' + wrote.length + ' claimed=' + claimed + ' registered=' + sinks.length)
+        push('the box is cleared after sending', (scriptBox.value || '') === '',
+          JSON.stringify(scriptBox.value || ''))
+      }
+
       // Turning it off again must stop the fan-out.
       document.querySelector('[data-testid="toggle-broadcast"]').click()
       await wait(600)
@@ -365,6 +419,8 @@ async function main() {
       push('turning broadcast off stops the fan-out',
         textFor(ids[0]).includes(afterMarker) && !textFor(ids[1]).includes(afterMarker),
         'pane1 has it=' + textFor(ids[1]).includes(afterMarker))
+      push('the quick-script row goes away with broadcast',
+        !document.querySelector('[data-testid="broadcast-script-row"]'))
 
       // ---- 4. broadcast across a real split --------------------------------
       // The reported bug: with panes split, some of them do not receive the
@@ -435,6 +491,42 @@ async function main() {
       push('the split panes have distinct sessions',
         new Set(splitIds).size === splitIds.length,
         splitIds.join(' | '))
+
+      /*
+       * ---- 4b. the quick script, in the arrangement it is for ---------------
+       * Every pane here is on screen, so "sent to every pane" is a claim about the
+       * split rather than about whichever tab happens to be painted.
+       */
+      const splitScriptBox = document.querySelector('[data-testid="broadcast-script"]')
+      const splitScriptSend = document.querySelector('[data-testid="broadcast-send"]')
+      if (splitScriptBox && splitScriptSend) {
+        // Only the panes on screen are targets, so that is what 'every' means here.
+        const visibleNow = window.__tdDockApi.panels
+          .filter((panel) => panel.api.isVisible)
+          .map((panel) => panel.id)
+        const beforeScript = Object.fromEntries(window.__tdBroadcast.writes)
+        const setter = Object.getOwnPropertyDescriptor(
+          window.HTMLInputElement.prototype,
+          'value'
+        ).set
+        const splitScriptMarker = 'SCRIPT_SPLIT_' + Date.now()
+        setter.call(splitScriptBox, 'echo ' + splitScriptMarker)
+        splitScriptBox.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(300)
+        splitScriptSend.click()
+        await waitFor(
+          () => splitIds.every((id) => textFor(id).includes(splitScriptMarker)),
+          12000
+        )
+        const afterScript = Object.fromEntries(window.__tdBroadcast.writes)
+        const scriptWrote = visibleNow.filter((id) => (afterScript[id] || 0) > (beforeScript[id] || 0))
+        const scriptSeen = visibleNow.filter((id) => textFor(id).includes(splitScriptMarker))
+        push('a quick script reaches every pane that is on screen',
+          scriptWrote.length === visibleNow.length && scriptSeen.length === visibleNow.length,
+          'wrote=' + scriptWrote.length + ' seen=' + scriptSeen.length + ' of ' + visibleNow.length + ' visible')
+      } else {
+        push('the quick-script box is offered in a split too', false)
+      }
 
       // ---- 5. broadcast must not reach a pane that is not on screen ---------
       // A hidden tab is still an open session with a live backend, so writing to

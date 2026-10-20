@@ -417,6 +417,48 @@ kbd {
   background: var(--td-orange);
 }
 
+/*
+ * The quick-script row, shown under the footer while broadcast is on.
+ *
+ * It sits above the icon row rather than in it: this is a text field, and a text
+ * field belongs in the flow at full width, not squeezed between glyphs.
+ */
+.td-broadcast-script {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-top: 1px solid var(--td-border);
+}
+
+.td-broadcast-script-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 6px;
+  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--td-text);
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: 5px;
+}
+
+.td-broadcast-script-input:focus {
+  outline: none;
+  border-color: var(--td-accent);
+}
+
+.td-broadcast-script-snippets {
+  max-width: 110px;
+  padding: 2px;
+  font-size: 11px;
+}
+
+.td-broadcast-script-note {
+  font-size: var(--td-text-2xs);
+  color: var(--td-text-dim);
+  white-space: nowrap;
+}
 .td-sidebar-footer {
   flex: 0 0 auto;
   display: flex;
@@ -4500,7 +4542,49 @@ html[data-theme-scheme='light'] .td-select {
 
 /* The collapsed strip already carries expand/connect/shell/broadcast at the top,
    so the bottom cluster keeps only what is not duplicated there. */
-.td-sidebar.is-collapsed .td-sidebar-footer {
+.td-sidebar.is-collapsed /*
+ * The quick-script row, shown under the footer while broadcast is on.
+ *
+ * It sits above the icon row rather than in it: this is a text field, and a text
+ * field belongs in the flow at full width, not squeezed between glyphs.
+ */
+.td-broadcast-script {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-top: 1px solid var(--td-border);
+}
+
+.td-broadcast-script-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 3px 6px;
+  font-family: "Cascadia Mono", "JetBrains Mono", Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--td-text);
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: 5px;
+}
+
+.td-broadcast-script-input:focus {
+  outline: none;
+  border-color: var(--td-accent);
+}
+
+.td-broadcast-script-snippets {
+  max-width: 110px;
+  padding: 2px;
+  font-size: 11px;
+}
+
+.td-broadcast-script-note {
+  font-size: var(--td-text-2xs);
+  color: var(--td-text-dim);
+  white-space: nowrap;
+}
+.td-sidebar-footer {
   flex-direction: column;
   gap: 6px;
   width: 100%;
