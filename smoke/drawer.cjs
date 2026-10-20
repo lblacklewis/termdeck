@@ -684,6 +684,64 @@ async function main() {
     report([{ name: 'drawer probe', ok: false, detail: String((err && err.message) || err) }])
   }
 
+  // ---- 5b. the history timestamp is a hover detail ------------------------
+  /*
+   * Hovered with real input rather than a dispatched MouseEvent: CSS `:hover`
+   * does not react to synthetic events, so the pointer has to actually be there.
+   * The row is measured before and after, which is what makes "hidden until you
+   * look at it" a claim that can fail.
+   */
+  await win.webContents.executeJavaScript(`
+    (() => {
+      const head = document.querySelector('[data-section="history"] .td-section-head')
+      if (head && !document.querySelector('[data-testid="history-list"]')) head.click()
+      return true
+    })()
+  `)
+  await sleep(500)
+  const historyRow = await win.webContents.executeJavaScript(`
+    (() => {
+      const row = document.querySelector('[data-testid="history-list"] .td-history-item')
+      if (!row) return null
+      const box = row.getBoundingClientRect()
+      const meta = row.querySelector('.td-history-meta')
+      return {
+        x: Math.round(box.left + box.width / 2),
+        y: Math.round(box.top + box.height / 2),
+        opacity: meta ? getComputedStyle(meta).opacity : 'no-meta'
+      }
+    })()
+  `)
+
+  report([
+    {
+      name: 'the history timestamp is hidden until the row is hovered',
+      ok: !!historyRow && historyRow.opacity === '0',
+      detail: historyRow ? 'opacity=' + historyRow.opacity : 'no history row on screen'
+    }
+  ])
+
+  if (historyRow) {
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: historyRow.x, y: historyRow.y })
+    await sleep(400)
+    const hoveredOpacity = await win.webContents.executeJavaScript(
+      `(() => {
+        const meta = document.querySelector('[data-testid="history-list"] .td-history-item .td-history-meta')
+        return meta ? getComputedStyle(meta).opacity : 'no-meta'
+      })()`
+    )
+    report([
+      {
+        name: 'and appears once the pointer is on it',
+        ok: hoveredOpacity === '1',
+        detail: 'opacity=' + hoveredOpacity
+      }
+    ])
+    // Park the pointer away from the list so nothing later inherits the hover.
+    win.webContents.sendInputEvent({ type: 'mouseMove', x: 4, y: 4 })
+    await sleep(250)
+  }
+
   // ---- 6. focus mode (driven from the main process, as the app does) -------
   const focusState = async () =>
     win.webContents.executeJavaScript(`({

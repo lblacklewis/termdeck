@@ -4867,6 +4867,19 @@ html[data-theme-scheme='light'] .td-select {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /*
+   * The time is a detail of the row, not what the list is read for, so it costs
+   * no attention until someone is looking at that row. It stays laid out
+   * (opacity, not display) so moving the pointer down the list never changes a
+   * row's height.
+   */
+  opacity: 0;
+  transition: opacity 90ms ease;
+}
+
+.td-history-item:hover .td-history-meta,
+.td-history-run:focus-visible .td-history-meta {
+  opacity: 1;
 }
 
 .td-history-remove {
