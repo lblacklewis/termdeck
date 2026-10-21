@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type JSX
+} from 'react'
 import type { SftpEntry } from '@shared/types'
 import { t } from '../i18n'
 
@@ -48,6 +56,8 @@ export function SftpPanel({
   const [entries, setEntries] = useState<SftpEntry[]>([])
   const [busy, setBusy] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  /** True while a file is held over the panel, so the drop target is obvious. */
+  const [dropping, setDropping] = useState(false)
   /**
    * What the path box holds while the user is typing in it.
    *
@@ -111,9 +121,69 @@ export function SftpPanel({
     const result = await window.termdeck.sftpUpload(sessionId, current)
     if (!result.ok) {
       if (!result.cancelled) onError(result.message ?? 'Upload failed.')
+      return    }
+    onToast(`Uploaded ${result.path.split('/').pop()} to ${current}`)
+    await load(current)
+  }
+
+  /**
+   * Paths of the files dropped on the panel.
+   *
+   * `files` is the direct route, but a `File` only carries a real path when Electron can
+   * resolve it (`webUtils.getPathForFile`) — dragging out of some apps yields nothing but
+   * text, so the transfer list and the plain-text fallbacks are read as well. Anything
+   * that is not an absolute path is dropped rather than guessed at.
+   */
+  const droppedPaths = (event: DragEvent<HTMLElement>): string[] => {
+    const paths: string[] = []
+    for (const file of Array.from(event.dataTransfer.files ?? [])) {
+      const resolved = window.termdeck.pathForFile(file)
+      if (resolved) paths.push(resolved)
+    }
+    if (paths.length === 0) {
+      const text =
+        event.dataTransfer.getData('text/uri-list') || event.dataTransfer.getData('text/plain')
+      for (const line of text.split(/\r?\n/)) {
+        const trimmed = line.trim()
+        if (!trimmed || trimmed.startsWith('#')) continue
+        let candidate = trimmed
+        if (candidate.startsWith('file://')) {
+          try {
+            candidate = decodeURIComponent(candidate.slice('file://'.length))
+          } catch {
+            continue
+          }
+          // `file:///C:/x` and `file:///home/x` both keep a leading slash issue: on
+          // Windows the slash before the drive letter is not part of the path.
+          if (/^\/[a-zA-Z]:/.test(candidate)) candidate = candidate.slice(1)
+        }
+        if (candidate.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(candidate)) paths.push(candidate)
+      }
+    }
+    return paths
+  }
+
+  /** Upload each dropped file into the directory on screen. */
+  const dropUpload = async (event: DragEvent<HTMLElement>): Promise<void> => {
+    event.preventDefault()
+    setDropping(false)
+    const current = path || '.'
+    const paths = droppedPaths(event)
+    if (paths.length === 0) {
+      onError(t('drawersections.nothing_to_upload', 'That drop held no files this window can read.'))
       return
     }
-    onToast(`Uploaded ${result.path.split('/').pop()} to ${current}`)
+    /*
+     * One at a time: the transfer strip already shows them all, and a dozen parallel
+     * uploads on one SFTP channel would spend their time queueing behind each other.
+     */
+    for (const localPath of paths) {
+      const result = await window.termdeck.startUpload(sessionId, current, localPath)
+      if (!result.ok && !result.cancelled) {
+        onError(result.message ?? 'Upload failed.')
+        return
+      }
+    }
     await load(current)
   }
 
@@ -127,7 +197,29 @@ export function SftpPanel({
   }
 
   return (
-    <div className="td-sftp" data-testid="sftp-panel">
+    <div
+      className={'td-sftp' + (dropping ? ' is-dropping' : '')}
+      data-testid="sftp-panel"
+      data-dropping={dropping ? 'true' : 'false'}
+      onDragOver={(event) => {
+        // Only claim the drop when there is a session to upload over.
+        if (!sessionId) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+        if (!dropping) setDropping(true)
+      }}
+      onDragLeave={(event) => {
+        // Moving between children fires leave/over pairs; only leaving the panel ends it.
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+        setDropping(false)
+      }}
+      onDrop={(event) => void dropUpload(event)}
+    >
+      {dropping && (
+        <div className="td-sftp-drop-hint" data-testid="sftp-drop-hint">
+          {t('drawersections.drop_to_upload', 'Drop to upload into this folder')}
+        </div>
+      )}
       <div className="td-sftp-bar">
         <button
           className="td-icon-btn"

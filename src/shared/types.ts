@@ -1185,6 +1185,15 @@ export interface TermDeckApi extends S3Api {
     localPath: string
   ): Promise<SftpTransferResult>
 
+  /**
+   * The absolute path behind a dropped File.
+   *
+   * Electron stopped putting a path on File objects (32+), so a drop has to ask the
+   * main process; this returns '' for anything it cannot resolve, which is the signal to
+   * try another source.
+   */
+  pathForFile(file: File): string
+
   // transfers: every file currently moving, for the transfers window
   listTransfers(): Promise<TransferInfo[]>
   /** Ask one transfer to stop; the streams are destroyed. */

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type {
   AppSettings,
   AppInfo,
@@ -242,6 +242,20 @@ const api = {
     localPath: string
   ): Promise<SftpTransferResult> =>
     ipcRenderer.invoke('transfer:download', sessionId, remotePath, localPath),
+
+  /**
+   * The path behind a dropped file.
+   *
+   * Electron 32 removed File.path; webUtils.getPathForFile is the replacement and is
+   * the only way to turn a drop into something the main process can open.
+   */
+  pathForFile: (file: File): string => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
+  },
 
   // ---- transfers ---------------------------------------------------------
   listTransfers: (): Promise<TransferInfo[]> => ipcRenderer.invoke('transfer:list'),

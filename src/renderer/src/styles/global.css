@@ -3804,6 +3804,37 @@ body {
   max-width: 26%;
 }
 
+/* ---- dropping files onto the sftp panel -------------------------------- */
+
+/*
+ * The panel is the drop target, so the whole listing answers to a held file rather than
+ * a strip at the top — dropping "on the panel" should mean what it looks like.
+ */
+.td-sftp {
+  position: relative;
+}
+
+.td-sftp.is-dropping {
+  outline: 1px dashed var(--td-accent);
+  outline-offset: -3px;
+  border-radius: 8px;
+}
+
+.td-sftp-drop-hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 3;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--td-accent) 16%, var(--td-bg));
+  border-bottom: 1px solid var(--td-accent);
+  border-radius: 8px 8px 0 0;
+  font-size: 11.5px;
+  color: var(--td-text);
+  pointer-events: none;
+}
+
 /* ---- transitions feel intentional ------------------------------------- */
 
 .td-theme-card,

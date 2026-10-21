@@ -1,4 +1,4 @@
-import { createReadStream, createWriteStream } from 'node:fs'
+import { open, stat } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { Client, type SFTPWrapper } from 'ssh2'
 
@@ -176,31 +176,223 @@ function toEntry(
 }
 
 /**
+ * How a transfer moves bytes.
+ *
+ * ssh2 hands out two ways to move a file: a read stream (and `fastGet`, which is the same
+ * shape) issues one read request at a time, waiting for each answer before asking again.
+ * That makes the speed a function of the round trip — 32 KB per RTT is 0.5–1 MB/s on a
+ * 30–70 ms link, which from the outside is "SFTP is unusably slow, it does not move at
+ * all". The numbers below keep a fixed amount of work in flight instead, so the link
+ * stays busy for the whole window rather than one chunk per round trip.
+ *
+ * 128 KB × 16 = 2 MB in flight, which on a 70 ms link is good for tens of MB/s and is
+ * still gentle enough that a slow server is not swamped.
+ */
+const TRANSFER_CHUNK = 128 * 1024
+const TRANSFER_CONCURRENCY = 16
+
+/**
+ * The slice of ssh2's SFTP wrapper a transfer uses.
+ *
+ * Narrow on purpose: a probe can pass a stand-in that answers slowly, which is the only
+ * way to show that the chunks really do overlap without a slow network to test on.
+ */
+export interface SftpLike {
+  stat(
+    path: string,
+    cb: (err: Error | null | undefined, stats?: { size?: number }) => void
+  ): void
+  open(
+    path: string,
+    flags: string,
+    cb: (err: Error | null | undefined, handle?: Buffer) => void
+  ): void
+  read(
+    handle: Buffer,
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+    cb: (err: Error | null | undefined, bytesRead?: number) => void
+  ): void
+  write(
+    handle: Buffer,
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+    cb: (err: Error | null | undefined) => void
+  ): void
+  close(handle: Buffer, cb: (err?: Error | null) => void): void
+}
+
+/**
  * What a transfer reports back while it runs.
  *
- * `progress` counts bytes as they leave the source — the local file on an upload, the
- * remote one on a download — because that is the side that knows how fast the transfer
- * is actually going. `register` hands the caller a way to abort: the streams live here,
- * and the transfers window is what decides to stop them.
+ * `progress` counts cumulative bytes — the side that moves them is the side that knows how
+ * fast the transfer is really going. `register` hands the caller a way to stop it: the
+ * loop lives here, and the transfers window is what decides to end it.
  */
 export interface TransferHooks {
   progress?: (bytes: number) => void
   register?: (abort: () => void) => void
 }
 
-/**
- * Resolves on whichever ending arrives first.
- *
- * Cancelling destroys the streams, and a destroyed stream never emits `end` — waiting
- * on `end` alone would leave the promise hanging forever while the window showed a
- * transfer that could never finish.
- */
-function settled(stream: NodeJS.ReadableStream | NodeJS.WritableStream, event: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    stream.once(event, () => resolve())
-    stream.once('close', () => resolve())
-    stream.once('error', (err: Error) => reject(err))
+/** What a transfer reports while it runs, and how it is stopped. */
+export interface TransferControl {
+  /** Cumulative bytes moved. */
+  progress: (total: number) => void
+  /** True once the caller asked to stop. */
+  aborted: () => boolean
+}
+
+const remoteOpen = (sftp: SftpLike, path: string, flags: string): Promise<Buffer> =>
+  new Promise((resolve, reject) => {
+    sftp.open(path, flags, (err, handle) => {
+      if (err || !handle) reject(err ?? new Error('Could not open ' + path))
+      else resolve(handle)
+    })
   })
+
+const remoteClose = (sftp: SftpLike, handle: Buffer): Promise<void> =>
+  new Promise((resolve) => sftp.close(handle, () => resolve()))
+
+const remoteFileSize = (sftp: SftpLike, path: string): Promise<number> =>
+  new Promise((resolve) => {
+    sftp.stat(path, (err, stats) => resolve(err || !stats ? 0 : stats.size ?? 0))
+  })
+
+const remoteRead = (
+  sftp: SftpLike,
+  handle: Buffer,
+  buffer: Buffer,
+  length: number,
+  position: number
+): Promise<number> =>
+  new Promise((resolve, reject) => {
+    sftp.read(handle, buffer, 0, length, position, (err, bytes) => {
+      if (err) reject(err)
+      else resolve(bytes ?? 0)
+    })
+  })
+
+const remoteWrite = (
+  sftp: SftpLike,
+  handle: Buffer,
+  buffer: Buffer,
+  length: number,
+  position: number
+): Promise<void> =>
+  new Promise((resolve, reject) => {
+    sftp.write(handle, buffer, 0, length, position, (err) => (err ? reject(err) : resolve()))
+  })
+
+/**
+ * Run `transfer` over the whole file with several chunks in flight.
+ *
+ * Not `Promise.all` over a precomputed list: an abort has to stop *asking* for more work,
+ * and one failed chunk has to stop the others instead of letting them keep reading a file
+ * nobody wants any more. Both fall out of workers pulling from a shared cursor.
+ */
+async function pump(
+  total: number,
+  transfer: (position: number, length: number) => Promise<void>,
+  control: TransferControl
+): Promise<void> {
+  const chunks = Math.ceil(total / TRANSFER_CHUNK)
+  if (chunks <= 0) return
+  let cursor = 0
+  let moved = 0
+  let failure: unknown = null
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      if (failure || control.aborted()) return
+      if (cursor >= total) return
+      const position = cursor
+      const length = Math.min(TRANSFER_CHUNK, total - position)
+      cursor += length
+      try {
+        await transfer(position, length)
+      } catch (err) {
+        failure = failure ?? err
+        return
+      }
+      moved += length
+      control.progress(moved)
+    }
+  }
+  const workers = Array.from({ length: Math.min(TRANSFER_CONCURRENCY, chunks) }, () =>
+    worker()
+  )
+  await Promise.all(workers)
+  if (failure) throw failure
+}
+
+/** Download one remote file to a local path, several chunks at a time. */
+export async function downloadTo(
+  sftp: SftpLike,
+  remotePath: string,
+  localPath: string,
+  control: TransferControl
+): Promise<void> {
+  const size = await remoteFileSize(sftp, remotePath)
+  const handle = await remoteOpen(sftp, remotePath, 'r')
+  const out = await open(localPath, 'w')
+  try {
+    await pump(
+      size,
+      async (position, length) => {
+        const buffer = Buffer.allocUnsafe(length)
+        const bytes = await remoteRead(sftp, handle, buffer, length, position)
+        if (bytes === 0) throw new Error('The remote file ended before its reported size.')
+        /*
+         * Written at its own offset rather than appended: chunks finish out of order,
+         * and an append would shuffle the file's contents.
+         */
+        await out.write(buffer, 0, bytes, position)
+      },
+      control
+    )
+  } finally {
+    await remoteClose(sftp, handle)
+    await out.close().catch(() => undefined)
+  }
+}
+
+/** Upload one local file to a remote path, several chunks at a time. */
+export async function uploadFrom(
+  sftp: SftpLike,
+  localPath: string,
+  remotePath: string,
+  control: TransferControl
+): Promise<void> {
+  const stats = await stat(localPath)
+  const handle = await remoteOpen(sftp, remotePath, 'w')
+  const source = await open(localPath, 'r')
+  try {
+    await pump(
+      stats.size,
+      async (position, length) => {
+        const buffer = Buffer.allocUnsafe(length)
+        const { bytesRead } = await source.read(buffer, 0, length, position)
+        if (bytesRead === 0) throw new Error('The local file ended before its reported size.')
+        await remoteWrite(sftp, handle, buffer, bytesRead, position)
+      },
+      control
+    )
+  } finally {
+    await remoteClose(sftp, handle)
+    await source.close().catch(() => undefined)
+  }
+}
+
+/** Wire the caller's hooks to a control block, including the abort request. */
+function controlFor(hooks?: TransferHooks): TransferControl {
+  let aborted = false
+  hooks?.register?.(() => {
+    aborted = true
+  })
+  return { progress: (total) => hooks?.progress?.(total), aborted: () => aborted }
 }
 
 /**
@@ -217,9 +409,7 @@ export async function remoteSize(
 ): Promise<number> {
   try {
     const { sftp } = await session(sessionId, options, deps)
-    return await new Promise<number>((resolve) => {
-      sftp.stat(remotePath, (err, stats) => resolve(err || !stats ? 0 : stats.size ?? 0))
-    })
+    return await remoteFileSize(sftp as unknown as SftpLike, remotePath)
   } catch {
     return 0
   }
@@ -236,15 +426,8 @@ export async function downloadFile(
 ): Promise<SftpTransferResult> {
   try {
     const { sftp } = await session(sessionId, options, deps)
-    const read = sftp.createReadStream(remotePath)
-    const write = createWriteStream(localPath)
-    read.on('data', (chunk: Buffer | string) => hooks?.progress?.(chunk.length))
-    hooks?.register?.(() => {
-      read.destroy()
-      write.destroy()
-    })
-    read.pipe(write)
-    await Promise.all([settled(read, 'end'), settled(write, 'close')])
+    // ssh2's overloads do not structurally match the slice this needs; the object does.
+    await downloadTo(sftp as unknown as SftpLike, remotePath, localPath, controlFor(hooks))
     return { ok: true, path: localPath }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) }
@@ -263,15 +446,7 @@ export async function uploadFile(
   const remotePath = join(remoteDir, basename(localPath)).replace(/\\/g, '/')
   try {
     const { sftp } = await session(sessionId, options, deps)
-    const read = createReadStream(localPath)
-    const write = sftp.createWriteStream(remotePath)
-    read.on('data', (chunk: Buffer | string) => hooks?.progress?.(chunk.length))
-    hooks?.register?.(() => {
-      read.destroy()
-      write.destroy()
-    })
-    read.pipe(write)
-    await Promise.all([settled(read, 'end'), settled(write, 'close')])
+    await uploadFrom(sftp as unknown as SftpLike, localPath, remotePath, controlFor(hooks))
     return { ok: true, path: remotePath }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) }

@@ -59,6 +59,7 @@ async function main() {
   const TINY = path.join(transferDir, 'td-probe-tiny.bin')
   const HUGE = path.join(transferDir, 'td-probe-huge.bin')
   const TINY_BACK = path.join(transferDir, 'td-probe-tiny-back.bin')
+  const TINY_URI = 'file:///' + path.join(transferDir, 'td-probe-tiny.bin').split(path.sep).join('/')
   const TINY_SIZE = 4096
   const HUGE_SIZE = 48 * 1024 * 1024
   fs.writeFileSync(TINY, Buffer.alloc(TINY_SIZE, 7))
@@ -973,6 +974,47 @@ async function main() {
             !!document.querySelector('[data-testid="transfer-strip"]'))
         }
 
+        /*
+         * ---- dropping a file uploads it --------------------------------
+         *
+         * The drop carries a text/uri-list, which is what a drop from most file managers
+         * actually looks like (Electron's dropped files need webUtils to yield a path).
+         * That makes the whole path testable: hold, see the hint, drop, and the file
+         * appears on the host.
+         */
+        await window.termdeck.clearFinishedTransfers()
+        await wait(300)
+        const dropData = new DataTransfer()
+        dropData.setData('text/uri-list', ${JSON.stringify(TINY_URI)})
+        const sftpPanel = document.querySelector('[data-testid="sftp-panel"]')
+        push('the sftp panel is on screen to drop onto', !!sftpPanel)
+        if (sftpPanel) {
+          sftpPanel.dispatchEvent(new DragEvent('dragover', {
+            bubbles: true, cancelable: true, dataTransfer: dropData
+          }))
+          await wait(300)
+          push('holding a file over the panel says what will happen',
+            !!document.querySelector('[data-testid="sftp-drop-hint"]') &&
+              sftpPanel.getAttribute('data-dropping') === 'true')
+          sftpPanel.dispatchEvent(new DragEvent('drop', {
+            bubbles: true, cancelable: true, dataTransfer: dropData
+          }))
+          const dropped = await waitFor(
+            async () => {
+              const list = await window.termdeck.listTransfers()
+              return list.some((t) => t.kind === 'upload' && t.name === 'td-probe-tiny.bin' &&
+                t.status === 'done')
+            },
+            25000
+          )
+          push('dropping it uploads the file', dropped)
+          push('and the hint goes away', !document.querySelector('[data-testid="sftp-drop-hint"]'))
+          const relisted = await window.termdeck.sftpList(liveSsh.id, uploadDir)
+          push('the dropped file is in the remote folder',
+            !!relisted.ok && relisted.entries.some((e) => e.name === 'td-probe-tiny.bin'),
+            relisted.ok ? relisted.entries.length + ' entries' : relisted.message)
+        }
+
         const stripClear = document.querySelector('[data-testid="transfer-strip-clear"]')
         push('the strip has a clear-all button', !!stripClear)
         if (stripClear) {
@@ -1170,6 +1212,102 @@ async function main() {
       name: 'and the chrome comes back',
       ok: !restored.isFocus && restored.rail && restored.drawer,
       detail: JSON.stringify(restored)
+    }
+  ])
+
+  /*
+   * ---- the transfer loop keeps several chunks in flight -------------------
+   *
+   * Speed on this link cannot show it: measured against the probe host, every strategy
+   * — sequential streams at 32K/64K/256K/1M, fastGet with 64-way concurrency — came out
+   * at the same 0.46 MB/s, because the *link* is the limit, not the loop. So the loop's
+   * shape is tested directly with a stand-in that answers each request after a fixed
+   * delay: a sequential loop pays that delay once per chunk, an overlapped one pays it
+   * once per window.
+   */
+  const CHUNK = 128 * 1024
+  const CHUNKS = 32
+  const DELAY = 20
+  const SIZE = CHUNK * CHUNKS
+  const slowSftp = (reads) => ({
+    stat: (_path, cb) => setTimeout(() => cb(null, { size: SIZE }), DELAY),
+    open: (_path, _flags, cb) => setTimeout(() => cb(null, Buffer.from('h')), DELAY),
+    read: (_handle, buffer, offset, length, _position, cb) => {
+      reads.seen += 1
+      setTimeout(() => {
+        buffer.fill(1, offset, offset + length)
+        cb(null, length)
+      }, DELAY)
+    },
+    write: (_handle, _buffer, _offset, _length, _position, cb) => {
+      // Counted too: an upload's slow side is the remote write, not the local read.
+      reads.seen += 1
+      setTimeout(() => cb(null), DELAY)
+    },
+    close: (_handle, cb) => setTimeout(() => cb(null), DELAY)
+  })
+  const { downloadTo, uploadFrom } = mod.transferAccess()
+
+  const plainReads = { seen: 0 }
+  const overlapTarget = path.join(transferDir, 'td-overlap.bin')
+  const overlapStart = Date.now()
+  await downloadTo(slowSftp(plainReads), '/remote.bin', overlapTarget, {
+    progress: () => undefined,
+    aborted: () => false
+  })
+  const overlapMs = Date.now() - overlapStart
+  const sequentialMs = CHUNKS * DELAY
+  report([
+    {
+      name: 'a download overlaps its reads instead of one round trip per chunk',
+      ok: overlapMs < sequentialMs / 2.5,
+      detail:
+        overlapMs + ' ms for ' + CHUNKS + ' chunks; one at a time would be at least ' +
+        sequentialMs + ' ms'
+    },
+    {
+      name: 'and every chunk still arrives exactly once',
+      ok: plainReads.seen === CHUNKS && fs.statSync(overlapTarget).size === SIZE,
+      detail: 'reads=' + plainReads.seen + '/' + CHUNKS + ' size=' + fs.statSync(overlapTarget).size
+    }
+  ])
+
+  /*
+   * An aborted transfer stops asking for work. Counted rather than timed: the number of
+   * chunks read is the thing that decides whether a cancelled 4 GB download keeps
+   * going, and it is the same on any link.
+   */
+  const abortReads = { seen: 0 }
+  let stop = false
+  const abortTarget = path.join(transferDir, 'td-abort.bin')
+  await downloadTo(slowSftp(abortReads), '/remote.bin', abortTarget, {
+    progress: () => {
+      if (abortReads.seen >= 2) stop = true
+    },
+    aborted: () => stop
+  })
+  report([
+    {
+      name: 'an aborted download stops reading instead of finishing the file',
+      ok: abortReads.seen < CHUNKS,
+      detail: abortReads.seen + ' of ' + CHUNKS + ' chunks read after the abort'
+    }
+  ])
+
+  const upReads = { seen: 0 }
+  const upSource = path.join(transferDir, 'td-overlap-up.bin')
+  fs.writeFileSync(upSource, Buffer.alloc(SIZE, 3))
+  const upStart = Date.now()
+  await uploadFrom(slowSftp(upReads), upSource, '/remote-up.bin', {
+    progress: () => undefined,
+    aborted: () => false
+  })
+  const upMs = Date.now() - upStart
+  report([
+    {
+      name: 'uploads overlap the same way',
+      ok: upMs < sequentialMs / 2.5 && upReads.seen === CHUNKS,
+      detail: upMs + ' ms for ' + CHUNKS + ' chunks, writes=' + upReads.seen
     }
   ])
 
