@@ -521,6 +521,47 @@ async function main() {
           push('and saving puts the tag on the host row',
             rows.some((row) => (row.textContent || '').includes('probe-tag')),
             'rows=' + rows.length)
+
+          /*
+           * The same thing, but the tag is left sitting in the box: the field only
+           * commits on Enter or a comma, so the obvious mistake — type it, then reach
+           * for Save — dropped it without a word, which reads as "tags do not save".
+           */
+          const tagged = [...document.querySelectorAll('[data-host-row]')]
+            .find((row) => (row.textContent || '').includes('probe-tag'))
+          if (tagged) {
+            tagged.dispatchEvent(new MouseEvent('contextmenu', {
+              bubbles: true, cancelable: true, button: 2
+            }))
+            await wait(400)
+            const editAgain = document.querySelector('[data-menu-id="edit"]')
+            if (editAgain) editAgain.click()
+            await wait(800)
+            const again = document.querySelector('.td-drawer-form[data-testid="session-form"]')
+            const boxAgain = again ? again.querySelector('.td-tag-input') : null
+            push('the editor reopens for the second tag', !!boxAgain)
+            if (boxAgain) {
+              const setter2 = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype,
+                'value'
+              ).set
+              setter2.call(boxAgain, 'left-tag')
+              boxAgain.dispatchEvent(new Event('input', { bubbles: true }))
+              await wait(200)
+              // Deliberately no Enter: straight to Save, which is what a user does.
+              const saveAgain = [...again.querySelectorAll('.td-drawer-actions button')]
+                .find((b) => /save|apply/i.test(b.textContent || ''))
+              if (saveAgain) {
+                saveAgain.click()
+                await wait(1400)
+              }
+              const rowsAgain = [...document.querySelectorAll('[data-host-row]')]
+                .map((row) => row.textContent || '')
+              push('a tag left in the box when Save is pressed is kept',
+                rowsAgain.some((text) => text.includes('left-tag')),
+                rowsAgain.filter((text) => text.includes('left-tag')).length + ' row(s)')
+            }
+          }
         }
         const close = editor
           ? [...editor.querySelectorAll('.td-drawer-actions button')]

@@ -255,6 +255,19 @@ export function SessionEditor({
     setTagInput('')
   }
 
+  /**
+   * The tags to save, including anything still sitting in the input box.
+   *
+   * The field only commits on Enter or a comma, so a tag typed and left in it — which
+   * is what happens whenever the next move is the Save button — used to be dropped
+   * without a word. Whatever is in the box when the form is submitted is a tag the user
+   * meant to add; there is no half-typed word worth discarding here.
+   */
+  const tagsForSave = (): string[] => {
+    const pending = tagInput.trim()
+    return pending && !tags.includes(pending) ? [...tags, pending] : tags
+  }
+
   const reveal = async (): Promise<void> => {
     const value = session?.id ? await api.revealCredential(session.id) : null
     if (value === null) {
@@ -306,6 +319,9 @@ export function SessionEditor({
 
     setBusy(true)
     setError(null)
+    // Folded in once, before either save path, so the batch form and the single form
+    // cannot disagree about what the tags were.
+    const finalTags = tagsForSave()
     try {
       if (batching) {
         /*
@@ -324,7 +340,7 @@ export function SessionEditor({
             username: entry.username ?? username.trim(),
             authMethod,
             privateKeyPath: privateKeyPath.trim() || undefined,
-            tags,
+            tags: finalTags,
             notes: notes.trim() || undefined,
             parentId
           })),
@@ -401,7 +417,7 @@ export function SessionEditor({
         // Same rule for the commands: a host with none does not gain `[]`, it
         // simply has no list.
         ...(commands.length > 0 ? { postConnectCommands: commands } : {}),
-        tags,
+        tags: finalTags,
         notes: notes.trim() || undefined,
         parentId,
         credential
