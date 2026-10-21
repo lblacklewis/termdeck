@@ -59,6 +59,7 @@ import { HostKeyDialog } from './components/HostKeyDialog'
 import { ContextMenu, type MenuItem } from './components/ContextMenu'
 import { ConnectionsWindow } from './components/ConnectionsWindow'
 import { TransfersWindow } from './components/TransfersWindow'
+import { TransferBar } from './components/TransferBar'
 import { PasswordPrompt } from './components/PasswordPrompt'
 import { QuitConfirmDialog } from './components/QuitConfirmDialog'
 import { BreakBar } from './components/BreakBar'
@@ -380,6 +381,14 @@ export function App(): JSX.Element {
    */
   const [transfers, setTransfers] = useState<TransferInfo[]>([])
   const [transfersOpen, setTransfersOpen] = useState(false)
+  /**
+   * The strip above the snippet bar, and whether it was closed by hand.
+   *
+   * Closed only hides it: a transfer keeps running, and the next one to start brings
+   * the strip back — otherwise closing it while something was moving would leave that
+   * file with nothing watching it.
+   */
+  const [transferStripHidden, setTransferStripHidden] = useState(false)
   const [snippetBarVisible, setSnippetBarVisible] = useState(true)
   /**
    * How the Hosts page lists hosts.
@@ -1695,6 +1704,37 @@ export function App(): JSX.Element {
       off()
     }
   }, [])
+
+  /*
+   * Bring the strip back when a transfer starts.
+   *
+   * Compared against the running set seen last time: an id that was not running before
+   * means something just began, which is precisely when the strip has to be visible —
+   * including when it had just been closed by hand.
+   */
+  const seenRunning = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const runningIds = transfers
+      .filter((transfer) => transfer.status === 'running')
+      .map((transfer) => transfer.id)
+    const started = runningIds.some((id) => !seenRunning.current.has(id))
+    seenRunning.current = new Set(runningIds)
+    if (started) setTransferStripHidden(false)
+  }, [transfers])
+
+  /**
+   * Clear the transfer list.
+   *
+   * Only the finished ones go: dropping a running transfer from the list would leave a
+   * file moving with nothing left to cancel it. With nothing running there is nothing
+   * for the strip to say, so it goes too.
+   */
+  const clearTransfers = (): void => {
+    void api.clearFinishedTransfers().then((list) => {
+      setTransfers(list)
+      if (list.length === 0) setTransferStripHidden(true)
+    })
+  }
   /** The live session behind the active pane, whatever kind it is. */
   const activeLiveSessionId = useMemo(() => {
     if (!activePanelId || activePanelId === 'welcome') return null
@@ -3260,6 +3300,21 @@ export function App(): JSX.Element {
         </main>
 
         {/* Bottom bar of saved commands; hidden until the user shows it again. */}
+        {/*
+          The transfer strip sits directly above it — the one place in the window that is
+          always on screen, which is what the window-based version never managed to be.
+          It appears on its own when a transfer starts and can be closed again.
+        */}
+        {!focusMode && !transferStripHidden && transfers.length > 0 && (
+          <TransferBar
+            transfers={transfers}
+            onCancel={(id) => void api.cancelTransfer(id).then(setTransfers)}
+            onClearFinished={clearTransfers}
+            onOpenWindow={() => setTransfersOpen(true)}
+            onDismiss={() => setTransferStripHidden(true)}
+          />
+        )}
+
         {snippetBarVisible && !focusMode && (
           <SnippetBar
             snippets={settings.snippets}
@@ -3479,7 +3534,7 @@ export function App(): JSX.Element {
         <TransfersWindow
           transfers={transfers}
           onCancel={(id) => void api.cancelTransfer(id).then(setTransfers)}
-          onClearFinished={() => void api.clearFinishedTransfers().then(setTransfers)}
+          onClearFinished={clearTransfers}
           onDismiss={() => setTransfersOpen(false)}
         />
       )}

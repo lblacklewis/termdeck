@@ -867,6 +867,8 @@ async function main() {
         push('both directions sit side by side',
           !!listedAgain.find((t) => t.kind === 'upload') &&
             !!listedAgain.find((t) => t.kind === 'download'))
+        push('the window offers to clear the finished ones',
+          !!document.querySelector('[data-testid="transfers-clear"]'))
 
         /*
          * Cancel, on a file too big to be done before the first poll. The result the
@@ -882,6 +884,47 @@ async function main() {
         }
         push('a large upload is caught in flight', !!inFlight,
           inFlight ? inFlight.done + '/' + inFlight.size : 'finished before it could be seen')
+
+        /*
+         * The strip is the answer to "the button was never found": it comes up by
+         * itself, above the snippet bar, and names the file without being opened.
+         */
+        // Given a moment: the renderer learns about the transfer on a throttled
+        // broadcast, while the poll above asked the main process directly.
+        await wait(600)
+        const strip = document.querySelector('[data-testid="transfer-strip"]')
+        push('a running transfer brings up the strip', !!strip)
+        const chip = [...document.querySelectorAll('[data-testid="transfer-chip"]')]
+          .find((el) => (el.textContent || '').includes('td-probe-huge.bin'))
+        push('and it names the file while still collapsed', !!chip,
+          chip ? (chip.textContent || '').trim() : 'no chip')
+        push('the strip sits above the snippet bar', (() => {
+          const bar = document.querySelector('[data-testid="transfer-strip"]')
+          const snippets = document.querySelector('[data-testid="snippet-bar"]')
+          if (!bar) return false
+          if (!snippets) return true
+          return bar.getBoundingClientRect().bottom <= snippets.getBoundingClientRect().top + 1
+        })(), 'geometry')
+
+        const stripToggle = document.querySelector('[data-testid="transfer-strip-toggle"]')
+        const wasOpen = strip ? strip.getAttribute('data-open') : null
+        push('the strip starts expanded', wasOpen === 'true' && !!stripToggle, 'open=' + wasOpen)
+        if (stripToggle) {
+          stripToggle.click()
+          await wait(300)
+          const nowOpen = document.querySelector('[data-testid="transfer-strip"]')
+            .getAttribute('data-open')
+          push('the caret collapses it', nowOpen === 'false', 'was=' + wasOpen + ' now=' + nowOpen)
+          push('and collapsing hides the rows',
+            !document.querySelector('[data-testid="transfer-strip-body"]'))
+          document.querySelector('[data-testid="transfer-strip-toggle"]').click()
+          await wait(300)
+          push('opening it again shows the rows',
+            !!document.querySelector('[data-testid="transfer-strip-body"]') &&
+              document.querySelectorAll('[data-testid="transfer-row"]').length > 0,
+            document.querySelectorAll('[data-testid="transfer-row"]').length + ' rows')
+        }
+
         if (inFlight) {
           /*
            * The badge is the part that makes the window findable, so it has to be up
@@ -913,13 +956,31 @@ async function main() {
         push('the badge goes away once nothing is running', !spentBadge,
           spentBadge ? spentBadge.textContent : 'no badge')
 
-        const clear = document.querySelector('[data-testid="transfers-clear"]')
-        push('finished transfers can be cleared away', !!clear)
-        if (clear) {
-          clear.click()
-          await wait(600)
-          push('clearing leaves the list empty',
-            document.querySelectorAll('[data-testid="transfer-row"]').length === 0,
+        /*
+         * Closing the strip only hides it; a transfer that starts afterwards has to
+         * bring it back, or closing it once would mean never seeing progress again.
+         */
+        const stripClose = document.querySelector('[data-testid="transfer-strip-close"]')
+        push('the strip can be closed', !!stripClose)
+        if (stripClose) {
+          stripClose.click()
+          await wait(400)
+          push('closing it hides the strip',
+            !document.querySelector('[data-testid="transfer-strip"]'))
+          await window.termdeck.startUpload(liveSsh.id, uploadDir, ${JSON.stringify(TINY)})
+          await wait(700)
+          push('the next transfer brings the strip back',
+            !!document.querySelector('[data-testid="transfer-strip"]'))
+        }
+
+        const stripClear = document.querySelector('[data-testid="transfer-strip-clear"]')
+        push('the strip has a clear-all button', !!stripClear)
+        if (stripClear) {
+          stripClear.click()
+          await wait(900)
+          push('clearing empties the list and takes the strip with it',
+            document.querySelectorAll('[data-testid="transfer-row"]').length === 0 &&
+              !document.querySelector('[data-testid="transfer-strip"]'),
             document.querySelectorAll('[data-testid="transfer-row"]').length + ' rows')
         }
 

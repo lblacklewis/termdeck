@@ -3662,6 +3662,122 @@ body {
   font-weight: 600;
 }
 
+/* ---- the transfer strip ----------------------------------------------- */
+
+/*
+ * One line above the snippet bar while anything is moving, and the same list behind a
+ * caret. It sits inside the shell's column, so it never overlaps the terminal: the
+ * main area gets shorter instead, which is what keeps it from covering output.
+ */
+.td-transfer-strip {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--td-surface);
+  border-top: 1px solid var(--td-border);
+}
+
+.td-transfer-strip-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.td-transfer-strip-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: var(--td-text);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.td-transfer-strip-toggle:hover {
+  background: var(--td-surface-hover);
+}
+
+.td-transfer-strip-caret {
+  font-size: 9px;
+  opacity: 0.65;
+}
+
+.td-transfer-strip-speed {
+  color: var(--td-text-dim);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+/* The running files, named while collapsed: a strip that only says "2 transferring"
+   is a notification, not a progress view. */
+.td-transfer-strip-chips {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.td-transfer-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--td-bg);
+  border: 1px solid var(--td-border);
+  font-size: 11px;
+  color: var(--td-text-dim);
+  white-space: nowrap;
+}
+
+.td-transfer-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 18ch;
+  color: var(--td-text);
+}
+
+.td-transfer-chip-percent {
+  color: var(--td-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.td-transfer-strip-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/*
+ * The expanded list scrolls rather than growing without limit: forty finished files
+ * must not push the terminal off the screen.
+ */
+.td-transfer-strip-body {
+  max-height: 34vh;
+  overflow-y: auto;
+  border-top: 1px solid var(--td-border);
+  padding: 4px 0;
+}
+
+.td-transfers-list.is-compact .td-transfer {
+  padding: 5px 10px;
+}
+
+.td-transfers-list.is-compact .td-transfer-host {
+  max-width: 26%;
+}
+
 /* ---- transitions feel intentional ------------------------------------- */
 
 .td-theme-card,
