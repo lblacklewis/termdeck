@@ -35,9 +35,11 @@ rendering, and drag-to-split / drag-to-group docking.
 | Clipboard | ✅ copy-on-select, right-click / middle-click paste, multi-line paste guard |
 | Context menus | ✅ right-click a session, a folder or empty space in the tree |
 | Connections window | ✅ every open connection with Focus / Close |
-| Snippet bar | ✅ save, group, edit, duplicate and send commands verbatim |
+| Snippet bar | ✅ save, colour, group, edit, duplicate and send commands verbatim |
+| SFTP | ✅ browse, upload/download with several chunks in flight, drag a file onto the panel to upload |
+| File transfers | ✅ a strip above the snippet bar while anything moves: progress, speed, ETA, cancel, history |
+| Port forwarding | ✅ local tunnels, managed from the rail |
 | `~/.ssh/config` import | ⬜ not yet |
-| SFTP, port forwarding | ⬜ not yet |
 
 ## How credentials are stored
 
