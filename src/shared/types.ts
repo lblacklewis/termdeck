@@ -826,6 +826,38 @@ export type SftpTransferResult =
   | { ok: true; path: string }
   | { ok: false; cancelled?: true; message?: string }
 
+export type TransferKind = 'upload' | 'download'
+
+/**
+ * `running` until the file is closed, then one of the endings.
+ *
+ * `cancelled` is a state of its own rather than an error: the streams are destroyed
+ * mid-flight, which surfaces as a perfectly ordinary close, so the ending has to be
+ * decided by who asked for it.
+ */
+export type TransferStatus = 'running' | 'done' | 'error' | 'cancelled'
+
+/** One file moving in or out, as the transfers window draws it. */
+export interface TransferInfo {
+  id: string
+  kind: TransferKind
+  sessionId: string
+  /** Host label, for the window's second line. */
+  session: string
+  /** File name, the part worth reading at a glance. */
+  name: string
+  localPath: string
+  remotePath: string
+  /** Total bytes, or `0` when the size could not be read before starting. */
+  size: number
+  /** Bytes moved so far. */
+  done: number
+  status: TransferStatus
+  message?: string
+  startedAt: number
+  finishedAt?: number
+}
+
 
 /**
  * A saved command.
@@ -950,6 +982,11 @@ export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { id: 'reconnectSession', label: 'Reconnect the active session', keys: 'Ctrl+R', builtin: true },
   { id: 'toggleSidebar', label: 'Toggle sidebar', keys: 'Ctrl+B', builtin: true },
   { id: 'openConnections', label: 'Open connections window', keys: 'Ctrl+Shift+E', builtin: true },
+  /*
+   * File transfers, in their own window. Ctrl+Shift+J is free in a terminal and does
+   * not shadow a shell binding; the window itself is read-only apart from cancelling.
+   */
+  { id: 'openTransfers', label: 'Open transfers window', keys: 'Ctrl+Shift+J', builtin: true },
   { id: 'toggleSnippets', label: 'Toggle snippet bar', keys: 'Ctrl+Shift+S', builtin: true },
   {
     id: 'toggleBroadcast',
@@ -1133,6 +1170,28 @@ export interface TermDeckApi extends S3Api {
   sftpDownload(sessionId: string, remotePath: string): Promise<SftpTransferResult>
   /** Upload a local file the user picks into a remote directory. */
   sftpUpload(sessionId: string, remoteDir: string): Promise<SftpTransferResult>
+
+  /*
+   * The same two transfers with the paths already decided.
+   *
+   * Split out from the pair above because a native file dialog is a *front end*: the
+   * transfer itself is the same code, and keeping it reachable without a dialog is what
+   * lets it be driven by a probe (and by any future drag-and-drop).
+   */
+  startUpload(sessionId: string, remoteDir: string, localPath: string): Promise<SftpTransferResult>
+  startDownload(
+    sessionId: string,
+    remotePath: string,
+    localPath: string
+  ): Promise<SftpTransferResult>
+
+  // transfers: every file currently moving, for the transfers window
+  listTransfers(): Promise<TransferInfo[]>
+  /** Ask one transfer to stop; the streams are destroyed. */
+  cancelTransfer(id: string): Promise<TransferInfo[]>
+  /** Drop the finished ones from the list. */
+  clearFinishedTransfers(): Promise<TransferInfo[]>
+  onTransfers(listener: (transfers: TransferInfo[]) => void): () => void
 
   // host keys
   trustHostKey(request: TrustHostKeyRequest): Promise<boolean>

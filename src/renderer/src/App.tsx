@@ -32,7 +32,8 @@ import {
   type SerialConnectPayload,
   type SshConnectPayload,
   type TelnetConnectPayload,
-  type TerminalPanelMeta
+  type TerminalPanelMeta,
+  type TransferInfo
 } from '@shared/types'
 
 /**
@@ -57,6 +58,7 @@ import { SessionEditor } from './components/SessionEditor'
 import { HostKeyDialog } from './components/HostKeyDialog'
 import { ContextMenu, type MenuItem } from './components/ContextMenu'
 import { ConnectionsWindow } from './components/ConnectionsWindow'
+import { TransfersWindow } from './components/TransfersWindow'
 import { PasswordPrompt } from './components/PasswordPrompt'
 import { QuitConfirmDialog } from './components/QuitConfirmDialog'
 import { BreakBar } from './components/BreakBar'
@@ -371,6 +373,13 @@ export function App(): JSX.Element {
   /** Session id currently being connected, so the tree can show a spinner. */
   const [connectingId, setConnectingId] = useState<string | null>(null)
   const [connectionsOpen, setConnectionsOpen] = useState(false)
+  /*
+   * File transfers live in the main process, not here: the window must be able to open
+   * in the middle of one and show the real thing. This is only the last snapshot it was
+   * handed, plus whether the window is on screen.
+   */
+  const [transfers, setTransfers] = useState<TransferInfo[]>([])
+  const [transfersOpen, setTransfersOpen] = useState(false)
   const [snippetBarVisible, setSnippetBarVisible] = useState(true)
   /**
    * How the Hosts page lists hosts.
@@ -1668,6 +1677,24 @@ export function App(): JSX.Element {
 
   useEffect(() => api.onHistoryChanged(() => setHistoryTick((t) => t + 1)), [])
 
+  /*
+   * Follow the transfer list.
+   *
+   * The first read is not cosmetic: a transfer may already be running when the app
+   * starts following (or when this component remounts), and an event-only subscription
+   * would show an empty window over a file that is being uploaded right then.
+   */
+  useEffect(() => {
+    let alive = true
+    void api.listTransfers().then((list) => {
+      if (alive) setTransfers(list)
+    })
+    const off = api.onTransfers((list) => setTransfers(list))
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
   /** The live session behind the active pane, whatever kind it is. */
   const activeLiveSessionId = useMemo(() => {
     if (!activePanelId || activePanelId === 'welcome') return null
@@ -2825,6 +2852,7 @@ export function App(): JSX.Element {
     openSettings: () => setSettingsOpen(true),
     toggleSidebar: () => setRailCollapsed((v) => !v),
     openConnections: () => setConnectionsOpen(true),
+    openTransfers: () => setTransfersOpen(true),
     toggleSnippets: () => setSnippetBarVisible((v) => !v),
     toggleBroadcast: () => setBroadcasting(toggleBroadcasting()),
     tilePanes: () => openTileDialog(),
@@ -3114,6 +3142,10 @@ export function App(): JSX.Element {
                     sessionId={activeSshSessionId}
                     onToast={setToast}
                     onError={(message) => setAlert({ message })}
+                    onOpenTransfers={() => setTransfersOpen(true)}
+                    runningTransfers={
+                      transfers.filter((transfer) => transfer.status === 'running').length
+                    }
                   />
                 </Suspense>
               )}
@@ -3441,6 +3473,15 @@ export function App(): JSX.Element {
             embedded
           />
         </Drawer>
+      )}
+
+      {transfersOpen && (
+        <TransfersWindow
+          transfers={transfers}
+          onCancel={(id) => void api.cancelTransfer(id).then(setTransfers)}
+          onClearFinished={() => void api.clearFinishedTransfers().then(setTransfers)}
+          onDismiss={() => setTransfersOpen(false)}
+        />
       )}
 
       {snippetEditor && (

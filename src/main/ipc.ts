@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, statSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { access, constants, readFile, writeFile } from 'node:fs/promises'
 import { timingSafeEqual } from 'node:crypto'
 
@@ -34,10 +35,22 @@ import { listFontChoices } from './fonts'
 import { clampScale, HistoryStore, SettingsStore, SessionStore } from './store/Stores'
 import { KnownHosts } from './ssh/KnownHosts'
 import { sendRestRequest } from './rest'
-import { closeSftp, downloadFile, listDirectory, uploadFile } from './sftp'
+import { closeSftp, downloadFile, listDirectory, remoteSize, uploadFile } from './sftp'
+import {
+  beginTransfer,
+  cancelTransfer,
+  clearFinishedTransfers,
+  finishTransfer,
+  listTransfers,
+  onCancelTransfer,
+  reportProgress,
+  setTransferSink,
+  wasCancelled
+} from './transfers'
 import type {
   AppSettings,
   RestRequest,
+  TransferInfo,
   RestState,
   TunnelSpec,
   CreateSessionResult,
@@ -956,6 +969,99 @@ export function registerIpc(): void {
     }
   )
 
+  /*
+   * Transfers, as the transfers window sees them.
+   *
+   * The list lives here rather than in the renderer because the bytes do: the window
+   * can be opened halfway through a transfer, so what it draws has to be the state at
+   * that moment rather than whatever the renderer happened to witness.
+   */
+  setTransferSink((list) => broadcast('transfer:changed', list))
+
+  /** The host label the window's second line shows. */
+  const transferHost = (sessionId: string): string =>
+    sessionManager.list().find((entry) => entry.id === sessionId)?.title ?? 'Session'
+
+  /** Bytes on disk, or 0 when the file cannot be measured. */
+  const localSize = (localPath: string): number => {
+    try {
+      return statSync(localPath).size
+    } catch {
+      return 0
+    }
+  }
+
+  /**
+   * Book the ending, and report a cancelled transfer as cancelled.
+   *
+   * Cancelling destroys the streams, so the transfer code sees an ordinary close and
+   * calls it a success — the window and the toast would both say "done" for a file that
+   * is only half written.
+   */
+  function endTransfer(id: string, result: SftpTransferResult): SftpTransferResult {
+    if (wasCancelled(id)) {
+      finishTransfer(id, 'cancelled')
+      return { ok: false, cancelled: true }
+    }
+    finishTransfer(id, result.ok ? 'done' : 'error', result.ok ? undefined : result.message)
+    return result
+  }
+
+  /** One upload, tracked from `running` to its ending. */
+  async function transferUp(
+    sessionId: string,
+    remoteDir: string,
+    localPath: string
+  ): Promise<SftpTransferResult> {
+    const target = sftpTarget(sessionId)
+    if (!target) return { ok: false, message: 'SFTP needs a live SSH session.' }
+    const id = beginTransfer({
+      kind: 'upload',
+      sessionId,
+      session: transferHost(sessionId),
+      name: basename(localPath),
+      localPath,
+      remotePath: join(remoteDir, basename(localPath)).replace(/\\/g, '/'),
+      size: localSize(localPath)
+    })
+    const result = await uploadFile(sessionId, target.options, { knownHosts }, localPath, remoteDir, {
+      progress: (bytes) => reportProgress(id, bytes),
+      register: (abort) => onCancelTransfer(id, abort)
+    })
+    return endTransfer(id, result)
+  }
+
+  /** One download, tracked the same way. */
+  async function transferDown(
+    sessionId: string,
+    remotePath: string,
+    localPath: string
+  ): Promise<SftpTransferResult> {
+    const target = sftpTarget(sessionId)
+    if (!target) return { ok: false, message: 'SFTP needs a live SSH session.' }
+    const id = beginTransfer({
+      kind: 'download',
+      sessionId,
+      session: transferHost(sessionId),
+      name: basename(remotePath),
+      localPath,
+      remotePath,
+      size: await remoteSize(sessionId, target.options, { knownHosts }, remotePath)
+    })
+    const result = await downloadFile(
+      sessionId,
+      target.options,
+      { knownHosts },
+      remotePath,
+      localPath,
+      {
+        progress: (bytes) => reportProgress(id, bytes),
+        register: (abort) => onCancelTransfer(id, abort)
+      }
+    )
+    return endTransfer(id, result)
+  }
+
   ipcMain.handle(
     'sftp:download',
     async (_e, sessionId: string, remotePath: string): Promise<SftpTransferResult> => {
@@ -967,7 +1073,7 @@ export function registerIpc(): void {
         defaultPath: remotePath.split('/').pop() ?? 'download'
       })
       if (result.canceled || !result.filePath) return { ok: false, cancelled: true }
-      return downloadFile(sessionId, target.options, { knownHosts }, remotePath, result.filePath)
+      return transferDown(sessionId, remotePath, result.filePath)
     }
   )
 
@@ -982,9 +1088,40 @@ export function registerIpc(): void {
         properties: ['openFile', 'showHiddenFiles']
       })
       if (result.canceled || result.filePaths.length === 0) return { ok: false, cancelled: true }
-      return uploadFile(sessionId, target.options, { knownHosts }, result.filePaths[0], remoteDir)
+      return transferUp(sessionId, remoteDir, result.filePaths[0])
     }
   )
+
+  /*
+   * The same two transfers with the paths already decided.
+   *
+   * A native file dialog is a front end, not part of the transfer; keeping the transfer
+   * itself reachable without one is what lets the probes drive it, and it is what a
+   * drop-on-the-panel gesture would use instead of a dialog.
+   */
+  ipcMain.handle(
+    'transfer:upload',
+    (_e, sessionId: string, remoteDir: string, localPath: string): Promise<SftpTransferResult> =>
+      transferUp(sessionId, remoteDir, localPath)
+  )
+
+  ipcMain.handle(
+    'transfer:download',
+    (_e, sessionId: string, remotePath: string, localPath: string): Promise<SftpTransferResult> =>
+      transferDown(sessionId, remotePath, localPath)
+  )
+
+  ipcMain.handle('transfer:list', (): TransferInfo[] => listTransfers())
+
+  ipcMain.handle('transfer:cancel', (_e, id: string): TransferInfo[] => {
+    cancelTransfer(id)
+    return listTransfers()
+  })
+
+  ipcMain.handle('transfer:clear', (): TransferInfo[] => {
+    clearFinishedTransfers()
+    return listTransfers()
+  })
 
   // ---- host keys ---------------------------------------------------------
 

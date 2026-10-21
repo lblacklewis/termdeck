@@ -33,6 +33,7 @@ import type {
   SharePickResult,
   SftpListResult,
   SftpTransferResult,
+  TransferInfo,
   Snippet,
   SshConnectPayload,
   RestRequest,
@@ -224,6 +225,30 @@ const api = {
     ipcRenderer.invoke('sftp:download', sessionId, remotePath),
   sftpUpload: (sessionId: string, remoteDir: string): Promise<SftpTransferResult> =>
     ipcRenderer.invoke('sftp:upload', sessionId, remoteDir),
+  /*
+   * The same transfers without the file dialog in the way. Kept separate so a transfer
+   * can be started with both paths already known — which is what makes it testable, and
+   * what a drop-on-the-panel gesture would use.
+   */
+  startUpload: (
+    sessionId: string,
+    remoteDir: string,
+    localPath: string
+  ): Promise<SftpTransferResult> =>
+    ipcRenderer.invoke('transfer:upload', sessionId, remoteDir, localPath),
+  startDownload: (
+    sessionId: string,
+    remotePath: string,
+    localPath: string
+  ): Promise<SftpTransferResult> =>
+    ipcRenderer.invoke('transfer:download', sessionId, remotePath, localPath),
+
+  // ---- transfers ---------------------------------------------------------
+  listTransfers: (): Promise<TransferInfo[]> => ipcRenderer.invoke('transfer:list'),
+  cancelTransfer: (id: string): Promise<TransferInfo[]> => ipcRenderer.invoke('transfer:cancel', id),
+  clearFinishedTransfers: (): Promise<TransferInfo[]> => ipcRenderer.invoke('transfer:clear'),
+  onTransfers: (handler: (transfers: TransferInfo[]) => void): (() => void) =>
+    on<[TransferInfo[]]>('transfer:changed', handler),
 
   // ---- events -----------------------------------------------------------
   onSessionData: (handler: (id: string, chunk: string, seq: number) => void): (() => void) =>

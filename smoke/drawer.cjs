@@ -50,6 +50,21 @@ async function main() {
   mod.registerFocusIpc()
   mod.storeAccess().layout.clear()
 
+  /*
+   * Files for the transfer checks: one small enough to finish, one too big to cross the
+   * link before the probe can look, so Cancel has something to stop.
+   */
+  const transferDir = path.join(os.tmpdir(), 'termdeck-transfer-probe')
+  fs.mkdirSync(transferDir, { recursive: true })
+  const TINY = path.join(transferDir, 'td-probe-tiny.bin')
+  const HUGE = path.join(transferDir, 'td-probe-huge.bin')
+  const TINY_BACK = path.join(transferDir, 'td-probe-tiny-back.bin')
+  const TINY_SIZE = 4096
+  const HUGE_SIZE = 48 * 1024 * 1024
+  fs.writeFileSync(TINY, Buffer.alloc(TINY_SIZE, 7))
+  fs.writeFileSync(HUGE, Buffer.alloc(HUGE_SIZE, 7))
+  fs.rmSync(TINY_BACK, { force: true })
+
   const settings = mod.storeAccess().settings.load()
   mod.storeAccess().settings.save({ ...settings, hostKeys: { policy: 'trust' } })
   mod.storeAccess().sessions.upsertSession({
@@ -790,6 +805,129 @@ async function main() {
         push('a path that does not exist leaves the listing alone',
           pathShown() === '/etc' && !!document.querySelector('[data-sftp-entry="passwd"]'),
           'path=' + pathShown())
+      }
+
+      /*
+       * ---- transfers in their own window ----------------------------------
+       *
+       * Progress used to have nowhere to live: the panel could only report on the
+       * session it was showing, and only while somebody was looking at it. So the
+       * checks here are about the *window* — that it opens, that a finished file is
+       * listed with its numbers, and that Cancel really stops the bytes.
+       */
+      step = 'transfers'
+      const liveSsh = (await window.termdeck.listSessions()).find((s) => s.kind === 'ssh')
+      const uploadDir = pathShown()
+      push('a live ssh session is available to transfer over', !!liveSsh,
+        liveSsh ? 'dir=' + uploadDir : 'no session')
+
+      if (liveSsh) {
+        const transferBtn = document.querySelector('[data-testid="sftp-transfers"]')
+        push('the sftp panel has a transfers button', !!transferBtn)
+        if (transferBtn) transferBtn.click()
+        await wait(600)
+        const windowEl = document.querySelector('[data-testid="transfers-window"]')
+        push('it opens the transfers window', !!windowEl)
+        push('which starts by saying it is idle',
+          !!document.querySelector('[data-testid="transfers-empty"]'))
+
+        const upload = await window.termdeck.startUpload(liveSsh.id, uploadDir, ${JSON.stringify(TINY)})
+        push('uploading a file succeeds', upload.ok, upload.ok ? upload.path : upload.message)
+
+        const listed = await window.termdeck.listTransfers()
+        const uploaded = listed.find(
+          (t) => t.kind === 'upload' && t.name === 'td-probe-tiny.bin'
+        )
+        push('the window is listing it as finished',
+          !!uploaded && uploaded.status === 'done',
+          uploaded ? uploaded.status : 'missing')
+        push('with the size it was given and reached',
+          !!uploaded && uploaded.size === ${TINY_SIZE} && uploaded.done === ${TINY_SIZE},
+          uploaded ? uploaded.done + '/' + uploaded.size : 'missing')
+        push('and the host it belongs to', !!uploaded && uploaded.session.length > 0,
+          uploaded ? uploaded.session : 'missing')
+
+        const doneRow = [...document.querySelectorAll('[data-testid="transfer-row"]')]
+          .find((el) => (el.textContent || '').includes('td-probe-tiny.bin'))
+        push('the row says done and shows 100%',
+          !!doneRow && doneRow.getAttribute('data-transfer-status') === 'done' &&
+            (doneRow.textContent || '').includes('100%'),
+          doneRow ? (doneRow.textContent || '').slice(0, 70) : 'no row')
+
+        const remoteTiny = (uploadDir.endsWith('/') ? uploadDir : uploadDir + '/') + 'td-probe-tiny.bin'
+        const back = await window.termdeck.startDownload(liveSsh.id, remoteTiny, ${JSON.stringify(TINY_BACK)})
+        push('downloading it back succeeds', back.ok, back.ok ? back.path : back.message)
+        const listedAgain = await window.termdeck.listTransfers()
+        const downloaded = listedAgain.find(
+          (t) => t.kind === 'download' && t.name === 'td-probe-tiny.bin'
+        )
+        push('the download is in the same list',
+          !!downloaded && downloaded.status === 'done',
+          downloaded ? downloaded.kind + ' ' + downloaded.status : 'missing')
+        push('both directions sit side by side',
+          !!listedAgain.find((t) => t.kind === 'upload') &&
+            !!listedAgain.find((t) => t.kind === 'download'))
+
+        /*
+         * Cancel, on a file too big to be done before the first poll. The result the
+         * caller gets has to say cancelled as well: a destroyed stream looks exactly
+         * like a completed one, and the panel's toast would otherwise claim success.
+         */
+        const running = window.termdeck.startUpload(liveSsh.id, uploadDir, ${JSON.stringify(HUGE)})
+        let inFlight = null
+        for (let i = 0; i < 80 && !inFlight; i += 1) {
+          const list = await window.termdeck.listTransfers()
+          inFlight = list.find((t) => t.name === 'td-probe-huge.bin' && t.status === 'running')
+          if (!inFlight) await wait(25)
+        }
+        push('a large upload is caught in flight', !!inFlight,
+          inFlight ? inFlight.done + '/' + inFlight.size : 'finished before it could be seen')
+        if (inFlight) {
+          /*
+           * The badge is the part that makes the window findable, so it has to be up
+           * while a file is moving. Given a moment because the list reaches the
+           * renderer on a throttled broadcast rather than with the call itself.
+           */
+          await wait(500)
+          const runningBadge = document.querySelector('[data-testid="sftp-transfers-badge"]')
+          push('the panel button counts the file still running',
+            !!runningBadge && runningBadge.textContent === '1',
+            runningBadge ? runningBadge.textContent : 'no badge')
+          const afterCancel = await window.termdeck.cancelTransfer(inFlight.id)
+          const stopped = afterCancel.find((t) => t.id === inFlight.id)
+          push('cancelling it marks it cancelled, not done',
+            !!stopped && stopped.status === 'cancelled',
+            stopped ? stopped.status : 'missing')
+          push('and it stopped short of the whole file',
+            !!stopped && stopped.size === ${HUGE_SIZE} && stopped.done < ${HUGE_SIZE},
+            stopped ? stopped.done + '/' + stopped.size : 'missing')
+        }
+        const cancelledResult = await running
+        push('the cancelled upload reports itself cancelled to its caller',
+          cancelledResult.ok === false && cancelledResult.cancelled === true,
+          JSON.stringify(cancelledResult))
+
+        // The badge is how the window is found again.
+        await wait(500)
+        const spentBadge = document.querySelector('[data-testid="sftp-transfers-badge"]')
+        push('the badge goes away once nothing is running', !spentBadge,
+          spentBadge ? spentBadge.textContent : 'no badge')
+
+        const clear = document.querySelector('[data-testid="transfers-clear"]')
+        push('finished transfers can be cleared away', !!clear)
+        if (clear) {
+          clear.click()
+          await wait(600)
+          push('clearing leaves the list empty',
+            document.querySelectorAll('[data-testid="transfer-row"]').length === 0,
+            document.querySelectorAll('[data-testid="transfer-row"]').length + ' rows')
+        }
+
+        const dismiss = [...document.querySelectorAll('[data-testid="transfers-window"] .td-modal-foot button')]
+          .pop()
+        if (dismiss) dismiss.click()
+        await wait(400)
+        push('the window closes', !document.querySelector('[data-testid="transfers-window"]'))
       }
 
       return out

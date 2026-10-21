@@ -16,6 +16,10 @@ interface SftpPanelProps {
   sessionId: string | null
   onToast: (message: string) => void
   onError: (message: string) => void
+  /** Opens the transfers window, which is where progress is watched. */
+  onOpenTransfers?: () => void
+  /** How many files are moving right now, for the button's badge. */
+  runningTransfers?: number
 }
 
 /** Bytes as something readable; remote listings are mostly small files. */
@@ -33,7 +37,13 @@ function formatSize(bytes: number): string {
  * on the *same* login — nothing extra to configure, and the credentials stay in
  * the main process, so the renderer only ever sends a session id and a path.
  */
-export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.Element {
+export function SftpPanel({
+  sessionId,
+  onToast,
+  onError,
+  onOpenTransfers,
+  runningTransfers = 0
+}: SftpPanelProps): JSX.Element {
   const [path, setPath] = useState('')
   const [entries, setEntries] = useState<SftpEntry[]>([])
   const [busy, setBusy] = useState(false)
@@ -180,6 +190,27 @@ export function SftpPanel({ sessionId, onToast, onError }: SftpPanelProps): JSX.
           onClick={() => void upload()}
         >
           ⭱
+        </button>
+        {/*
+          Progress lives in its own window: the panel can only report on the session it
+          is showing, and only while somebody is looking at it. The badge is the part
+          that makes the window discoverable — a running count on the button.
+        */}
+        <button
+          className="td-icon-btn td-sftp-transfers"
+          title={t(
+            'transfers.open_hint',
+            'Transfers — progress for every upload and download'
+          )}
+          data-testid="sftp-transfers"
+          onClick={() => onOpenTransfers?.()}
+        >
+          ⇅
+          {runningTransfers > 0 && (
+            <span className="td-sftp-badge" data-testid="sftp-transfers-badge">
+              {runningTransfers}
+            </span>
+          )}
         </button>
       </div>
 

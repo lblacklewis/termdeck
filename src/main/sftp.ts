@@ -1,4 +1,3 @@
-import { once } from 'node:events'
 import { createReadStream, createWriteStream } from 'node:fs'
 import { basename, join } from 'node:path'
 import { Client, type SFTPWrapper } from 'ssh2'
@@ -176,20 +175,76 @@ function toEntry(
   }
 }
 
+/**
+ * What a transfer reports back while it runs.
+ *
+ * `progress` counts bytes as they leave the source — the local file on an upload, the
+ * remote one on a download — because that is the side that knows how fast the transfer
+ * is actually going. `register` hands the caller a way to abort: the streams live here,
+ * and the transfers window is what decides to stop them.
+ */
+export interface TransferHooks {
+  progress?: (bytes: number) => void
+  register?: (abort: () => void) => void
+}
+
+/**
+ * Resolves on whichever ending arrives first.
+ *
+ * Cancelling destroys the streams, and a destroyed stream never emits `end` — waiting
+ * on `end` alone would leave the promise hanging forever while the window showed a
+ * transfer that could never finish.
+ */
+function settled(stream: NodeJS.ReadableStream | NodeJS.WritableStream, event: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.once(event, () => resolve())
+    stream.once('close', () => resolve())
+    stream.once('error', (err: Error) => reject(err))
+  })
+}
+
+/**
+ * The size of a remote file, for a progress bar that knows where it is going.
+ *
+ * Reported as 0 rather than thrown when the host cannot answer: a transfer without a
+ * total still has to run, it just shows an indeterminate bar.
+ */
+export async function remoteSize(
+  sessionId: string,
+  options: SshConnectOptions,
+  deps: SshBackendDeps,
+  remotePath: string
+): Promise<number> {
+  try {
+    const { sftp } = await session(sessionId, options, deps)
+    return await new Promise<number>((resolve) => {
+      sftp.stat(remotePath, (err, stats) => resolve(err || !stats ? 0 : stats.size ?? 0))
+    })
+  } catch {
+    return 0
+  }
+}
+
 /** Download one remote file to a local path chosen by the caller. */
 export async function downloadFile(
   sessionId: string,
   options: SshConnectOptions,
   deps: SshBackendDeps,
   remotePath: string,
-  localPath: string
+  localPath: string,
+  hooks?: TransferHooks
 ): Promise<SftpTransferResult> {
   try {
     const { sftp } = await session(sessionId, options, deps)
     const read = sftp.createReadStream(remotePath)
     const write = createWriteStream(localPath)
+    read.on('data', (chunk: Buffer | string) => hooks?.progress?.(chunk.length))
+    hooks?.register?.(() => {
+      read.destroy()
+      write.destroy()
+    })
     read.pipe(write)
-    await Promise.all([once(read, 'end'), once(write, 'close')])
+    await Promise.all([settled(read, 'end'), settled(write, 'close')])
     return { ok: true, path: localPath }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) }
@@ -202,15 +257,21 @@ export async function uploadFile(
   options: SshConnectOptions,
   deps: SshBackendDeps,
   localPath: string,
-  remoteDir: string
+  remoteDir: string,
+  hooks?: TransferHooks
 ): Promise<SftpTransferResult> {
   const remotePath = join(remoteDir, basename(localPath)).replace(/\\/g, '/')
   try {
     const { sftp } = await session(sessionId, options, deps)
     const read = createReadStream(localPath)
     const write = sftp.createWriteStream(remotePath)
+    read.on('data', (chunk: Buffer | string) => hooks?.progress?.(chunk.length))
+    hooks?.register?.(() => {
+      read.destroy()
+      write.destroy()
+    })
     read.pipe(write)
-    await Promise.all([once(read, 'end'), once(write, 'close')])
+    await Promise.all([settled(read, 'end'), settled(write, 'close')])
     return { ok: true, path: remotePath }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : String(err) }

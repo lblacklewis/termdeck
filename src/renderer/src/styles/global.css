@@ -3472,6 +3472,196 @@ body {
   cursor: pointer;
 }
 
+/* ---- transfers window ------------------------------------------------- */
+
+/*
+ * A row is one file: icon, name, bar, numbers. The bar is the thing the eye lands on,
+ * so it sits between the name and the figures rather than at the edge where it would
+ * be read as a border.
+ */
+.td-transfers-summary {
+  padding: 0 16px 8px;
+  font-size: 12px;
+  color: var(--td-text-dim);
+}
+
+.td-transfers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(52vh, 420px);
+  overflow-y: auto;
+}
+
+.td-transfer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: 8px;
+}
+
+.td-transfer:hover {
+  background: var(--td-surface-hover);
+}
+
+.td-transfer-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--td-accent);
+}
+
+/* A finished file keeps its row; the colour says how it finished. */
+.td-transfer.is-done .td-transfer-icon {
+  color: var(--td-ok, #9ece6a);
+}
+
+.td-transfer.is-error .td-transfer-icon,
+.td-transfer.is-cancelled .td-transfer-icon {
+  color: var(--td-danger);
+}
+
+.td-transfer-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.td-transfer-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.td-transfer-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--td-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-transfer-kind {
+  flex: 0 0 auto;
+  font-size: var(--td-text-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--td-text-faint);
+}
+
+.td-transfer-host {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--td-text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+
+.td-transfer-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--td-surface);
+  overflow: hidden;
+}
+
+.td-transfer-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--td-accent);
+  transition: width 160ms linear;
+}
+
+.td-transfer.is-done .td-transfer-fill {
+  background: var(--td-ok, #9ece6a);
+}
+
+.td-transfer.is-error .td-transfer-fill,
+.td-transfer.is-cancelled .td-transfer-fill {
+  background: var(--td-danger);
+}
+
+/*
+ * Unknown total: a sweeping band instead of a bar, because a wrong percentage is
+ * worse than an honest "still going".
+ */
+.td-transfer-bar.is-indeterminate .td-transfer-fill {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--td-accent) 40%,
+    var(--td-accent) 60%,
+    transparent 100%
+  );
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: td-transfer-sweep 1.2s linear infinite;
+  opacity: 0.5;
+}
+
+@keyframes td-transfer-sweep {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+.td-transfer-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--td-text-dim);
+}
+
+.td-transfer-ok {
+  color: var(--td-ok, #9ece6a);
+}
+
+.td-transfer-error {
+  color: var(--td-danger);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 46ch;
+}
+
+/* The count on the SFTP panel's transfer button. */
+.td-sftp-transfers {
+  position: relative;
+}
+
+.td-sftp-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--td-accent);
+  color: var(--td-bg);
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  font-weight: 600;
+}
+
 /* ---- transitions feel intentional ------------------------------------- */
 
 .td-theme-card,
