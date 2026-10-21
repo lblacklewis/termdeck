@@ -185,6 +185,66 @@ async function main() {
       await wait(1000)
     }
 
+    /*
+     * ---- tab names are readable -----------------------------------------
+     *
+     * Measured after the split, because that is the state the problem showed up in:
+     * dockview's abyss theme paints inactive tab labels white at 50%, and at 25% in a
+     * group that is not focused. The second is 2.3:1 on this background — the name is
+     * there and unreadable. Everything here has to clear 4.5:1 (WCAG AA for normal
+     * text), and the active tab has to be the brightest of them.
+     */
+    const tabInk = (() => {
+      const parseColor = (value) => {
+        if (!value || value.indexOf('rgb') !== 0) return null
+        const open = value.indexOf('(')
+        const close = value.lastIndexOf(')')
+        if (open < 0 || close < 0) return null
+        const parts = value.slice(open + 1, close).split(',').map((x) => parseFloat(x.trim()))
+        if (parts.length < 3) return null
+        return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 }
+      }
+      const channel = (v) => {
+        const x = v / 255
+        return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4)
+      }
+      const luminance = (c) => 0.2126 * channel(c.r) + 0.7152 * channel(c.g) + 0.0722 * channel(c.b)
+      const backdropOf = (el) => {
+        let node = el
+        while (node) {
+          const bg = parseColor(getComputedStyle(node).backgroundColor)
+          if (bg && bg.a === 1) return bg
+          node = node.parentElement
+        }
+        return parseColor(getComputedStyle(document.body).backgroundColor) || { r: 18, g: 21, b: 27 }
+      }
+      // A translucent label is composited onto what is behind it before measuring,
+      // which is the only way a 25%-white token can be compared with a solid ink.
+      const over = (fg, bg) => ({
+        r: fg.r * fg.a + bg.r * (1 - fg.a),
+        g: fg.g * fg.a + bg.g * (1 - fg.a),
+        b: fg.b * fg.a + bg.b * (1 - fg.a)
+      })
+      return [...document.querySelectorAll('.dv-tab')].map((tab) => {
+        const label = tab.querySelector('.dv-default-tab-content') || tab
+        const style = getComputedStyle(label)
+        const bg = backdropOf(tab)
+        const fg = parseColor(style.color) || { r: 255, g: 255, b: 255, a: 1 }
+        const ink = over(fg, bg)
+        const high = Math.max(luminance(ink), luminance(bg))
+        const low = Math.min(luminance(ink), luminance(bg))
+        return {
+          name: (tab.textContent || '').trim(),
+          active: tab.classList.contains('dv-active-tab'),
+          // Every group has an "active" tab; only the focused group's one is *the*
+          // active tab. Without this the comparison below mixed the two.
+          inActiveGroup: !!tab.closest('.dv-groupview.dv-active-group'),
+          ratio: Math.round(((high + 0.05) / (low + 0.05)) * 100) / 100,
+          color: style.color
+        }
+      })
+    })()
+
     // Leave the app on another rail section, so the page persists too.
     document.querySelector('[data-testid="rail-logs"]').click()
     await wait(500)
@@ -196,7 +256,8 @@ async function main() {
       nodeAppeared,
       connectAlert,
       groups: document.querySelectorAll('.dv-groupview').length,
-      tabs: [...document.querySelectorAll('.dv-tab')].map((t) => t.textContent.trim())
+      tabs: [...document.querySelectorAll('.dv-tab')].map((t) => t.textContent.trim()),
+      tabInk
     }
   })()`)
   console.log('run 1 arranged:', JSON.stringify(opened))
@@ -205,7 +266,36 @@ async function main() {
   const beforeQuit = await first.webContents.executeJavaScript(DOCK)
   console.log('run 1 dock:', JSON.stringify(beforeQuit))
 
+  const inks = opened.tabInk || []
+  const worstInk = inks.reduce((a, b) => (a && a.ratio <= b.ratio ? a : b), null)
+  /*
+   * "The active tab" is the one in the focused group. Every group has its own active
+   * tab, and comparing those against each other compares two dim labels — the first
+   * version of this check did exactly that and reported a tie.
+   */
+  const activeInk = inks.filter((t) => t.active && t.inActiveGroup)[0]
+  const dimInactive = inks.filter((t) => !(t.active && t.inActiveGroup))
+
   report([
+    {
+      name: 'every tab name is readable against its own strip (4.5:1)',
+      ok: !!worstInk && worstInk.ratio >= 4.5,
+      detail: worstInk
+        ? 'worst is ' + JSON.stringify(worstInk.name) + ' at ' + worstInk.ratio + ':1 (' +
+          worstInk.color + ') across ' + inks.length + ' tabs'
+        : 'no tabs to measure'
+    },
+    {
+      name: 'and the active tab is the brightest of them',
+      ok:
+        !!activeInk &&
+        dimInactive.length > 0 &&
+        activeInk.ratio > Math.min.apply(null, dimInactive.map((t) => t.ratio)),
+      detail: activeInk
+        ? 'active=' + activeInk.ratio + ':1 inactive=' +
+          dimInactive.map((t) => t.name + ':' + t.ratio).join(' ')
+        : 'no active tab'
+    },
     {
       name: 'the first run arranged its panes',
       ok: beforeQuit.tabs.length >= 3 && opened.sshUp === true,

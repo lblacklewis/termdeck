@@ -786,8 +786,16 @@ kbd {
   height: 100%;
 }
 
-/* The dockview abyss theme is close, but tighten it to the app palette. */
-.td-dockview.dockview-theme-abyss {
+/*
+ * The dockview abyss theme is close, but tighten it to the app palette.
+ *
+ * Matches the theme class anywhere inside the dock area, not only on its root: dockview
+ * renders an inner `.dv-shell` that carries the same class, and a variable declared
+ * there wins for every tab inside it. Overriding the root alone left the whole strip on
+ * the theme's own colours.
+ */
+.td-dockview.dockview-theme-abyss,
+.td-dockview .dockview-theme-abyss {
   --dv-background-color: var(--td-bg);
   --dv-tabs-and-actions-container-background-color: var(--td-bg-raised);
   --dv-group-view-background-color: var(--td-bg-sunken);
@@ -2461,7 +2469,25 @@ kbd {
 }
 
 .td-dockview.dockview-theme-abyss {
-  /* The theme variables drive the docking chrome too. */
+  border-radius: var(--td-radius-lg);
+  overflow: hidden;
+  box-shadow: var(--td-shadow-sm);
+}
+
+/*
+ * Tab labels.
+ *
+ * dockview's abyss theme paints these white at 50%, and at 25% in a group that is not
+ * focused — about 2.3:1 against this background, so the name of a tab in the other half
+ * of a split was technically there and practically unreadable.
+ *
+ * Set on the theme class wherever it appears, not only on the dockview root: the theme
+ * class is also on each group, and a variable declared there wins for everything inside
+ * it. Overriding only the root left every tab reading the group's own 25% white, which
+ * is exactly the state this rule exists to remove.
+ */
+.td-dockview.dockview-theme-abyss,
+.td-dockview .dockview-theme-abyss {
   --dv-background-color: var(--td-bg);
   --dv-tabs-and-actions-container-background-color: var(--td-bg-raised);
   --dv-group-view-background-color: var(--td-bg-sunken);
@@ -2472,11 +2498,11 @@ kbd {
   --dv-tab-divider-color: var(--td-border);
   --dv-separator-border: var(--td-border);
   --dv-active-sash-color: var(--td-accent);
-  border-radius: var(--td-radius-lg);
-  overflow: hidden;
-  box-shadow: var(--td-shadow-sm);
+  --dv-activegroup-visiblepanel-tab-color: var(--td-text);
+  --dv-activegroup-hiddenpanel-tab-color: var(--td-text-dim);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--td-text-dim);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--td-text-dim);
 }
-
 /* Round the tab strip and panels a little. */
 .td-dockview .dv-tabs-and-actions-container {
   padding-left: 6px;
@@ -5012,8 +5038,16 @@ html[data-theme-scheme='light'] .td-field textarea {
   transition: background var(--td-dur-base) var(--td-ease-out), color var(--td-dur-base) var(--td-ease-out);
 }
 
+/*
+ * The active tab also carries an accent rule along its bottom edge.
+ *
+ * With every name now readable, brightness alone is a weak way to say which tab is
+ * current; a two-pixel accent line says it without dimming the others back down. Drawn
+ * as an inset shadow rather than a pseudo-element because dockview already uses
+ * .dv-tab:focus-visible::after for its focus ring.
+ */
 .dv-tab.dv-active-tab {
-  box-shadow: var(--td-shadow-sm);
+  box-shadow: inset 0 -2px 0 var(--td-accent), var(--td-shadow-sm);
 }
 
 /* Pills and badges are fully round; a 10px radius on a 20px-tall chip looks
