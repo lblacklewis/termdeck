@@ -31,11 +31,19 @@ walk(SRC)
 
 const used = new Map()
 const conflicting = []
-/** Prefixes used with a computed key, e.g. t('keybinding.' + binding.id, …). */
+/**
+ * Prefixes used with a computed key, e.g. t('keybinding.' + binding.id, …).
+ *
+ * Dots are allowed inside the prefix, because a key is not always one segment deep:
+ * `t('restpage.err.' + code, english)` and `t('restpage.tpl_name.' + id, name)` translate
+ * data that arrives with an id from outside the renderer. The whole literal is captured,
+ * so the exemption stays as narrow as the prefix — a stale `restpage.send` is still
+ * reported, only `restpage.err.*` and `restpage.tpl_name.*` are not.
+ */
 const prefixes = new Set()
 for (const file of files) {
   const source = fs.readFileSync(file, 'utf8')
-  for (const match of source.matchAll(/t\(\s*'([A-Za-z0-9_]+\.)'\s*\+/g)) prefixes.add(match[1])
+  for (const match of source.matchAll(/t\(\s*'([A-Za-z0-9_.]+\.)'\s*\+/g)) prefixes.add(match[1])
   const re = /t\(\s*'([^']+)'\s*,\s*'((?:[^'\\]|\\.)*)'/g
   let match
   while ((match = re.exec(source))) {

@@ -2,13 +2,31 @@ import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { URL } from 'node:url'
 
-import type { RestHeader, RestRequest, RestResponse } from '@shared/types'
+import type { RestErrorCode, RestHeader, RestRequest, RestResponse } from '@shared/types'
 
 /** How long one hop may take before it is called a failure. */
 const DEFAULT_TIMEOUT_MS = 15_000
 /** Enough for any JSON answer a person is going to read in a pane. */
 const MAX_BYTES = 5 * 1024 * 1024
 const MAX_REDIRECTS = 5
+
+/**
+ * A failure whose wording this module decided.
+ *
+ * A plain `Error` carrying a code, so the reason survives the `error` event and the
+ * `destroy()` that raises it and the page can say it in its own language. Node's own
+ * failures (`ECONNREFUSED`, a refused certificate, DNS) arrive without a code and are
+ * shown exactly as they came: that text is the detail worth reading, and there is no
+ * sentence here to translate.
+ */
+class RestError extends Error {
+  readonly code: RestErrorCode
+
+  constructor(message: string, code: RestErrorCode) {
+    super(message)
+    this.code = code
+  }
+}
 
 interface Hop {
   status: number
@@ -100,7 +118,7 @@ function once(url: URL, req: RestRequest): Promise<Hop> {
         ? req.timeoutMs
         : DEFAULT_TIMEOUT_MS
     request.setTimeout(timeoutMs, () => {
-      request.destroy(new Error(`No answer within ${timeoutMs / 1000}s.`))
+      request.destroy(new RestError(`No answer within ${timeoutMs / 1000}s.`, 'timeout'))
     })
     request.on('error', reject)
     if (body) request.write(body)
@@ -131,12 +149,19 @@ export async function sendRestRequest(input: RestRequest): Promise<RestResponse>
     return {
       ok: false,
       error: 'That is not a URL. Include the scheme, for example http://127.0.0.1:8080/health',
+      errorCode: 'not-url',
       durationMs: 0,
       size: 0
     }
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { ok: false, error: 'Only http:// and https:// URLs can be sent.', durationMs: 0, size: 0 }
+    return {
+      ok: false,
+      error: 'Only http:// and https:// URLs can be sent.',
+      errorCode: 'bad-scheme',
+      durationMs: 0,
+      size: 0
+    }
   }
 
   let method = input.method
@@ -173,11 +198,19 @@ export async function sendRestRequest(input: RestRequest): Promise<RestResponse>
         finalUrl: target.toString()
       }
     }
-    return { ok: false, error: 'Too many redirects.', durationMs: Date.now() - started, size: 0 }
+    return {
+      ok: false,
+      error: 'Too many redirects.',
+      errorCode: 'too-many-redirects',
+      durationMs: Date.now() - started,
+      size: 0
+    }
   } catch (err) {
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
+      // Absent for anything Node reported: those are shown as they arrived.
+      errorCode: err instanceof RestError ? err.code : undefined,
       durationMs: Date.now() - started,
       size: 0
     }

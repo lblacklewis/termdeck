@@ -164,6 +164,20 @@ export interface RestState {
   history: RestHistoryEntry[]
 }
 
+/**
+ * Why a request produced no answer, as a code the page can translate.
+ *
+ * The English sentence stays in `error` — it is what a page with no wording of its
+ * own shows, what a log keeps, and what the probes assert on — but the four reasons
+ * *this app* decides are also named, so a Chinese interface does not have an English
+ * sentence in the middle of it. Failures that come out of Node's HTTP client
+ * (`ECONNREFUSED`, a bad certificate, DNS) are left unnamed on purpose: their raw
+ * text is the useful detail, and there is no sentence here to translate.
+ *
+ * Deliberately the same shape as the REST page's header-JSON problems.
+ */
+export type RestErrorCode = 'not-url' | 'bad-scheme' | 'timeout' | 'too-many-redirects'
+
 export interface RestResponse {
   /** False only when the request never produced a response at all. */
   ok: boolean
@@ -177,6 +191,8 @@ export interface RestResponse {
   size: number
   /** Set when `ok` is false: the transport-level reason. */
   error?: string
+  /** Set with `error` when the reason is one of ours, so the page can translate it. */
+  errorCode?: RestErrorCode
   /** The URL that finally answered, after redirects. */
   finalUrl?: string
 }

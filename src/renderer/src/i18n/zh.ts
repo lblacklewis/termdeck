@@ -314,6 +314,86 @@ export const zh: Catalog = {
   'hostspage.unfiled': '未分组',
   'hostspage.ctrl': 'Ctrl',
 
+  // ---- REST tool -----------------------------------------------------------
+  /*
+   * `REST`, `URL` and `JSON` are left out on purpose: they are the words a Chinese
+   * reader of this page expects to see as they are. So are the sample values
+   * (`Content-Type`, `application/json`, `http://127.0.0.1:8080/health`) and the
+   * units (`ms`, `B`, `s`/`m`/`h`/`d` in the history) — none of that is prose.
+   */
+  'restpage.add_header': '添加请求头',
+  'restpage.blank': '空白请求',
+  'restpage.body': '请求体',
+  'restpage.body_placeholder': '只在 POST、PUT 和 PATCH 时发送',
+  'restpage.clear_2': '清空',
+  'restpage.copied': '已复制',
+  'restpage.copy_curl': '复制为 cURL',
+  'restpage.drop': '删除',
+  'restpage.drop_call': '从历史中移除',
+  'restpage.drop_kept': '删除',
+  'restpage.fold_again': '折回前 400 行',
+  'restpage.format': '格式化 JSON',
+  'restpage.headers': '请求头',
+  'restpage.headers_bad_line': '这一行里没有 "Name: value"：{line}',
+  'restpage.headers_bad_value': '"{name}" 的值不是字符串、数字或它们的列表。',
+  'restpage.headers_json_ok': '当前生效 {n} 个请求头。',
+  'restpage.headers_not_json': '这不是 JSON。',
+  'restpage.headers_not_object':
+    '需要形如 {"Name": "value"} 的对象 —— 或者每行一条 "Name: value"。',
+  'restpage.hint': '请求由应用发出，所以窗口不是网页也能访问本机上的服务。',
+  'restpage.history': '历史',
+  'restpage.history_empty': '发送过的调用会出现在这里。',
+  'restpage.insecure': '接受自签名证书',
+  'restpage.keep': '保存',
+  'restpage.keep_2': '保存',
+  'restpage.keep_call': '把这次调用保存下来',
+  'restpage.kept': '已保存的请求',
+  'restpage.kept_empty': '保存一次调用，之后就能按名字找到它。',
+  'restpage.method': '方法',
+  'restpage.mode_rows': '逐条',
+  'restpage.no_response': '还没有响应',
+  'restpage.no_saved': '已保存的请求…',
+  'restpage.not_json': '请求体不是 JSON。',
+  'restpage.rename': '重命名',
+  'restpage.rename_2': '重命名',
+  'restpage.request_failed': '请求失败。',
+  'restpage.response_headers': '响应头',
+  'restpage.saved': '已保存的请求',
+  'restpage.search': '搜索响应内容',
+  'restpage.send': '发送',
+  'restpage.sending': '发送中…',
+  'restpage.show_all': '显示全部行',
+  'restpage.template': '模板',
+  'restpage.timeout': '超时（秒）',
+  'restpage.update': '更新',
+  'restpage.update_2': '保存',
+  'restpage.update_from_editor': '用编辑器里的内容覆盖这一条',
+
+  /*
+   * Two things reach the page as data rather than as a literal, so their keys are
+   * built from an id: the built-in templates (`restTemplates.ts`, shared with the
+   * probes) and the reason a call failed (`main/rest.ts`, which has no catalog).
+   * The English for each one is still the fallback, so a rename upstream shows
+   * English instead of a raw key. `check:i18n` knows both prefixes are computed.
+   */
+  'restpage.tpl_name.elasticsearch-health': 'Elasticsearch · 集群健康',
+  'restpage.tpl_name.github-repo': 'GitHub · 仓库信息',
+  'restpage.tpl_name.health-check': '健康检查',
+  'restpage.tpl_name.ollama-generate': 'Ollama · 生成补全',
+  'restpage.tpl_name.ollama-tags': 'Ollama · 列出模型',
+  'restpage.tpl_name.prometheus-query': 'Prometheus · 即时查询',
+  'restpage.tpl_desc.elasticsearch-health': '集群健康，通常要问的第一个问题',
+  'restpage.tpl_desc.github-repo': '公开的 JSON API，用来验证能不能出网',
+  'restpage.tpl_desc.health-check': '一个在 /health 上应答的服务',
+  'restpage.tpl_desc.jsonplaceholder-post': '把 JSON 请求体原样回显，不需要认证',
+  'restpage.tpl_desc.ollama-generate': '本机 Ollama：一次非流式的补全',
+  'restpage.tpl_desc.ollama-tags': '本机 Ollama：看看已经拉了哪些模型',
+  'restpage.tpl_desc.prometheus-query': '通过 HTTP API 做即时查询',
+  'restpage.err.bad-scheme': '只能发送 http:// 和 https:// 开头的地址。',
+  'restpage.err.not-url': '这不是一个 URL —— 要带上协议，例如 http://127.0.0.1:8080/health',
+  'restpage.err.timeout': '请求超时：服务端在设定时间内没有应答。',
+  'restpage.err.too-many-redirects': '重定向次数过多。',
+
   // ---- nav rail, drawer sections, settings tabs, keybindings ---------------
   'navrail.hosts': '主机',
   'navrail.known_hosts': '已知主机',

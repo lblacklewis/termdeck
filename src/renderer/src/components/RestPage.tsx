@@ -445,11 +445,27 @@ export function RestPage(): JSX.Element {
     setTimeout(() => setFlash(''), 2000)
   }
 
+  /**
+   * Why the call failed.
+   *
+   * `errorCode` is set for the reasons this app decides the wording of, and the English
+   * sentence that comes with it is the fallback — so a code with no translation shows
+   * what the main process said rather than a raw key. Failures Node reported (a refused
+   * connection, a certificate, DNS) have no code and are shown exactly as they arrived:
+   * that text is the useful part, and there is nothing to translate.
+   */
+  const failure = useMemo((): string => {
+    if (!response || response.ok) return ''
+    const english = response.error ?? ''
+    if (response.errorCode) return t('restpage.err.' + response.errorCode, english)
+    return english || t('restpage.request_failed', 'The request failed.')
+  }, [response])
+
   const status = useMemo(() => {
     if (!response) return ''
-    if (!response.ok) return response.error ?? 'The request failed.'
+    if (!response.ok) return failure
     return `${response.status} ${response.statusText ?? ''}`.trim()
-  }, [response])
+  }, [response, failure])
 
   /** The body, folded and filtered. Both are view concerns, not transport ones. */
   const shown = useMemo(() => {
@@ -466,6 +482,24 @@ export function RestPage(): JSX.Element {
     return { text: all.join('\n'), lines: all.length, matches: 0 }
   }, [response, search, showAll])
 
+  /**
+   * The line under the title.
+   *
+   * A template explains itself; with none picked, the page does. The descriptions live
+   * in `restTemplates.ts` as shared data, so they are translated by id here rather than
+   * duplicated — the English in that file stays the fallback for both languages.
+   */
+  const hint = useMemo((): string => {
+    const entry = REST_TEMPLATES.find((template) => template.id === templateId)
+    if (!entry) {
+      return t(
+        'restpage.hint',
+        'Requests are sent from the app, so local services work even though the window is not a web page.'
+      )
+    }
+    return t('restpage.tpl_desc.' + entry.id, entry.description)
+  }, [templateId])
+
   return (
     <div className="td-page" data-testid="rest-page">
       <header className="td-page-head">
@@ -481,7 +515,7 @@ export function RestPage(): JSX.Element {
               <option value="">{t('restpage.blank', 'Blank request')}</option>
               {REST_TEMPLATES.map((template) => (
                 <option key={template.id} value={template.id}>
-                  {template.name}
+                  {t('restpage.tpl_name.' + template.id, template.name)}
                 </option>
               ))}
             </select>
@@ -518,14 +552,7 @@ export function RestPage(): JSX.Element {
             )}
           </div>
         </div>
-        <p className="td-page-meta" data-testid="rest-template-hint">
-          {templateId
-            ? REST_TEMPLATES.find((entry) => entry.id === templateId)?.description
-            : t(
-                'restpage.hint',
-                'Requests are sent from the app, so local services work even though the window is not a web page.'
-              )}
-        </p>
+        <p className="td-page-meta" data-testid="rest-template-hint">{hint}</p>
       </header>
 
       <div className="td-page-body td-rest-body">
@@ -978,7 +1005,7 @@ export function RestPage(): JSX.Element {
 
           {response && !response.ok && (
             <p className="td-form-error" data-testid="rest-error">
-              {response.error}
+              {failure}
             </p>
           )}
 

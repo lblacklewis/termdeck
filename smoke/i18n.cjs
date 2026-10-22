@@ -121,6 +121,167 @@ async function main() {
   push('tooltips are translated as well as labels',
     /[\u4e00-\u9fff]/.test(pageTitle) || pageTitle === '', 'title=' + pageTitle)
 
+  /*
+   * ---- a tool page, translated as a whole ------------------------------------
+   *
+   * The REST page's labels were the last English left inside a Chinese interface:
+   * its strings were already wrapped in `t()`, but the catalog had not a single
+   * `restpage.*` entry, so every one of them fell back. That failure is invisible
+   * to `check:i18n` (a missing translation is only a note there), which is why it
+   * survived a whole release — so this asserts the *rendered page*:
+   *
+   *   1. every label that has a Chinese form shows it, including `aria-label`s and
+   *      the `<option>` rows, which are text but not visible chrome;
+   *   2. the English each of those labels used to show is gone. Listing the English
+   *      is what makes this discriminate: against the untranslated page every one
+   *      of these fails, whereas "the page contains Chinese somewhere" would pass
+   *      on the rail alone.
+   */
+  await win.webContents.executeJavaScript(
+    'document.querySelector(\'[data-testid="rail-rest"]\').click()'
+  )
+  await sleep(1500)
+
+  const rest = await win.webContents.executeJavaScript(`(() => {
+    const page = document.querySelector('[data-testid="rest-page"]')
+    if (!page) return { missing: true }
+    const field = (id) => document.querySelector('[data-testid="' + id + '"]')
+    const text = (id) => (field(id) ? field(id).textContent || '' : '')
+    const attr = (id, name) => (field(id) ? field(id).getAttribute(name) || '' : '')
+    const options = (id) => {
+      const el = field(id)
+      return el ? [...el.options].map((o) => o.textContent || '') : []
+    }
+    const templateOptions = options('rest-template')
+    const savedOptions = options('rest-saved')
+    return {
+      missing: false,
+      body: page.textContent || '',
+      send: text('rest-send'),
+      copy: text('rest-copy-curl'),
+      addHeader: text('rest-header-add'),
+      format: text('rest-format'),
+      templateAria: attr('rest-template', 'aria-label'),
+      savedAria: attr('rest-saved', 'aria-label'),
+      blankOption: templateOptions[0] || '',
+      noSavedOption: savedOptions[0] || '',
+      historyEmpty: text('rest-history-empty'),
+      keptEmpty: text('rest-kept-empty'),
+      groupTitles: [...page.querySelectorAll('.td-rest-group-title')].map((el) => el.textContent || ''),
+      fieldLabels: [...page.querySelectorAll('.td-field > span:first-child')].map((el) => el.textContent || ''),
+      templates: templateOptions.slice(1)
+    }
+  })()`)
+
+  const hasCJK = (value) => /[\u4e00-\u9fff]/.test(value || '')
+  const show = (value) => JSON.stringify(String(value || '').slice(0, 60))
+
+  push('opening REST in Chinese shows the page', !rest.missing,
+    rest.missing ? 'no [data-testid=rest-page]' : 'ok')
+  push('the REST toolbar is Chinese',
+    rest.send === '发送' && hasCJK(rest.copy) && (rest.copy || '').includes('cURL') &&
+      hasCJK(rest.addHeader) && hasCJK(rest.format),
+    [rest.send, rest.copy, rest.addHeader, rest.format].join(' | '))
+  /*
+   * The label of a field is the first span inside it, but for the two fields that carry
+   * controls on the same line (headers, body) that span also wraps the controls, so its
+   * text reads "请求头逐条JSON". Asserting what the label *starts with* is the honest
+   * form; requiring the array to equal the four words was wrong about the DOM.
+   */
+  const fieldLabels = rest.fieldLabels || []
+  push('the REST field labels are Chinese',
+    ['方法', '请求头', '请求体', '超时'].every((label) =>
+      fieldLabels.some((value) => value.indexOf(label) === 0)),
+    JSON.stringify(fieldLabels))
+  push('its list headings and empty hints are Chinese',
+    (rest.groupTitles || []).length === 2 && rest.groupTitles.every(hasCJK) &&
+      hasCJK(rest.historyEmpty) && hasCJK(rest.keptEmpty),
+    (rest.groupTitles || []).concat([rest.historyEmpty, rest.keptEmpty]).join(' | '))
+  push('the built-in templates are Chinese, not their English names',
+    (rest.templates || []).length >= 6 &&
+      rest.templates.filter(hasCJK).length >= 5 &&
+      !rest.templates.some((name) =>
+        /list models|generate|Cluster health|Instant query|Health check|repository/i.test(name)),
+    JSON.stringify(rest.templates))
+  push('aria labels and menu rows are translated, not only visible text',
+    hasCJK(rest.templateAria) && rest.templateAria !== 'Template' &&
+      hasCJK(rest.savedAria) && rest.savedAria !== 'Saved requests' &&
+      hasCJK(rest.blankOption) && hasCJK(rest.noSavedOption),
+    [rest.templateAria, rest.savedAria, rest.blankOption, rest.noSavedOption].join(' | '))
+
+  const stillEnglish = [
+    'Send', 'Copy as cURL', 'Add header', 'Format JSON', 'Timeout (s)',
+    'Accept a self-signed certificate', 'Method', 'Headers', 'Body',
+    'History', 'Kept requests', 'Calls you send show up here.',
+    'Keep a call to find it again by name.', 'Saved requests', 'Blank request',
+    'No response yet', 'Rows', 'Search the response',
+    'Fold back to the first 400 lines'
+  ].filter((phrase) => (rest.body || '').includes(phrase))
+  push('none of the page English is left anywhere on it', stillEnglish.length === 0,
+    stillEnglish.length ? stillEnglish.join(' | ') : 'clean')
+
+  /*
+   * Two more things the page cannot translate on its own, and so were still
+   * English in the catalog-complete build: the description of the selected
+   * template (shared data, one row per template) and the reason a call failed
+   * (produced in the main process). The second one is asserted on the *new*
+   * error each time — the previous error is still on screen otherwise, and the
+   * first attempt at this kind of probe passed against a stale one.
+   */
+  const restDeep = await win.webContents.executeJavaScript(`(async () => {
+    const field = (id) => document.querySelector('[data-testid="' + id + '"]')
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const setValue = (el, value) => {
+      const proto = el.tagName === 'SELECT' ? window.HTMLSelectElement.prototype
+        : el.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype
+      Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, value)
+      el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }))
+    }
+    const readError = () => {
+      const el = field('rest-error')
+      return el ? el.textContent || '' : ''
+    }
+    const nextError = async (previous) => {
+      for (let i = 0; i < 60; i += 1) {
+        await wait(150)
+        const now = readError()
+        if (now && now !== previous) return now
+      }
+      return readError()
+    }
+
+    setValue(field('rest-template'), 'elasticsearch-health')
+    await wait(600)
+    const hint = (field('rest-template-hint') || {}).textContent || ''
+    const url = (field('rest-url') || {}).value || ''
+
+    setValue(field('rest-url'), 'nope')
+    await wait(600)
+    field('rest-send').click()
+    const noScheme = await nextError('')
+
+    setValue(field('rest-url'), 'ftp://example.com/x')
+    await wait(600)
+    field('rest-send').click()
+    const badScheme = await nextError(noScheme)
+
+    return { hint, url, noScheme, badScheme }
+  })()`)
+
+  push('a selected template explains itself in Chinese',
+    hasCJK(restDeep.hint) && !/Cluster health|the usual first question/.test(restDeep.hint || ''),
+    show(restDeep.hint))
+  push('and picking a template still fills the request in',
+    (restDeep.url || '').includes('9200'), show(restDeep.url))
+  push('a failure the main process reported comes back in Chinese',
+    hasCJK(restDeep.noScheme) && !/That is not a URL/.test(restDeep.noScheme || ''),
+    show(restDeep.noScheme))
+  push('and each reason keeps its own wording',
+    hasCJK(restDeep.badScheme) && restDeep.badScheme !== restDeep.noScheme &&
+      !/Only http/.test(restDeep.badScheme || ''),
+    show(restDeep.badScheme))
+
   const failed = checks.filter((c) => !c.ok)
   for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name} — ${c.detail}`)
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`)
