@@ -2579,6 +2579,11 @@ kbd {
   line-height: 1.5;
   color: var(--td-text-dim);
 }
+
+/* Why a reconnect failed, on the pane that tried — not a window-level popup. */
+.td-terminal-overlay-hint.is-error {
+  color: var(--td-danger);
+}
 .td-terminal-banner {
   background: var(--td-warn-soft);
   border-top: 1px solid var(--td-warn-border);

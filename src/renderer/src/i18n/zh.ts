@@ -519,6 +519,9 @@ export const zh: Catalog = {
   'terminalpanel.paste_2': '粘贴',
   'terminalpanel.or_press': '或按',
   'terminalpanel.to_reconnect_2': '重连。',  'terminalpanel.reconnect': '重连',
+  // 重连失败只在窗格自己的遮罩上说明，不弹全局提示条。
+  'terminalpanel.reconnect_failed': '重连失败',
+  'terminalpanel.nothing_to_reconnect_with': '这个窗格已经没法再重连了，请重新打开这台主机。',
   'terminalpanel.reconnecting': '正在重连…',
   'terminalpanel.session_ended': '会话已结束',
   'terminalpanel.this_pane_was_restored_from':

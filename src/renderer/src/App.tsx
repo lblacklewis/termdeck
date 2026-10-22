@@ -45,7 +45,7 @@ import {
  */
 type ConnectPayload = SshConnectPayload | TelnetConnectPayload | SerialConnectPayload
 import { ReactContentRenderer, ReactWatermarkRenderer, refreshPanelParams } from './components/ReactRenderer'
-import { TerminalPanel } from './components/TerminalPanel'
+import { TerminalPanel, type ReconnectOutcome } from './components/TerminalPanel'
 import { WelcomePanel } from './components/WelcomePanel'
 import { ConnectionDialog } from './components/ConnectionDialog'
 import {
@@ -573,7 +573,9 @@ export function App(): JSX.Element {
    * looks up a *saved* host, this one reopens the connection the pane itself was
    * using, which may have been a one-off quick connect.
    */
-  const reconnectEndedRef = useRef<(panelId: string) => Promise<boolean>>(async () => false)
+  const reconnectEndedRef = useRef<(panelId: string) => Promise<ReconnectOutcome>>(
+    async () => ({ ok: false })
+  )
   /** Latest connectSaved, so the reconnect effect need not re-run every render. */
   const connectSavedRef = useRef<(session: SavedSession, password?: string) => Promise<void>>(
     async () => {}
@@ -1254,7 +1256,20 @@ export function App(): JSX.Element {
    * layout is serialised from, so they have to be updated rather than re-rendered.
    */
   const bindSessionToPanel = useCallback(
-    (panelId: string, session: SessionInfo, savedSessionId?: string): boolean => {
+    (
+      panelId: string,
+      session: SessionInfo,
+      savedSessionId?: string,
+      /*
+       * Whether binding should bring the pane to the front.
+       *
+       * True when the user asked for this connection — it is the pane they are working
+       * in. False for a reconnect the app started on its own: the pane coming back to
+       * life is not a reason to take the window away from whatever they are typing in,
+       * which is exactly what a background retry used to do.
+       */
+      activate = true
+    ): boolean => {
       const panel = dockApiRef.current?.getPanel(panelId)
       if (!panel) return false
       const previous = panel.api.getParameters<TerminalPanelMeta>() ?? {}
@@ -1276,7 +1291,7 @@ export function App(): JSX.Element {
       })
       refreshPanelParams(panelId)
       panel.api.setTitle(session.title)
-      panel.api.setActive()
+      if (activate) panel.api.setActive()
       return true
     },
     [refreshPanelParams]
@@ -1593,9 +1608,30 @@ export function App(): JSX.Element {
     reconnectEndedRef.current = async (panelId) => {
       const oldSession = liveSessionRef.current.get(panelId) ?? panelId
       const result = await api.reconnectSession(oldSession)
+      /*
+       * Failures are reported to the pane, never as the app's global alert.
+       *
+       * This runs on its own — the automatic retry calls it while the user may be
+       * typing in another pane — so the bar at the bottom of the window would be an
+       * interruption about something they did not ask for. The pane that failed shows
+       * the reason on its own overlay, next to the button that retries.
+       */
       if (!result.ok) {
-        setAlert({ message: result.error.message })
-        return false
+        return {
+          ok: false,
+          /*
+           * A coded failure is translated here; anything else is the main process's own
+           * wording, shown as it came. Same rule as the REST tool's error codes: the
+           * renderer owns the language, the main process owns the fact.
+           */
+          error:
+            result.error.code === 'NOT_RECONNECTABLE'
+              ? t(
+                  'terminalpanel.nothing_to_reconnect_with',
+                  'This pane has nothing left to reconnect with. Open the host again.'
+                )
+              : result.error.message
+        }
       }
       /*
        * "It opened" and "it is up" are different claims.
@@ -1607,7 +1643,7 @@ export function App(): JSX.Element {
        * before it counts as reconnected.
        */
       const stillLive = (await api.listSessions()).some((entry) => entry.id === result.session.id)
-      if (!stillLive) return false
+      if (!stillLive) return { ok: false }
       setSessions((prev) => {
         /*
          * The rebuilt session keeps the id it had — that is what keeps the pane's
@@ -1618,7 +1654,8 @@ export function App(): JSX.Element {
         const others = prev.filter((entry) => entry.id !== result.session.id)
         return [...others, result.session]
       })
-      return bindSessionToPanel(panelId, result.session)
+      // `false`: the pane must not jump to the front over whatever the user is on.
+      return { ok: bindSessionToPanel(panelId, result.session, undefined, false) }
     }
   }, [bindSessionToPanel, connectSaved])
 

@@ -28,6 +28,8 @@ import { attachSuggestions } from './commandSuggest'
 export interface TerminalHandle {
   /** Re-measure the terminal against its container and notify the backend. */
   refit(): void
+  /** Notify the backend of the current size again, even if it has not changed. */
+  resendSize(): void
   focus(): void
   getSelection(): string
   paste(text: string): void
@@ -151,6 +153,16 @@ export function useTerminal(
     let rafId = 0
     let lastCols = 0
     let lastRows = 0
+    /**
+     * Set when the size has to be sent even though it has not changed.
+     *
+     * A reconnect builds a new PTY behind the same pane. The terminal never resized, so
+     * the "only when it changed" guard below would never tell the new backend how big
+     * the screen is, and a full-screen program draws for whatever size it was born
+     * with. Cleared only once a fit has actually gone through, because a pane that is
+     * hidden (an inactive tab measures 0x0) cannot push anything yet.
+     */
+    let resendPending = false
 
     const api = window.termdeck
 
@@ -205,11 +217,23 @@ export function useTerminal(
         return
       }
       noteFit(`fit ${w}x${h} -> ${term.cols}x${term.rows}`)
-      if (term.cols !== lastCols || term.rows !== lastRows) {
+      if (resendPending || term.cols !== lastCols || term.rows !== lastRows) {
         lastCols = term.cols
         lastRows = term.rows
+        resendPending = false
         api.resizeSession(sessionId, term.cols, term.rows)
       }
+    }
+
+    /**
+     * Tell the backend the current size again, changed or not.
+     *
+     * Called when the session behind this terminal is replaced: the pane is the same
+     * one and its box has not moved, so nothing else would ever send it.
+     */
+    const resendSize = (): void => {
+      resendPending = true
+      doFit()
     }
 
     /**
@@ -291,6 +315,8 @@ export function useTerminal(
 
     handleRef.current = {
       refit: scheduleFit,
+      /** For a reconnect: the new backend has never been told the pane's size. */
+      resendSize,
       focus: () => term.focus(),
       getSelection: () => term.getSelection(),
       paste,

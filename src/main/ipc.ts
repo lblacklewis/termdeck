@@ -918,9 +918,24 @@ export function registerIpc(): void {
   ipcMain.on('session:write', (_e, id: string, data: string) => {
     sessionManager.write(id, data)
   })
-  ipcMain.on('session:resize', (_e, id: string, cols: number, rows: number) =>
+  ipcMain.on('session:resize', (_e, id: string, cols: number, rows: number) => {
     sessionManager.resize(id, cols, rows)
-  )
+    /*
+     * Remember the size for the next reconnect.
+     *
+     * A rebuilt session is created from the blueprint, so without this it comes back at
+     * the size the pane had when that connection *started* — 80x24 for anything opened
+     * before its first fit — while the terminal is by then much bigger. A full-screen
+     * program then draws for the old size, which is what leaves vim in half the pane.
+     * Updated even when the backend is already gone, so a resize during an outage
+     * still counts.
+     */
+    const blueprint = blueprints.get(id)
+    if (blueprint) {
+      blueprint.cols = cols
+      blueprint.rows = rows
+    }
+  })
   ipcMain.on('session:close', (_e, id: string) => {
     blueprints.delete(id)
     closeSftp(id)

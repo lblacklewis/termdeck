@@ -54,16 +54,26 @@ interface TerminalPanelProps {
    *
    * Different from `onReconnect`, which is about a pane restored from a saved
    * layout: this one has a live-then-dead session and no saved host to look up.
-   * Resolves false when the reconnect could not be started, so the button can
-   * stop saying "Reconnecting…".
+   *
+   * Resolves with whether it worked, and why not when it did not. The reason is
+   * returned rather than shown as the app's global "Connection failed" bar: a
+   * reconnect is something the app does on its own while the user is somewhere else,
+   * and a popup about a pane they are not looking at is noise. The pane that failed
+   * says so on its own overlay, which is also where the retry button is.
    */
-  onReconnectSession?: () => Promise<boolean>
+  onReconnectSession?: () => Promise<ReconnectOutcome>
   /**
    * The reconnect shortcut as currently bound, shown on both reconnect pages.
    *
    * Passed in rather than written here so a remapped key shows as the key that works.
    */
   reconnectHint?: string
+}
+
+/** How a reconnect attempt ended; the message is shown in the pane that asked. */
+export interface ReconnectOutcome {
+  ok: boolean
+  error?: string
 }
 
 /**
@@ -126,6 +136,14 @@ export function TerminalPanel({
     secondsLeft: number
     gaveUp?: boolean
   } | null>(null)
+  /**
+   * Why the last reconnect attempt failed, shown on this pane's own overlay.
+   *
+   * Local to the pane rather than the app's global alert: the attempt may well have
+   * been made while the user was typing in another pane, and stealing their attention
+   * (or the screen) to report it is the thing this is here to avoid.
+   */
+  const [reconnectError, setReconnectError] = useState<string | null>(null)
   const retryTokenRef = useRef(0)
   /*
    * Attempts made in the current outage, and when the current connection came up.
@@ -180,14 +198,18 @@ export function TerminalPanel({
           }
           if (retryTokenRef.current !== token) return
           setRetry({ attempt, of: attempts, secondsLeft: 0 })
-          const ok = await onReconnectSession()
+          const outcome = await onReconnectSession()
           if (retryTokenRef.current !== token) return
           // Back up. If it drops again inside the stability window the next exit
           // picks the count up where this left it.
-          if (ok) {
+          if (outcome.ok) {
             setRetry(null)
+            setReconnectError(null)
             return
           }
+          // Say why on the pane, and keep trying: a background retry is not the
+          // moment to interrupt whatever the user is doing elsewhere.
+          setReconnectError(outcome.error ?? null)
         }
         // Out of attempts: leave the pane to the user, with the button still there.
         setRetry({ attempt: attempts, of: attempts, secondsLeft: 0, gaveUp: true })
@@ -207,6 +229,19 @@ export function TerminalPanel({
   useEffect(() => {
     terminalRef.current = innerRef.current
   })
+
+  /*
+   * A reconnect replaces the session object behind this pane: same id (which is what
+   * keeps the terminal and its scrollback), new backend. The pane's box has not moved,
+   * so nothing would ever tell that new backend how big the screen is — the terminal
+   * only pushes a resize when its size *changes* — and a full-screen program would draw
+   * for the size the PTY was born with. Also clears the last failure: the pane that
+   * just came back has nothing to apologise for.
+   */
+  useEffect(() => {
+    setReconnectError(null)
+    innerRef.current?.resendSize()
+  }, [session])
 
   const paste = useCallback(
     (text: string) => {
@@ -466,6 +501,19 @@ export function TerminalPanel({
                 )}
               </p>
             )}
+            {/*
+              Why the last attempt failed, on the pane that tried. A reconnect can be
+              started by the app while the user is working somewhere else, so this is
+              the whole report: no global bar, no popup, no focus change.
+            */}
+            {reconnectError && (
+              <p
+                className="td-terminal-overlay-hint is-error"
+                data-testid="reconnect-error"
+              >
+                {t('terminalpanel.reconnect_failed', 'Reconnect failed')}: {reconnectError}
+              </p>
+            )}
             {onReconnectSession && (
               <div className="td-terminal-overlay-actions">
                 <button
@@ -477,7 +525,11 @@ export function TerminalPanel({
                     // A deliberate retry starts the count over.
                     attemptRef.current = 0
                     setBusy(true)
-                    void onReconnectSession().finally(() => setBusy(false))
+                    void onReconnectSession()
+                      .then((outcome) => {
+                        setReconnectError(outcome.ok ? null : (outcome.error ?? null))
+                      })
+                      .finally(() => setBusy(false))
                   }}
                 >
                   {busy
