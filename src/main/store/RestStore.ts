@@ -10,7 +10,14 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-import type { RestHeader, RestRequest, RestState, SavedRestRequest } from '@shared/types'
+import {
+  REST_HISTORY_LIMIT,
+  type RestHeader,
+  type RestHistoryEntry,
+  type RestRequest,
+  type RestState,
+  type SavedRestRequest
+} from '@shared/types'
 
 const METHODS: RestRequest['method'][] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
 
@@ -48,8 +55,45 @@ function sanitiseRequest(input: unknown): RestRequest | null {
   }
 }
 
+/**
+ * A sent call as stored.
+ *
+ * Dropped rather than repaired when the request itself is unusable — an entry with no
+ * URL cannot be re-run, and half an entry in the list is worse than none.
+ */
+function sanitiseHistory(input: unknown): RestHistoryEntry[] {
+  if (!Array.isArray(input)) return []
+  return input
+    .map((raw) => {
+      if (!raw || typeof raw !== 'object') return null
+      const input = raw as Partial<RestHistoryEntry>
+      const request = sanitiseRequest(input.request)
+      if (!request) return null
+      const status =
+        typeof input.status === 'number' && Number.isFinite(input.status)
+          ? input.status
+          : undefined
+      const entry: RestHistoryEntry = {
+        id: typeof input.id === 'string' && input.id ? input.id : randomUUID(),
+        at: typeof input.at === 'number' && Number.isFinite(input.at) ? input.at : Date.now(),
+        request,
+        ok: input.ok === true,
+        durationMs:
+          typeof input.durationMs === 'number' && Number.isFinite(input.durationMs)
+            ? Math.max(0, Math.round(input.durationMs))
+            : 0
+      }
+      // Only present when it happened: a failed call has no status, and an absent field
+      // says that more clearly than `undefined` written to the file.
+      if (status !== undefined) entry.status = status
+      return entry
+    })
+    .filter((entry): entry is RestHistoryEntry => entry !== null)
+    .slice(0, REST_HISTORY_LIMIT)
+}
+
 function sanitise(input: unknown): RestState {
-  if (!input || typeof input !== 'object') return { draft: null, saved: [] }
+  if (!input || typeof input !== 'object') return { draft: null, saved: [], history: [] }
   const raw = input as Partial<RestState>
   const saved: SavedRestRequest[] = Array.isArray(raw.saved)
     ? raw.saved
@@ -65,7 +109,7 @@ function sanitise(input: unknown): RestState {
         })
         .filter((entry): entry is SavedRestRequest => entry !== null)
     : []
-  return { draft: sanitiseRequest(raw.draft), saved }
+  return { draft: sanitiseRequest(raw.draft), saved, history: sanitiseHistory(raw.history) }
 }
 
 export class RestStore {

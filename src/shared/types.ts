@@ -125,15 +125,43 @@ export interface SavedRestRequest {
 }
 
 /**
+ * How many calls the REST page keeps.
+ *
+ * Shared because both sides enforce it: the page trims what it adds, and the store trims
+ * what it reads and writes — this file is the thing that would otherwise grow without
+ * bound, and a bug in the page must not be able to fill the disk.
+ */
+export const REST_HISTORY_LIMIT = 60
+
+/**
+ * One call that was actually made.
+ *
+ * The full request is kept, not just the URL: the point of the list is to run the same
+ * call again — or fix it — without retyping headers and a body. The outcome is kept too,
+ * because "this one came back 500 last time" is most of what a history is for.
+ */
+export interface RestHistoryEntry {
+  id: string
+  /** When it was sent, ms since epoch. */
+  at: number
+  request: RestRequest
+  status?: number
+  ok: boolean
+  durationMs: number
+}
+
+/**
  * What the REST page restores on open.
  *
  * `draft` is the request that was on screen last, so closing the window in the
  * middle of editing an endpoint does not lose it; `saved` is the list the user
- * deliberately kept. Both are one file because they are one page's state.
+ * deliberately kept; `history` is what was sent, newest first, capped. All three are
+ * one file because they are one page's state.
  */
 export interface RestState {
   draft: RestRequest | null
   saved: SavedRestRequest[]
+  history: RestHistoryEntry[]
 }
 
 export interface RestResponse {

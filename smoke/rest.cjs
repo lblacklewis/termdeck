@@ -289,6 +289,102 @@ async function main() {
         await wait(300)
       }
 
+      /*
+       * ---- 6b. the answer is on screen, not below the fold ----------------
+       * The old page was one long column: the answer sat under the request, so reading it
+       * meant scrolling past everything just typed. Measured, not eyeballed — the page
+       * body must not scroll, the answer's box must fit the window, and the answer scrolls
+       * inside that box instead.
+       */
+      step = 'layout'
+      const restBody = document.querySelector('[data-testid="rest-page"] .td-rest-body')
+      const answer = field('rest-response-body')
+      push('request and answer share the height instead of one long page',
+        !!restBody, restBody ? restBody.className : 'no body element')
+      if (restBody && answer) {
+        push('the page itself does not scroll',
+          restBody.scrollHeight <= restBody.clientHeight + 1,
+          'scroll=' + restBody.scrollHeight + ' client=' + restBody.clientHeight)
+        const area = answer.getBoundingClientRect()
+        push('the answer fits in the window without scrolling the page',
+          area.top >= 0 && area.bottom <= window.innerHeight + 1,
+          'top=' + Math.round(area.top) + ' bottom=' + Math.round(area.bottom) +
+            ' window=' + window.innerHeight)
+        push('and it scrolls inside its own box instead',
+          answer.scrollHeight > answer.clientHeight,
+          'scroll=' + answer.scrollHeight + ' client=' + answer.clientHeight)
+
+        /*
+         * A long body is the case that used to push the answer out of sight: the form grew
+         * and the answer went with it. Now the form is capped and scrolls, so the answer
+         * stays where it was.
+         */
+        const bodyBox = field('rest-body')
+        const pad = '{' + String.fromCharCode(10) + '  "pad": "x"' + String.fromCharCode(10) + '}'
+        setValue(bodyBox, new Array(40).join(pad + String.fromCharCode(10)))
+        await wait(400)
+        const requestPane = document.querySelector('[data-testid="rest-page"] .td-rest-request')
+        const answerAgain = field('rest-response-body').getBoundingClientRect()
+        push('a long body does not push the answer off the screen',
+          answerAgain.bottom <= window.innerHeight + 1 && answerAgain.top >= 0,
+          'bottom=' + Math.round(answerAgain.bottom) + ' window=' + window.innerHeight)
+        push('the form itself is what scrolls then',
+          !!requestPane && requestPane.scrollHeight > requestPane.clientHeight,
+          requestPane ? 'scroll=' + requestPane.scrollHeight + ' client=' + requestPane.clientHeight : 'none')
+        setValue(bodyBox, '')
+        await wait(300)
+      }
+
+      /*
+       * ---- 6c. headers typed as one JSON object ---------------------------
+       * The point is not that JSON is possible; it is that a mistyped one must not quietly
+       * become a request missing the header somebody meant to authenticate with.
+       */
+      step = 'headers json'
+      const rowsButton = field('rest-headers-rows')
+      const jsonButton = field('rest-headers-json')
+      push('headers have a JSON mode beside the row editor', !!rowsButton && !!jsonButton)
+      if (jsonButton) {
+        jsonButton.click()
+        await wait(300)
+        const jsonBox = field('rest-headers-json-input')
+        push('the JSON box opens filled in', !!jsonBox, jsonBox ? jsonBox.value : 'no box')
+        if (jsonBox) {
+          setValue(jsonBox, '{ "X-Broken": }')
+          await wait(300)
+          push('a typo in the JSON is reported, not swallowed', !!field('rest-headers-json-error'),
+            text('rest-headers-json-error'))
+          rowsButton.click()
+          await wait(300)
+          const keptNames = [...document.querySelectorAll('[data-testid="rest-header-name"]')]
+            .map((input) => input.value)
+          push('and the headers in use are left alone', keptNames.indexOf('X-Broken') < 0,
+            'names=' + JSON.stringify(keptNames))
+
+          jsonButton.click()
+          await wait(300)
+          const boxAgain = field('rest-headers-json-input')
+          setValue(boxAgain, '{"X-From-Json": "yes", "Accept": "application/json"}')
+          await wait(400)
+          push('valid JSON is accepted and counted',
+            !!field('rest-headers-json-ok') && text('rest-headers-json-ok').indexOf('2') >= 0,
+            text('rest-headers-json-ok'))
+          rowsButton.click()
+          await wait(300)
+          const fromJson = [...document.querySelectorAll('[data-testid="rest-header-name"]')]
+            .map((input) => input.value)
+          push('and it turns into rows', fromJson.indexOf('X-From-Json') >= 0,
+            'names=' + JSON.stringify(fromJson))
+
+          // The wire is the test: a header that only exists on screen is not a header. The
+          // server's view of it is checked from the main process, where the recordings are.
+          setValue(field('rest-method'), 'GET')
+          setValue(field('rest-url'), base + '/hello')
+          field('rest-send').click()
+          await waitFor(() => (text('rest-response-body') || '').indexOf('hello') >= 0, 15000)
+        }
+      }
+
       // ---- 7. a timeout is reported as a timeout --------------------------
       step = 'timeout'
       setValue(field('rest-method'), 'GET')
@@ -305,10 +401,89 @@ async function main() {
       step = 'error'
       setValue(field('rest-url'), 'http://127.0.0.1:1/never')
       field('rest-send').click()
-      const failed = await waitFor(() => !!field('rest-error'), 15000)
+      /*
+       * Wait for *this* answer, not for "an error is on screen": the timeout above left one
+       * there, and the new send only clears it a frame after the click. Waiting for the
+       * refused message specifically is what makes the two checks below about this request.
+       */
+      const failed = await waitFor(() => /ECONNREFUSED|refused/i.test(text('rest-error')), 15000)
       push('a refused connection is reported as an error', failed, text('rest-error'))
-      push('and it is not shown as a status code', !/^[0-9]{3}/.test(text('rest-status')),
-        text('rest-status'))
+      push('and it is not shown as a status code',
+        failed && !/^[0-9]{3}/.test(text('rest-status')), text('rest-status'))
+
+      /*
+       * ---- 9. the calls that were made are kept, and can be kept again ----
+       * Everything above went through the send button, so the history must already hold a
+       * each one — including the failures, which are the entries most worth having.
+       */
+      step = 'history'
+      const historyCount = Number((text('rest-history-count') || '0').trim())
+      const historyUrls = [...document.querySelectorAll('[data-testid="rest-history-item"]')]
+        .map((row) => row.getAttribute('title') || '')
+      push('every call that was sent is in the history', historyCount >= 7,
+        'count=' + historyCount + ' urls=' + historyUrls.join(' '))
+      const historyRows = document.querySelectorAll('[data-testid="rest-history-item"]')
+      push('the history is a list you can click', historyRows.length >= 7,
+        'rows=' + historyRows.length)
+      const failureRow = [...historyRows].find((row) => (row.textContent || '').indexOf('never') >= 0)
+      push('a call that failed is in it too, with its reason', !!failureRow,
+        failureRow ? failureRow.textContent.trim().slice(0, 60) : 'no failed row')
+
+      // Loading a stored call has to restore all of it, not just the URL.
+      setValue(field('rest-url'), '')
+      if (failureRow) {
+        failureRow.click()
+        await wait(400)
+        push('clicking an entry puts that whole call back in the editor',
+          (field('rest-url') || {}).value === 'http://127.0.0.1:1/never',
+          'url=' + ((field('rest-url') || {}).value || 'empty'))
+      }
+
+      // Keep it under a name, rename it, then let it go.
+      const keepButton = failureRow && failureRow.parentElement
+        ? failureRow.parentElement.querySelector('[data-testid="rest-history-keep"]')
+        : null
+      push('a history entry can be kept as a named request', !!keepButton)
+      if (keepButton) {
+        const keptBefore = document.querySelectorAll('[data-testid="rest-kept-item"]').length
+        keepButton.click()
+        await wait(500)
+        const keptAfter = document.querySelectorAll('[data-testid="rest-kept-item"]').length
+        push('keeping it adds it to the saved list', keptAfter === keptBefore + 1,
+          keptBefore + ' -> ' + keptAfter)
+
+        const renameButton = document.querySelector('[data-testid="rest-kept-rename"]')
+        push('a saved request can be renamed', !!renameButton)
+        if (renameButton) {
+          renameButton.click()
+          await wait(300)
+          const nameInput = field('rest-kept-rename-input')
+          push('renaming edits the name in place', !!nameInput)
+          if (nameInput) {
+            setValue(nameInput, 'probe renamed call')
+            nameInput.dispatchEvent(
+              new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })
+            )
+            await wait(600)
+            const names = [...document.querySelectorAll('[data-testid="rest-kept-item"]')]
+              .map((row) => (row.textContent || ''))
+            push('the new name sticks',
+              names.some((name) => name.indexOf('probe renamed call') >= 0),
+              names.join(' | ').slice(0, 80))
+          }
+        }
+
+        const dropButton = document.querySelector('[data-testid="rest-kept-drop"]')
+        if (dropButton) {
+          const beforeDrop = document.querySelectorAll('[data-testid="rest-kept-item"]').length
+          dropButton.click()
+          await wait(500)
+          push('and it can be dropped again',
+            document.querySelectorAll('[data-testid="rest-kept-item"]').length === beforeDrop - 1,
+            'before=' + beforeDrop + ' after=' +
+              document.querySelectorAll('[data-testid="rest-kept-item"]').length)
+        }
+      }
 
       return out
       } catch (err) {
@@ -331,6 +506,8 @@ async function main() {
   // The POST body must have arrived intact — the echo endpoint proves it from
   // inside the page, this proves it from the server's side of the socket.
   const post = received.find((entry) => entry.url === '/echo')
+  // The last one: /hello is also the template's own URL, sent earlier without the header.
+  const jsonHeader = received.filter((entry) => entry.url === '/hello').pop()
   report([
     {
       name: 'the server actually received the POST body',
@@ -341,6 +518,11 @@ async function main() {
       name: 'and the header the user typed',
       ok: !!post && String(post.headers['content-type']).includes('application/json'),
       detail: post ? String(post.headers['content-type']) : 'none'
+    },
+    {
+      name: 'a header typed as JSON reached the server',
+      ok: !!jsonHeader && jsonHeader.headers['x-from-json'] === 'yes',
+      detail: jsonHeader ? JSON.stringify(jsonHeader.headers['x-from-json']) : 'no request'
     }
   ])
 
@@ -348,12 +530,42 @@ async function main() {
    * ---- 7. the page comes back as it was ----------------------------------
    * Written through the same API the page uses, then the window is reloaded:
    * anything that survives belongs to the store, not to React state.
+   *
+   * The history is seeded with more entries than the cap, so the reload also shows what
+   * the store does with a file that is too big.
    */
+  const seedHistory = Array.from({ length: 70 }, (_, index) => ({
+    id: 'h' + index,
+    at: Date.now() - index * 60_000,
+    request: {
+      method: 'GET',
+      url: 'http://kept.example/call/' + index,
+      headers: [],
+      body: ''
+    },
+    status: 200,
+    ok: true,
+    durationMs: 3
+  }))
   await win.webContents.executeJavaScript(
-    'window.termdeck.saveRestState({' +
-      'draft: { method: "GET", url: "http://kept.example/draft", headers: [], body: "" },' +
-      'saved: [{ id: "s1", name: "kept health", request: { method: "GET", url: "http://kept.example/health", headers: [], body: "" } }]' +
-      '})'
+    'window.termdeck.saveRestState(' +
+      JSON.stringify({
+        draft: { method: 'GET', url: 'http://kept.example/draft', headers: [], body: '' },
+        saved: [
+          {
+            id: 's1',
+            name: 'kept health',
+            request: {
+              method: 'GET',
+              url: 'http://kept.example/health',
+              headers: [],
+              body: ''
+            }
+          }
+        ],
+        history: seedHistory
+      }) +
+      ')'
   )
   await win.reload()
   await sleep(3000)
@@ -404,6 +616,19 @@ async function main() {
               'url=' + ((field('rest-url') || {}).value || ''))
           }
         }
+
+        /*
+         * The seeded history was longer than the cap. The store trims on the way in, so
+         * what comes back is the newest 60 — and it has to be the *newest* 60: a cap that
+         * kept the oldest would throw away exactly the calls somebody is looking for.
+         */
+        const shown = [...document.querySelectorAll('[data-testid="rest-history-item"]')]
+        push('a history longer than the cap is trimmed on the way in', shown.length === 60,
+          'shown=' + shown.length)
+        const urls = shown.map((row) => row.getAttribute('title') || '')
+        push('and it is the newest calls that survive', urls[0] === 'http://kept.example/call/0' &&
+          urls.indexOf('http://kept.example/call/69') < 0,
+          'first=' + urls[0] + ' oldest-shown=' + urls[urls.length - 1])
         return out
       } catch (err) {
         push('state probe failed', false, String((err && err.message) || err))
