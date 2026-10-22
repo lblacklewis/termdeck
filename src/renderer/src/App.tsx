@@ -3131,6 +3131,30 @@ export function App(): JSX.Element {
                     >
                       ⊞
                     </button>
+                    {/*
+                      Fold every group at once, which is the only workable gesture once
+                      the tree is taller than the drawer. One button that flips: with
+                      anything open it folds, with everything folded it opens.
+
+                      Disabled while a search is on — the tree forces its groups open
+                      then, so folding would have nothing to show and the click would
+                      silently rewrite a state nobody can see.
+                    */}
+                    {tree.folders.length > 0 && (
+                      <button
+                        className="td-mini"
+                        data-testid="tree-fold-all"
+                        title={
+                          treeHasOpenFolder(tree)
+                            ? t('sessiontree.fold_all', 'Collapse all groups')
+                            : t('sessiontree.unfold_all', 'Expand all groups')
+                        }
+                        disabled={sessionQuery.trim() !== '' || tagFilter.length > 0}
+                        onClick={() => void api.setFoldersExpanded(!treeHasOpenFolder(tree))}
+                      >
+                        {treeHasOpenFolder(tree) ? '▾▾' : '▸▸'}
+                      </button>
+                    )}
                   </>
                 ) : section.id === 'history' ? (
                   <button
@@ -3758,4 +3782,16 @@ export function App(): JSX.Element {
 
 function folderName(tree: Tree, id: string): string {
   return tree.folders.find((f) => f.id === id)?.name ?? ''
+}
+
+/**
+ * Whether any group in the drawer's tree is open.
+ *
+ * The fold-all control is one button that flips, so it has to know which way to go:
+ * with anything open the useful action is "fold them", and with everything folded it
+ * is "open them". A folder counts as open unless it says otherwise, which is what the
+ * tree itself renders.
+ */
+function treeHasOpenFolder(tree: Tree): boolean {
+  return tree.folders.some((folder) => folder.expanded !== false)
 }

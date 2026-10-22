@@ -134,6 +134,8 @@ const api = {
   deleteFolder: (id: string): Promise<SessionTree> => ipcRenderer.invoke('tree:deleteFolder', id),
   moveFolder: (id: string, parentId: string | null): Promise<SessionTree> =>
     ipcRenderer.invoke('tree:moveFolder', id, parentId),
+  setFoldersExpanded: (expanded: boolean): Promise<SessionTree> =>
+    ipcRenderer.invoke('tree:setFolded', expanded),
 
   // ---- credentials ------------------------------------------------------
   credentialStatus: (): Promise<CredentialStatus> => ipcRenderer.invoke('credential:status'),

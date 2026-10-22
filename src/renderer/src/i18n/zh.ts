@@ -204,6 +204,9 @@ export const zh: Catalog = {
   'sessioneditor.username': '用户名',
   'sessioneditor.uses': '使用',
   'sessiontree.connecting': '连接中…',
+  // One button that flips: fold every group, or open them all again.
+  'sessiontree.fold_all': '折叠全部分组',
+  'sessiontree.unfold_all': '展开所有分组',
   'sessiontree.new_folder': '新建分组',
   'sessiontree.new_session': '新建会话',
   'sessiontree.new_subfolder': '新建子分组',

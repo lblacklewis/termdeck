@@ -625,6 +625,19 @@ export class SessionStore {
   }
 
   /**
+   * Fold or unfold every folder at once.
+   *
+   * One commit rather than one per folder: the store writes the file and broadcasts on
+   * every commit, so a tree with thirty groups would otherwise rewrite `sessions.json`
+   * thirty times and make the drawer redraw thirty times while the user watches.
+   * `importShare` below exists for the same reason.
+   */
+  setAllFoldersExpanded(expanded: boolean): SessionTree {
+    for (const folder of this.tree.folders) folder.expanded = expanded
+    return this.commit(this.tree)
+  }
+
+  /**
    * Apply imported folders and sessions as one change.
    *
    * A share import can bring dozens of hosts and their groups, and each of

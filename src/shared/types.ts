@@ -1306,6 +1306,8 @@ export interface TermDeckApi extends S3Api {
   deleteFolder(id: string): Promise<SessionTree>
   moveSession(id: string, parentId: string | null): Promise<SessionTree>
   moveFolder(id: string, parentId: string | null): Promise<SessionTree>
+  /** Fold or unfold every folder in one commit — the drawer's fold-all control. */
+  setFoldersExpanded(expanded: boolean): Promise<SessionTree>
   allTags(): Promise<string[]>
 
   // credentials (encrypted at rest, never read back into the renderer)

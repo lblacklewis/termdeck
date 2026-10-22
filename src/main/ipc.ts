@@ -1281,6 +1281,14 @@ export function registerIpc(): void {
   ipcMain.handle('tree:moveFolder', (_e, id: string, parentId: string | null) =>
     commitTree(getSessionStore().moveFolder(id, parentId))
   )
+  /*
+   * Folding every group is one call, not one call per group: each commit writes the
+   * file and broadcasts, so doing it folder by folder would be thirty writes and
+   * thirty redraws for a tree of thirty groups.
+   */
+  ipcMain.handle('tree:setFolded', (_e, expanded: boolean) =>
+    commitTree(getSessionStore().setAllFoldersExpanded(expanded === true))
+  )
 
   // ---- credentials -------------------------------------------------------
   // Secrets are written and read only here.

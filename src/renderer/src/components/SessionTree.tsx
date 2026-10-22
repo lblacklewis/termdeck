@@ -301,7 +301,15 @@ export function SessionTree({
     (children.get(parentId)?.folders ?? [])
       .filter((folder) => !filtering || subtreeMatches(folder.id))
       .map((folder) => {
-      const expanded = folder.expanded !== false
+      /*
+       * A search opens every group it can reach.
+       *
+       * Otherwise a folded group answers a query with nothing at all: the folder row
+       * matches, its children are not rendered, and the session whose name was typed
+       * appears to be missing. While that is the case no caret is drawn and the row
+       * does not fold — there is nothing to fold, the list is already only matches.
+       */
+      const expanded = filtering || folder.expanded !== false
       const key = `folder:${folder.id}`
       const total = countSessions(children, folder.id) + countFolders(children, folder.id)
 
@@ -323,7 +331,12 @@ export function SessionTree({
         >
           <button
             className="td-node-main"
-            onClick={() => onToggleFolder(folder.id, !expanded)}
+            onClick={() => {
+              // While searching the groups are forced open, so there is nothing to
+              // fold: a click that silently rewrote a state nobody can see would be a
+              // lie about what just happened.
+              if (!filtering) onToggleFolder(folder.id, !expanded)
+            }}
             onDoubleClick={() => onRenameFolder(folder.id)}
           >
             <span
@@ -331,7 +344,7 @@ export function SessionTree({
               data-contrast-exempt
               aria-hidden="true"
             >
-              {expanded ? '▾' : '▸'}
+              {filtering ? '' : expanded ? '▾' : '▸'}
             </span>
             <span
               className="td-node-dot td-node-dot-folder"
