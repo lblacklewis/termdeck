@@ -20,7 +20,8 @@ const DEFAULT_LAYOUT: LayoutState = {
   page: 'terminal',
   railCollapsed: false,
   snippetBarVisible: true,
-  hostsView: 'list'
+  hostsView: 'list',
+  hostsFolded: []
 }
 
 const PAGES: PageId[] = ['terminal', 'hosts', 'known-hosts', 'snippets', 'logs', 'tunnels', 'rest', 's3', 'settings']
@@ -55,7 +56,15 @@ function sanitise(input: unknown): LayoutState {
     snippetBarVisible: raw.snippetBarVisible !== false,
     // A file written before this field existed has no view to restore, and the
     // list is the shape that works for the long list that prompted the page.
-    hostsView: raw.hostsView === 'cards' ? 'cards' : 'list'
+    hostsView: raw.hostsView === 'cards' ? 'cards' : 'list',
+    /*
+     * Folded groups, as group keys. This file is hand-editable and an entry that is
+     * not a string would make a group un-foldable (its key could never be matched),
+     * so only strings are kept — and an empty list is the old behaviour anyway.
+     */
+    hostsFolded: Array.isArray(raw.hostsFolded)
+      ? raw.hostsFolded.filter((key): key is string => typeof key === 'string')
+      : []
   }
 }
 

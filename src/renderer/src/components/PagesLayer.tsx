@@ -41,6 +41,9 @@ interface PagesLayerProps {
   knownTags: string[]
   hostsView: HostsView
   onHostsViewChange: (view: HostsView) => void
+  /** Folded groups on the Hosts page, by group key, owned by the shell. */
+  hostsFolded: string[]
+  onHostsFoldedChange: (next: string[]) => void
   /** Connecting from Hosts switches to Terminal first (see below). */
   onShowTerminal: () => void
   onConnect: (session: SavedSession) => void
@@ -81,6 +84,8 @@ export function PagesLayer({
   knownTags,
   hostsView,
   onHostsViewChange,
+  hostsFolded,
+  onHostsFoldedChange,
   onShowTerminal,
   onConnect,
   onEditHost,
@@ -162,6 +167,8 @@ export function PagesLayer({
             knownTags={knownTags}
             view={hostsView}
             onViewChange={onHostsViewChange}
+            folded={hostsFolded}
+            onFoldedChange={onHostsFoldedChange}
             /*
              * Connecting from Hosts switches to Terminal first. The connection's
              * pane lives in the workspace, so staying on Hosts would open a session

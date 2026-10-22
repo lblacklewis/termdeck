@@ -4770,6 +4770,35 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   box-shadow: 0 0 0 1px var(--td-accent) inset;
 }
 
+/*
+ * The fold control.
+ *
+ * Sized like the session tree's caret rather than like the `+` beside it: it belongs
+ * to the heading's own line, and at this font size a caret reads as an affordance
+ * where a button would read as an action. The negative inline margin keeps the group
+ * name at the same x whether or not a fold control is drawn.
+ */
+.td-host-fold {
+  flex: 0 0 auto;
+  width: 14px;
+  padding: 0;
+  margin-left: -14px;
+  background: none;
+  border: 0;
+  color: var(--td-text-faint);
+  font-size: 9px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.td-host-fold:hover {
+  color: var(--td-text);
+}
+
+.td-host-group.is-folded .td-host-group-head {
+  margin-bottom: 0;
+}
+
 .td-host-group-count {
   padding: 0 6px;
   background: var(--td-surface);

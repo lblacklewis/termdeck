@@ -398,6 +398,15 @@ export function App(): JSX.Element {
    * exactly until the user looked at something else.
    */
   const [hostsView, setHostsView] = useState<HostsView>('list')
+  /**
+   * Groups folded on the Hosts page, by group key.
+   *
+   * Here for the same reason `hostsView` is: the page is unmounted whenever another
+   * rail section is showing. Folding twenty groups to find one, glancing at the logs
+   * and coming back to all twenty open again is the version of this that reads as
+   * "the fold button does nothing".
+   */
+  const [hostsFolded, setHostsFolded] = useState<string[]>([])
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null)
   /** Right-click on a pane tab, which has its own item set. */
   const [tabMenu, setTabMenu] = useState<TabMenuState | null>(null)
@@ -626,6 +635,7 @@ export function App(): JSX.Element {
       setRailCollapsed(layout.railCollapsed)
       setSnippetBarVisible(layout.snippetBarVisible)
       setHostsView(layout.hostsView)
+      setHostsFolded(layout.hostsFolded)
       hydratedRef.current = true
       setLayoutReady(true)
     })
@@ -1156,8 +1166,8 @@ export function App(): JSX.Element {
     // ref: the ref is set synchronously inside the load callback while the state
     // lands later, and a write in between would store the pre-restore values.
     if (!hydratedRef.current || !layoutReady) return
-    void api.saveLayout({ page, railCollapsed, snippetBarVisible, hostsView })
-  }, [page, railCollapsed, snippetBarVisible, hostsView, layoutReady])
+    void api.saveLayout({ page, railCollapsed, snippetBarVisible, hostsView, hostsFolded })
+  }, [page, railCollapsed, snippetBarVisible, hostsView, hostsFolded, layoutReady])
 
   // ---- session creation ---------------------------------------------------
 
@@ -3008,6 +3018,8 @@ export function App(): JSX.Element {
         knownTags={knownTags}
         hostsView={hostsView}
         onHostsViewChange={setHostsView}
+        hostsFolded={hostsFolded}
+        onHostsFoldedChange={setHostsFolded}
         onShowTerminal={() => setPage('terminal')}
         onConnect={(session) => void connectSaved(session)}
         onEditHost={(session) => openEditor(session, session.parentId)}

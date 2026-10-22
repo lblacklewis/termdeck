@@ -313,6 +313,11 @@ export const zh: Catalog = {
   'hostspage.no_hosts_in_group': '这个分组里还没有主机',
   'hostspage.unfiled': '未分组',
   'hostspage.ctrl': 'Ctrl',
+  // Folding: one group, or the whole list at once (the context menu).
+  'hostspage.collapse_all': '折叠全部分组',
+  'hostspage.collapse_group': '折叠分组',
+  'hostspage.expand_all': '展开所有分组',
+  'hostspage.expand_group': '展开分组',
 
   // ---- REST tool -----------------------------------------------------------
   /*

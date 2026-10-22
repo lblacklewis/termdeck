@@ -1,4 +1,4 @@
-import { useMemo, useState, type JSX } from 'react'
+import { useCallback, useMemo, useState, type JSX } from 'react'
 import type { HostsView, SavedSession, SessionFolder, SessionInfo, SessionTree } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { describeTarget } from './sessionLabel'
@@ -15,6 +15,12 @@ interface HostsPageProps {
    */
   view: HostsView
   onViewChange: (view: HostsView) => void
+  /**
+   * Groups folded away, by group key, owned by the shell so it survives this page
+   * being unmounted — which it is whenever another rail section is showing.
+   */
+  folded: string[]
+  onFoldedChange: (next: string[]) => void
   onConnect: (session: SavedSession) => void
   onEdit: (session: SavedSession) => void
   onDelete: (id: string) => void
@@ -76,6 +82,8 @@ export function HostsPage({
   onMoveGroup,
   view,
   onViewChange,
+  folded,
+  onFoldedChange,
   onExportShare,
   onImportShare
 }: HostsPageProps): JSX.Element {
@@ -152,9 +160,19 @@ export function HostsPage({
    * The one exception is a *search*: with a filter or tag active, a group with no
    * matching host anywhere below it is noise, so it is dropped.
    */
-  const groups = useMemo(() => {
-    const filtering = filter.trim().length > 0 || tagFilters.length > 0
+  /**
+   * Whether the list is narrowed to matches.
+   *
+   * A filter also overrides folding: the rows left are the ones somebody asked for,
+   * so hiding some of them behind a fold can only lose the host they were looking
+   * for. Hoisted out of the tree below because the rendering needs it as well.
+   */
+  const filtering = useMemo(
+    () => filter.trim().length > 0 || tagFilters.length > 0,
+    [filter, tagFilters]
+  )
 
+  const groups = useMemo(() => {
     const build = (parentId: string | null, depth: number, prefix: string): GroupNode[] => {
       const nodes: GroupNode[] = []
       for (const folder of childFolders.get(parentId) ?? []) {
@@ -189,7 +207,31 @@ export function HostsPage({
       })
     }
     return treeNodes
-  }, [childFolders, hostsByFolder, matches, filter, tagFilters])
+  }, [childFolders, hostsByFolder, matches, filtering])
+
+  /** Every group on screen, however deep, so "fold them all" means all of them. */
+  const allGroupKeys = useMemo(() => {
+    const keys: string[] = []
+    const walk = (nodes: GroupNode[]): void => {
+      for (const node of nodes) {
+        keys.push(node.key)
+        walk(node.children)
+      }
+    }
+    walk(groups)
+    return keys
+  }, [groups])
+
+  const foldedSet = useMemo(() => new Set(folded), [folded])
+
+  const toggleFold = useCallback(
+    (key: string): void => {
+      onFoldedChange(
+        folded.includes(key) ? folded.filter((entry) => entry !== key) : [...folded, key]
+      )
+    },
+    [folded, onFoldedChange]
+  )
 
   const total = tree.sessions.length
   const groupCount = tree.folders.length
@@ -261,6 +303,13 @@ export function HostsPage({
    */
   const openPageMenu = (event: React.MouseEvent): void => {
     event.preventDefault()
+    /*
+     * Folding is offered for the whole list as well as per group. The case that asks
+     * for it is a library with more groups than fit on a screen: folding them one at
+     * a time is not a way to find anything.
+     */
+    const allFolded = allGroupKeys.length > 0 && allGroupKeys.every((key) => foldedSet.has(key))
+    const anyFolded = allGroupKeys.some((key) => foldedSet.has(key))
     setMenu({
       x: event.clientX,
       y: event.clientY,
@@ -268,13 +317,28 @@ export function HostsPage({
         { id: 'newHost', label: t('hostspage.new_host_2', 'New host…') },
         { id: 'newGroup', label: t('hostspage.new_group', 'New group…') },
         { id: 'cards', label: t('hostspage.show_as_cards', 'Show as cards'), disabled: view === 'cards', separatorBefore: true },
-        { id: 'rows', label: t('hostspage.show_as_rows', 'Show as rows'), disabled: view === 'list' }
+        { id: 'rows', label: t('hostspage.show_as_rows', 'Show as rows'), disabled: view === 'list' },
+        // Disabled while a filter is on: the list is already only matches, and
+        // folding has no visible effect to offer.
+        {
+          id: 'foldAll',
+          label: t('hostspage.collapse_all', 'Collapse all groups'),
+          disabled: filtering || allFolded,
+          separatorBefore: true
+        },
+        {
+          id: 'unfoldAll',
+          label: t('hostspage.expand_all', 'Expand all groups'),
+          disabled: filtering || !anyFolded
+        }
       ],
       run: (id) => {
         if (id === 'newHost') onNewHost(null)
         else if (id === 'newGroup') onCreateGroup(null)
         else if (id === 'cards') onViewChange('cards')
         else if (id === 'rows') onViewChange('list')
+        else if (id === 'foldAll') onFoldedChange(allGroupKeys)
+        else if (id === 'unfoldAll') onFoldedChange([])
       }
     })
   }
@@ -400,44 +464,77 @@ export function HostsPage({
     </ul>
   )
 
-  const renderGroup = (node: GroupNode): JSX.Element => (
-    <section
-      className={`td-host-group${dropTarget === node.key ? ' is-drop' : ''}`}
-      key={node.key}
-      data-host-group={node.path}
-      data-group-depth={node.depth}
-      {...dropZone(node)}
-    >
-      <div
-        className="td-host-group-head"
-        style={{ paddingLeft: `${node.depth * 14}px` }}
-        onContextMenu={(e) => openGroupMenu(e, node)}
-        draggable={node.id !== null}
-        onDragStart={(e) => node.id && startDrag(e, 'group', node.id)}
-        onDragEnd={() => setDrag(null)}
-        data-testid={node.id === null ? 'hosts-group-unfiled' : 'hosts-group'}
-      >
-        <h2>{node.name}</h2>
-        <span className="td-host-group-count" data-contrast-exempt>
-          {node.hosts.length}
-        </span>
-        <span className="td-spacer" />
-        <button
-          className="td-icon-btn"
-          title={`New host in ${node.path}`}
-          data-new-host={node.path}
-          onClick={() => onNewHost(node.id)}
-        >
-          +
-        </button>
-      </div>
+  const renderGroup = (node: GroupNode): JSX.Element => {
+    /*
+     * A folded group keeps its heading — that is the whole point: the shape of the
+     * library stays readable while the hosts are out of the way. It also stays a drop
+     * target, which is why only its *contents* are conditional.
+     *
+     * While a filter is on, nothing is folded and no fold control is drawn: the list
+     * is already only matches, so a fold could only hide one of them.
+     */
+    const collapsed = !filtering && foldedSet.has(node.key)
+    const foldLabel = collapsed
+      ? t('hostspage.expand_group', 'Expand group')
+      : t('hostspage.collapse_group', 'Collapse group')
 
-      {renderHosts(node.hosts, node.depth)}
-      {node.children.length > 0 && (
-        <div className="td-host-subgroups">{node.children.map(renderGroup)}</div>
-      )}
-    </section>
-  )
+    return (
+      <section
+        className={`td-host-group${collapsed ? ' is-folded' : ''}${dropTarget === node.key ? ' is-drop' : ''}`}
+        key={node.key}
+        data-host-group={node.path}
+        data-group-depth={node.depth}
+        data-folded={collapsed ? 'true' : 'false'}
+        {...dropZone(node)}
+      >
+        <div
+          className="td-host-group-head"
+          style={{ paddingLeft: `${node.depth * 14}px` }}
+          onContextMenu={(e) => openGroupMenu(e, node)}
+          draggable={node.id !== null}
+          onDragStart={(e) => node.id && startDrag(e, 'group', node.id)}
+          onDragEnd={() => setDrag(null)}
+          data-testid={node.id === null ? 'hosts-group-unfiled' : 'hosts-group'}
+        >
+          {!filtering && (
+            <button
+              className="td-host-fold"
+              data-testid="hosts-group-fold"
+              data-fold-key={node.key}
+              aria-expanded={!collapsed}
+              aria-label={foldLabel}
+              title={foldLabel}
+              onClick={(e) => {
+                // The heading is a drag handle; the fold control is not.
+                e.stopPropagation()
+                toggleFold(node.key)
+              }}
+            >
+              {collapsed ? '▸' : '▾'}
+            </button>
+          )}
+          <h2>{node.name}</h2>
+          <span className="td-host-group-count" data-contrast-exempt>
+            {node.hosts.length}
+          </span>
+          <span className="td-spacer" />
+          <button
+            className="td-icon-btn"
+            title={`New host in ${node.path}`}
+            data-new-host={node.path}
+            onClick={() => onNewHost(node.id)}
+          >
+            +
+          </button>
+        </div>
+
+        {!collapsed && renderHosts(node.hosts, node.depth)}
+        {!collapsed && node.children.length > 0 && (
+          <div className="td-host-subgroups">{node.children.map(renderGroup)}</div>
+        )}
+      </section>
+    )
+  }
 
   return (
     <div className="td-page" data-testid="hosts-page" onContextMenu={openPageMenu}>

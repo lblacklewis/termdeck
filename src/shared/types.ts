@@ -475,6 +475,20 @@ export interface LayoutState {
    * back to "list" every time the user came back to it.
    */
   hostsView: HostsView
+  /**
+   * Groups folded on the Hosts page, by group key: a folder id, or `__unfiled__`
+   * for the catch-all that holds the hosts in no folder.
+   *
+   * Part of the layout for the same reason `hostsView` is — the page is unmounted
+   * whenever another rail section is showing, and a fold that forgets itself the
+   * moment you look at something else is worse than no folding at all.
+   *
+   * Deliberately *not* `SessionFolder.expanded`, which is the drawer's tree: those
+   * are two views of the same folders with different jobs. Collapsing twenty groups
+   * to see the shape of the host library should not leave the quick-connect list
+   * folded underneath someone on the terminal page.
+   */
+  hostsFolded: string[]
 }
 
 /** Rows for scanning a long list, cards for picking one host out of a handful. */

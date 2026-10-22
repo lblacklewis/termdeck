@@ -642,6 +642,173 @@ async function main() {
         }
       }
 
+      // ---- folding groups, for a list too long to read ---------------------
+      /*
+       * There are three separate ways folding can look finished and be useless, so
+       * each one is asserted rather than assumed:
+       *
+       *   1. it can leave the rows in the DOM and merely hide them — a search would
+       *      then "find" hosts that are not on screen;
+       *   2. it can forget the fold the moment the rail unmounts the page, which is
+       *      what a page-local useState does (the hosts view already taught us that
+       *      lesson, and it is why that one lives in the layout);
+       *   3. it can hide a match inside a folded group, which reads as "the host is
+       *      gone" rather than "the group is folded".
+       */
+      const folds = () => [...document.querySelectorAll('[data-testid="hosts-group-fold"]')]
+      const groupSections = () => [...document.querySelectorAll('[data-host-group]')]
+      const rowIds = () =>
+        [...document.querySelectorAll('[data-host-row]')].map((row) =>
+          row.getAttribute('data-host-row')
+        )
+      const foldIn = (section) => section.querySelector('[data-testid="hosts-group-fold"]')
+      await wait(300)
+
+      push('every group can be folded',
+        folds().length > 0 && folds().length === groupSections().length,
+        'folds=' + folds().length + ' groups=' + groupSections().length)
+
+      const rowBaseline = rowIds().length
+      const holder = groupSections().find((section) =>
+        !!foldIn(section) && !!section.querySelector('[data-host-row]'))
+      const hiddenIds = holder
+        ? [...holder.querySelectorAll('[data-host-row]')].map((row) => row.getAttribute('data-host-row'))
+        : []
+      const hiddenName = holder ? (holder.querySelector('.td-host-name') || {}).textContent || '' : ''
+      let foldedKey = ''
+
+      if (holder && foldIn(holder)) {
+        foldedKey = foldIn(holder).getAttribute('data-fold-key') || ''
+        foldIn(holder).click()
+        await wait(600)
+        const left = rowIds()
+        const hidden = hiddenIds.filter((id) => left.indexOf(id) < 0).length
+        push('folding a group takes its hosts out of the list',
+          hiddenIds.length > 0 && hidden === hiddenIds.length,
+          'hid ' + hidden + ' of ' + hiddenIds.length +
+            '; rows ' + rowBaseline + ' -> ' + left.length)
+        push('and leaves the other groups alone',
+          left.length === rowBaseline - hiddenIds.length && left.length > 0,
+          left.length + ' rows, expected ' + (rowBaseline - hiddenIds.length))
+        push('and the control reports itself collapsed',
+          !!foldIn(holder) && foldIn(holder).getAttribute('aria-expanded') === 'false' &&
+            holder.getAttribute('data-folded') === 'true',
+          'aria-expanded=' + (foldIn(holder) ? foldIn(holder).getAttribute('aria-expanded') : 'none') +
+            ' data-folded=' + holder.getAttribute('data-folded'))
+      } else {
+        push('folding a group takes its hosts out of the list', false, 'no group holding a host')
+      }
+
+      const foldedLayout = await api.loadLayout()
+      push('the fold is written to the saved layout',
+        foldedKey !== '' && Array.isArray(foldedLayout.hostsFolded) &&
+          foldedLayout.hostsFolded.indexOf(foldedKey) >= 0,
+        'hostsFolded=' + JSON.stringify(foldedLayout.hostsFolded))
+
+      // The rail unmounts this page, so a fold kept in the page's own state is gone
+      // by the time it comes back. The precondition is part of the claim: with no fold
+      // to lose, "the rows are still hidden" is true for the wrong reason.
+      document.querySelector('[data-testid="rail-known-hosts"]').click()
+      await wait(800)
+      document.querySelector('[data-testid="rail-hosts"]').click()
+      await wait(900)
+      push('the fold survives leaving the page and coming back',
+        foldedKey !== '' && hiddenIds.length > 0 &&
+          rowIds().length === rowBaseline - hiddenIds.length,
+        'key=' + foldedKey + ' rows=' + rowIds().length +
+          ', expected ' + (rowBaseline - hiddenIds.length))
+
+      const foldSearch = document.querySelector('[data-testid="hosts-search"]')
+      if (foldSearch && hiddenName) {
+        setValue(foldSearch, hiddenName)
+        await wait(700)
+        const whileSearching = rowIds().length
+        push('a search still reaches into a folded group',
+          foldedKey !== '' && hiddenIds.length > 0 && whileSearching > 0,
+          'search="' + hiddenName + '" rows=' + whileSearching)
+        push('and folding is not offered while searching, where there is nothing to fold',
+          folds().length === 0, 'folds=' + folds().length)
+        setValue(foldSearch, '')
+        await wait(700)
+        push('clearing the search folds it back up',
+          rowIds().length === rowBaseline - hiddenIds.length &&
+            folds().length === groupSections().length,
+          'rows=' + rowIds().length + ' folds=' + folds().length)
+      } else {
+        push('a search still reaches into a folded group', false, 'no search box or hidden name')
+      }
+
+      // ---- fold or unfold every group at once ------------------------------
+      const openBodyMenu = async () => {
+        const body = document.querySelector('[data-testid="hosts-body"]')
+        body.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, clientX: 60, clientY: 260
+        }))
+        await wait(450)
+        return document.querySelector('[data-testid="hosts-menu"]')
+      }
+
+      let bodyMenu = await openBodyMenu()
+      const foldAll = bodyMenu ? bodyMenu.querySelector('[data-menu-id="foldAll"]') : null
+      push('the page menu offers to fold every group at once', !!foldAll,
+        bodyMenu
+          ? [...bodyMenu.querySelectorAll('[data-menu-id]')].map((b) => b.getAttribute('data-menu-id')).join(',')
+          : 'no menu')
+      if (foldAll) {
+        foldAll.click()
+        await wait(800)
+        const collapsed = folds().filter((b) => b.getAttribute('aria-expanded') === 'false').length
+        push('folding them all leaves no host row on screen',
+          rowIds().length === 0 && folds().length > 0 && collapsed === folds().length,
+          'rows=' + rowIds().length + ' folded=' + collapsed + '/' + folds().length)
+      }
+
+      bodyMenu = await openBodyMenu()
+      const unfoldAll = bodyMenu ? bodyMenu.querySelector('[data-menu-id="unfoldAll"]') : null
+      push('and to unfold them again', !!unfoldAll)
+      if (unfoldAll) {
+        unfoldAll.click()
+        await wait(800)
+        push('unfolding everything brings the whole list back',
+          rowIds().length === rowBaseline &&
+            folds().every((b) => b.getAttribute('aria-expanded') === 'true'),
+          rowIds().length + ' rows, expected ' + rowBaseline)
+      }
+
+      // ---- a folded group is still a drop target ---------------------------
+      /*
+       * Folding hides a group's contents; it must not turn the group into something a
+       * host can no longer be filed into. The drop handlers sit on the section, which
+       * stays rendered whatever the fold says — this is what keeps it that way.
+       */
+      const target = groupSections().find((section) => {
+        const button = foldIn(section)
+        const key = button ? button.getAttribute('data-fold-key') : ''
+        return !!key && key !== '__unfiled__'
+      })
+      const movable = target
+        ? [...document.querySelectorAll('[data-host-row]')].find((row) => !target.contains(row))
+        : null
+      if (target && movable && foldIn(target)) {
+        const movedName = (movable.querySelector('.td-host-name') || {}).textContent || ''
+        const targetKey = foldIn(target).getAttribute('data-fold-key')
+        foldIn(target).click()
+        await wait(500)
+        drag(movable, 'dragstart')
+        await wait(120)
+        drag(target, 'dragover')
+        drag(target, 'drop')
+        await wait(900)
+        const movedTree = await api.loadSessionTree()
+        const movedSession = movedTree.sessions.find((s) => s.name === movedName)
+        push('a folded group still accepts a host dropped on it',
+          !!movedSession && movedSession.parentId === targetKey,
+          'host=' + movedName + ' parent=' + (movedSession ? movedSession.parentId : null) +
+            ' target=' + targetKey)
+      } else {
+        push('a folded group still accepts a host dropped on it', false, 'no folded target to drop on')
+      }
+
       // ---- connecting switches to Terminal ---------------------------------
       const connectBtn = document.querySelector('[data-host-row] [data-action="connect"]')
       push('a host row offers connect', !!connectBtn)
