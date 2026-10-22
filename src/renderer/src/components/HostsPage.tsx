@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import type { HostsView, SavedSession, SessionFolder, SessionInfo, SessionTree } from '@shared/types'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { describeTarget } from './sessionLabel'
@@ -33,6 +33,14 @@ interface HostsPageProps {
   onMove: (sessionId: string, parentId: string | null) => void
   /** Re-file a whole group, which is how nesting is rearranged. */
   onMoveGroup: (folderId: string, parentId: string | null) => void
+  /*
+   * Batch actions, for the hosts ticked in a selection. Each goes through one main
+   * process call, so a selection of twenty is one write and one broadcast rather than
+   * twenty of each.
+   */
+  onDeleteHosts: (ids: string[]) => void
+  onDuplicateHosts: (ids: string[]) => void
+  onMoveHosts: (ids: string[], parentId: string | null) => void
   /** Share the whole list with someone else, or read theirs in. */
   onExportShare: () => void
   onImportShare: () => void
@@ -80,6 +88,9 @@ export function HostsPage({
   onDeleteGroup,
   onMove,
   onMoveGroup,
+  onDeleteHosts,
+  onDuplicateHosts,
+  onMoveHosts,
   view,
   onViewChange,
   folded,
@@ -100,9 +111,22 @@ export function HostsPage({
     y: number
     items: MenuItem[]
     run: (id: string) => void
+    /** Distinguishes the move-target menu from the row menus in a probe. */
+    testId?: string
   } | null>(null)
   const [drag, setDrag] = useState<{ kind: 'host' | 'group'; id: string } | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  /*
+   * Ticked hosts.
+   *
+   * Page state on purpose: a selection is a thing you are doing right now, not a
+   * preference. Leaving the page drops it, which is what you want — coming back to a
+   * list with rows still ticked from ten minutes ago is how people delete the wrong
+   * thing.
+   */
+  const [selected, setSelected] = useState<string[]>([])
+  /** Delete is two-step: the ticked range is worth one question first. */
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const openTitles = useMemo(() => new Set(sessions.map((s) => s.title)), [sessions])
 
@@ -233,9 +257,101 @@ export function HostsPage({
     [folded, onFoldedChange]
   )
 
+  /**
+   * Every host the page is currently showing, in list order.
+   *
+   * This is what "select all" means, and therefore what a batch action acts on. A
+   * folded group is not on screen, so ticking its hosts would build a selection the
+   * user cannot see — and then delete it. Same rule as the filter: the page never
+   * acts on a host it is not showing.
+   */
+  const shownHostIds = useMemo(() => {
+    const ids: string[] = []
+    const walk = (nodes: GroupNode[]): void => {
+      for (const node of nodes) {
+        if (!filtering && foldedSet.has(node.key)) continue
+        for (const host of node.hosts) ids.push(host.id)
+        walk(node.children)
+      }
+    }
+    walk(groups)
+    return ids
+  }, [groups, foldedSet, filtering])
+
+  // Keep the selection honest when a filter or a fold takes hosts off the page.
+  useEffect(() => {
+    setSelected((prev) => {
+      const allowed = new Set(shownHostIds)
+      const next = prev.filter((id) => allowed.has(id))
+      return next.length === prev.length ? prev : next
+    })
+    setConfirmDelete(false)
+  }, [shownHostIds])
+
+  const selectedCount = selected.length
+  const allSelected = shownHostIds.length > 0 && selectedCount === shownHostIds.length
+
+  const toggleHost = (id: string): void => {
+    setConfirmDelete(false)
+    setSelected((prev) =>
+      prev.includes(id) ? prev.filter((entry) => entry !== id) : [...prev, id]
+    )
+  }
+
+  /**
+   * Run a batch action and end the selection.
+   *
+   * For all three: hosts that were just copied or re-filed are not the hosts the
+   * ticks were on, and leaving them ticked points the *next* click at something the
+   * user has stopped looking at.
+   */
+  const runBatch = (action: () => void): void => {
+    action()
+    setSelected([])
+    setConfirmDelete(false)
+  }
+
+  /**
+   * Every group as a move target, with its full path.
+   *
+   * Built from the folder tree rather than from the rendered groups: while a search
+   * is on, the groups with no match are not drawn, and "move these to Archive" is
+   * exactly the thing somebody searching for one host wants to do.
+   */
+  const moveTargets = useMemo(() => {
+    const out: Array<{ id: string | null; label: string }> = []
+    const walk = (parentId: string | null, prefix: string): void => {
+      for (const folder of childFolders.get(parentId) ?? []) {
+        const path = prefix ? `${prefix} / ${folder.name}` : folder.name
+        out.push({ id: folder.id, label: path })
+        walk(folder.id, path)
+      }
+    }
+    walk(null, '')
+    out.push({ id: null, label: t('hostspage.unfiled', 'Unfiled') })
+    return out
+  }, [childFolders])
+
+  const openMoveMenu = (event: React.MouseEvent): void => {
+    const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    setMenu({
+      x: rect.left,
+      y: rect.bottom + 4,
+      testId: 'hosts-move-menu',
+      items: moveTargets.map((target) => ({
+        id: 'move:' + (target.id ?? 'root'),
+        label: target.label
+      })),
+      run: (id) => {
+        if (id.indexOf('move:') !== 0) return
+        const raw = id.slice('move:'.length)
+        runBatch(() => onMoveHosts(selected, raw === 'root' ? null : raw))
+      }
+    })
+  }
+
   const total = tree.sessions.length
   const groupCount = tree.folders.length
-
   const hostMenu = (): MenuItem[] => [
     { id: 'connect', label: t('hostspage.connect', 'Connect') },
     { id: 'edit', label: t('hostspage.edit', 'Edit…') },
@@ -398,7 +514,7 @@ export function HostsPage({
         return (
           <li
             key={session.id}
-            className={`td-host-row is-${view}${connected ? ' is-connected' : ''}`}
+            className={`td-host-row is-${view}${connected ? ' is-connected' : ''}${selected.includes(session.id) ? ' is-selected' : ''}`}
             data-host-row={session.id}
             draggable
             onDragStart={(e) => startDrag(e, 'host', session.id)}
@@ -406,6 +522,23 @@ export function HostsPage({
             onDoubleClick={() => onConnect(session)}
             onContextMenu={(e) => openHostMenu(e, session)}
           >
+            {/*
+              The tick box is always drawn, not revealed on hover: a control that only
+              exists while the pointer is in the right place is one nobody finds. Its
+              double click is swallowed so a quick double tick cannot fall through to
+              the row and start a connection.
+            */}
+            <input
+              type="checkbox"
+              className="td-host-check"
+              data-testid="select-host"
+              data-host-id={session.id}
+              checked={selected.includes(session.id)}
+              onChange={() => toggleHost(session.id)}
+              onDoubleClick={(e) => e.stopPropagation()}
+              aria-label={t('hostspage.select_host', 'Select host')}
+              title={t('hostspage.select_host', 'Select host')}
+            />
             <span
               className={`td-host-status${connected ? ' is-on' : ''}`}
               title={
@@ -553,6 +686,21 @@ export function HostsPage({
         <div className="td-page-bar">
           <h1 className="td-sr-only">{t('hostspage.hosts', 'Hosts')}</h1>
           <div className="td-page-actions">
+            {/*
+              Ticking everything listed. It sits first because it is the way into the
+              batch actions, and it counts what is *shown*: a folded group is not on
+              screen, and a selection nobody can see is one nobody meant to make.
+            */}
+            <label className="td-select-all" data-testid="hosts-select-all">
+              <input
+                type="checkbox"
+                data-testid="select-all-hosts"
+                checked={allSelected}
+                disabled={shownHostIds.length === 0}
+                onChange={() => setSelected(allSelected ? [] : [...shownHostIds])}
+              />
+              <span>{t('hostspage.select_all_hosts', 'Select all')}</span>
+            </label>
             <button
               className="td-btn td-btn-primary"
               data-testid="hosts-new-host"
@@ -654,6 +802,67 @@ export function HostsPage({
         </div>
       </header>
 
+      {/*
+        The batch bar appears only while something is ticked, in its own row: four
+        controls plus a count do not fit beside the page's own actions without
+        shoving them around, and this reads as what it is — a mode you are in.
+      */}
+      {selectedCount > 0 && (
+        <div className="td-batch-bar" data-testid="hosts-batch-bar">
+          <span className="td-batch-count" data-testid="hosts-selected-count">
+            {t('hostspage.n_selected', '{count} selected', { count: selectedCount })}
+          </span>
+          <button className="td-btn" data-testid="batch-move-hosts" onClick={openMoveMenu}>
+            {t('hostspage.move_to', 'Move to…')}
+          </button>
+          <button
+            className="td-btn"
+            data-testid="batch-duplicate-hosts"
+            onClick={() => runBatch(() => onDuplicateHosts(selected))}
+          >
+            {t('hostspage.duplicate', 'Duplicate')}
+          </button>
+          {/*
+            Deleting asks first. Re-adding one host is a nuisance; re-adding a ticked
+            range is a lost afternoon, and there is no undo here.
+          */}
+          {confirmDelete ? (
+            <>
+              <button
+                className="td-btn td-btn-danger"
+                data-testid="confirm-delete-hosts"
+                onClick={() => runBatch(() => onDeleteHosts(selected))}
+              >
+                {t('hostspage.delete_n_hosts', 'Delete {count} hosts', { count: selectedCount })}
+              </button>
+              <button
+                className="td-btn"
+                data-testid="cancel-delete-hosts"
+                onClick={() => setConfirmDelete(false)}
+              >
+                {t('hostspage.cancel', 'Cancel')}
+              </button>
+            </>
+          ) : (
+            <button
+              className="td-btn td-btn-danger"
+              data-testid="batch-delete-hosts"
+              onClick={() => setConfirmDelete(true)}
+            >
+              {t('hostspage.delete', 'Delete')}
+            </button>
+          )}
+          <span className="td-spacer" />
+          <button
+            className="td-btn"
+            data-testid="clear-host-selection"
+            onClick={() => setSelected([])}
+          >
+            {t('hostspage.clear_selection', 'Clear selection')}
+          </button>
+        </div>
+      )}
+
       {/* Right-click anywhere that is not a host or a group opens the page menu,
           so "new host" is always one click away. */}
       <div className="td-page-body" data-testid="hosts-body" onContextMenu={openPageMenu}>
@@ -677,7 +886,7 @@ export function HostsPage({
           x={menu.x}
           y={menu.y}
           items={menu.items}
-          testId="hosts-menu"
+          testId={menu.testId ?? 'hosts-menu'}
           onSelect={menu.run}
           onClose={() => setMenu(null)}
         />

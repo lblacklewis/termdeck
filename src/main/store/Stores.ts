@@ -589,6 +589,78 @@ export class SessionStore {
     return this.commit(this.tree)
   }
 
+  /**
+   * Delete several sessions in one write.
+   *
+   * The page can now delete a ticked range, and going through `deleteSession` in a
+   * loop would rewrite `sessions.json` and broadcast the tree once per host — the
+   * same reason `addSessions` and `importShare` exist. Credentials are not this
+   * method's business: the IPC layer clears each secret, because the store never
+   * touches them.
+   */
+  deleteSessions(ids: string[]): SessionTree {
+    const drop = new Set(ids)
+    this.tree.sessions = this.tree.sessions.filter((session) => !drop.has(session.id))
+    return this.commit(this.tree)
+  }
+
+  /**
+   * Copy several sessions in one write, keeping each copy where its original is.
+   *
+   * The id pairs are returned because each copy needs the stored secret re-sealed
+   * under its own id, and only the IPC layer touches credentials. Fields are copied
+   * one by one rather than by spreading the source: a blind spread would carry the
+   * source's arrays by reference, so tagging the copy would silently tag the
+   * original too.
+   */
+  duplicateSessions(ids: string[]): {
+    tree: SessionTree
+    created: Array<{ sourceId: string; id: string }>
+  } {
+    const created: Array<{ sourceId: string; id: string }> = []
+    for (const id of ids) {
+      const source = this.tree.sessions.find((session) => session.id === id)
+      if (!source) continue
+      const copy = this.applyUpsert({
+        name: `${source.name} copy`,
+        host: source.host,
+        port: source.port,
+        username: source.username,
+        authMethod: source.authMethod,
+        privateKeyPath: source.privateKeyPath,
+        kind: source.kind,
+        serial: source.serial ? { ...source.serial } : undefined,
+        postConnectCommands: source.postConnectCommands ? [...source.postConnectCommands] : undefined,
+        tags: [...source.tags],
+        color: source.color,
+        notes: source.notes,
+        parentId: source.parentId
+      })
+      created.push({ sourceId: source.id, id: copy.id })
+    }
+    return { tree: this.commit(this.tree), created }
+  }
+
+  /**
+   * Re-file several sessions in one write.
+   *
+   * The target is validated once, before anything moves: a batch that half-applied
+   * because the folder was deleted mid-flight would be worse than one that refused.
+   */
+  moveSessions(ids: string[], parentId: string | null): SessionTree {
+    if (parentId && !this.tree.folders.some((f) => f.id === parentId)) {
+      throw new Error(`No such folder: ${parentId}`)
+    }
+    const moving = new Set(ids)
+    const now = Date.now()
+    for (const session of this.tree.sessions) {
+      if (!moving.has(session.id)) continue
+      session.parentId = parentId
+      session.updatedAt = now
+    }
+    return this.commit(this.tree)
+  }
+
   moveSession(id: string, parentId: string | null): SessionTree {
     const session = this.tree.sessions.find((s) => s.id === id)
     if (!session) throw new Error(`No such session: ${id}`)

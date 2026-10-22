@@ -136,6 +136,12 @@ const api = {
     ipcRenderer.invoke('tree:moveFolder', id, parentId),
   setFoldersExpanded: (expanded: boolean): Promise<SessionTree> =>
     ipcRenderer.invoke('tree:setFolded', expanded),
+  deleteSessions: (ids: string[]): Promise<SessionTree> =>
+    ipcRenderer.invoke('tree:deleteSessions', ids),
+  duplicateSessions: (ids: string[]): Promise<SessionTree> =>
+    ipcRenderer.invoke('tree:duplicateSessions', ids),
+  moveSessions: (ids: string[], parentId: string | null): Promise<SessionTree> =>
+    ipcRenderer.invoke('tree:moveSessions', ids, parentId),
 
   // ---- credentials ------------------------------------------------------
   credentialStatus: (): Promise<CredentialStatus> => ipcRenderer.invoke('credential:status'),

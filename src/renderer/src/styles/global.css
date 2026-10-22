@@ -4938,6 +4938,75 @@ html[data-theme-scheme='light'] .td-drawer-backdrop {
   opacity: 0.45;
 }
 
+/*
+ * A ticked host.
+ *
+ * The row has to read as ticked from the list itself, without hovering over it: a
+ * batch delete is confirmed by glancing back at what is highlighted, so the highlight
+ * cannot be something you only see under the pointer.
+ */
+.td-host-check {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--td-accent);
+  cursor: pointer;
+}
+
+.td-host-row.is-selected {
+  border-color: color-mix(in srgb, var(--td-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--td-accent) 12%, var(--td-bg-raised));
+}
+
+/* "Select all", in the page's own action row because that is where it leads from. */
+.td-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  font-size: 12px;
+  color: var(--td-text-dim);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.td-select-all input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--td-accent);
+  cursor: pointer;
+}
+
+.td-select-all input:disabled {
+  cursor: default;
+}
+
+/*
+ * The batch bar.
+ *
+ * Its own row rather than more buttons in the header: four controls plus a count
+ * would shove the page's own actions around every time a row is ticked, and this says
+ * what it is — a mode you are in while a selection exists.
+ */
+.td-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 22px;
+  background: color-mix(in srgb, var(--td-accent) 10%, var(--td-bg-sunken));
+  border-bottom: 1px solid color-mix(in srgb, var(--td-accent) 28%, transparent);
+}
+
+.td-batch-count {
+  font-size: 12px;
+  color: var(--td-text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 /* The view switch is a pair of joined buttons rather than two loose ones. */
 .td-view-switch {
   display: flex;

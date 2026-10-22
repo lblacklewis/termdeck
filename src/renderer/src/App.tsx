@@ -2468,6 +2468,37 @@ export function App(): JSX.Element {
     }
   }, [])
 
+  /*
+   * Batch actions for the hosts ticked on the Hosts page.
+   *
+   * Each is a single main-process call, so a selection of twenty is one write and one
+   * tree broadcast. Looping the single-host calls would work — and would rewrite
+   * `sessions.json` twenty times while the list redrew twenty times.
+   */
+  const deleteHosts = useCallback(async (ids: string[]) => {
+    try {
+      await api.deleteSessions(ids)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  const duplicateHosts = useCallback(async (ids: string[]) => {
+    try {
+      await api.duplicateSessions(ids)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
+  const moveHostsTo = useCallback(async (ids: string[], parentId: string | null) => {
+    try {
+      await api.moveSessions(ids, parentId)
+    } catch (err) {
+      setToast(err instanceof Error ? err.message : String(err))
+    }
+  }, [])
+
   // ---- context menu -------------------------------------------------------
 
   const contextMenuItems = useCallback(
@@ -3031,6 +3062,9 @@ export function App(): JSX.Element {
         onDeleteGroup={(id) => requestDeleteFolder(id)}
         onMoveHost={(sessionId, parentId) => void moveSessionTo(sessionId, parentId)}
         onMoveGroup={(folderId, parentId) => void moveFolderTo(folderId, parentId)}
+        onDeleteHosts={(ids) => void deleteHosts(ids)}
+        onDuplicateHosts={(ids) => void duplicateHosts(ids)}
+        onMoveHosts={(ids, parentId) => void moveHostsTo(ids, parentId)}
         onExportShare={() => setShareMode('export')}
         onImportShare={() => setShareMode('import')}
         canSendSnippet={activeTerminalId() !== null}

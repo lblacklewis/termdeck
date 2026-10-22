@@ -1290,6 +1290,30 @@ export function registerIpc(): void {
     commitTree(getSessionStore().setAllFoldersExpanded(expanded === true))
   )
 
+  /*
+   * Batch operations for the Hosts page.
+   *
+   * Each is one store call — one write, one tree broadcast — wrapped in the
+   * credential work the store deliberately stays out of: a deleted host must not
+   * leave its secret behind, and a copy must carry its original's secret re-sealed
+   * under the new id, so it can actually connect without retyping a password.
+   */
+  ipcMain.handle('tree:deleteSessions', (_e, ids: string[]) => {
+    for (const id of ids) getCredentials().remove(id)
+    return commitTree(getSessionStore().deleteSessions(ids))
+  })
+  ipcMain.handle('tree:duplicateSessions', (_e, ids: string[]) => {
+    const { tree, created } = getSessionStore().duplicateSessions(ids)
+    for (const copy of created) {
+      const source = getCredentials().get(copy.sourceId)
+      if (source.password || source.passphrase) getCredentials().set(copy.id, source)
+    }
+    return commitTree(tree)
+  })
+  ipcMain.handle('tree:moveSessions', (_e, ids: string[], parentId: string | null) =>
+    commitTree(getSessionStore().moveSessions(ids, parentId))
+  )
+
   // ---- credentials -------------------------------------------------------
   // Secrets are written and read only here.
 

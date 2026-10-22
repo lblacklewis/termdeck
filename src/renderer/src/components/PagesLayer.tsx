@@ -56,6 +56,10 @@ interface PagesLayerProps {
   onDeleteGroup: (id: string) => void
   onMoveHost: (sessionId: string, parentId: string | null) => void
   onMoveGroup: (folderId: string, parentId: string | null) => void
+  /** Batch actions for the hosts ticked on the Hosts page. */
+  onDeleteHosts: (ids: string[]) => void
+  onDuplicateHosts: (ids: string[]) => void
+  onMoveHosts: (ids: string[], parentId: string | null) => void
   onExportShare: () => void
   onImportShare: () => void
   canSendSnippet: boolean
@@ -97,6 +101,9 @@ export function PagesLayer({
   onDeleteGroup,
   onMoveHost,
   onMoveGroup,
+  onDeleteHosts,
+  onDuplicateHosts,
+  onMoveHosts,
   onExportShare,
   onImportShare,
   canSendSnippet,
@@ -187,6 +194,9 @@ export function PagesLayer({
             onDeleteGroup={onDeleteGroup}
             onMove={onMoveHost}
             onMoveGroup={onMoveGroup}
+            onDeleteHosts={onDeleteHosts}
+            onDuplicateHosts={onDuplicateHosts}
+            onMoveHosts={onMoveHosts}
             onExportShare={onExportShare}
             onImportShare={onImportShare}
           />
