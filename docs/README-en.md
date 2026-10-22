@@ -33,7 +33,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Appearance | ✅ 13 themes (incl. the light Blossom and Lavender) with live preview, 80–150% interface scale, English + 简体中文, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
 | Known Hosts | ✅ browse every stored key with its fingerprint, filter, multi-select and batch-forget |
-| Saved sessions | ✅ multi-level folders (foldable, with collapse/expand all in the drawer and on the Hosts page), tags, filtering, drag-to-move, per-session auth |
+| Saved sessions | ✅ multi-level folders (foldable, with collapse/expand all in the drawer and on the Hosts page), tags, filtering, drag-to-move, tick-and-batch (delete / duplicate / move to a group), per-session auth |
 | Settings page | ✅ appearance, terminal, clipboard, shortcuts, host keys, credentials |
 | Clipboard | ✅ copy-on-select, right-click / middle-click paste, multi-line paste guard |
 | Context menus | ✅ right-click a session, a folder or empty space in the tree |
@@ -481,6 +481,26 @@ will delete. An *empty* group is still removed straight away — there is nothin
 lose, and a dialog for it would just be a click added to every tidy-up. Both entry
 points are guarded: the Hosts page and the drawer's session tree.
 
+**Batch actions work on a ticked selection, and "select all" means what is on
+screen.** Every host row (and card) carries a tick box; ticking anything brings up a
+bar with *move to…*, *duplicate* and *delete*. Three details are deliberate:
+
+- **One call per batch, not one per host.** `tree:deleteSessions`,
+  `tree:duplicateSessions` and `tree:moveSessions` each mutate the tree and commit
+  once. Looping the single-host calls would write `sessions.json` once per host and
+  broadcast the tree once per host, so a selection of twenty would redraw the list
+  twenty times while the user watched.
+- **Select all counts what is rendered**, so a folded group's hosts are not ticked
+  off-screen — a selection you cannot see, followed by delete, is the one mistake a
+  batch action must not make. A filter or a fold that takes hosts off the page also
+  drops them from the selection.
+- **Credentials follow the hosts.** The store never touches secrets: the IPC layer
+  clears each deleted host's stored secret and re-seals a copy's under its own new
+  id, which is what lets a duplicated host connect without retyping a password.
+  Deleting asks first — re-adding one host is a nuisance, re-adding a ticked range is
+  a lost afternoon, and there is no undo here. The selection is page state, not a
+  stored preference, and it is dropped after every batch action.
+
 ## First run
 
 A fresh install (or a settings file written before this screen existed) opens on a
@@ -712,6 +732,7 @@ npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick conn
 npm run smoke:share    # encrypted host export/import
 npm run smoke:i18n     # language switch, persistence, revert, and a whole tool page in Chinese
 npm run smoke:treefold # folding every group in the drawer's session tree at once
+npm run smoke:hostsbatch # ticking hosts on the Hosts page: batch delete / duplicate / move
 npm run smoke:knownhosts # known hosts page: selection, batch forget, filter pruning
 npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input
