@@ -33,7 +33,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Appearance | ✅ 13 themes (incl. the light Blossom and Lavender) with live preview, 80–150% interface scale, English + 简体中文, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
 | Known Hosts | ✅ browse every stored key with its fingerprint, filter, multi-select and batch-forget |
-| Saved sessions | ✅ multi-level folders (each foldable, plus collapse/expand all), tags, filtering, drag-to-move, per-session auth |
+| Saved sessions | ✅ multi-level folders (foldable, with collapse/expand all in the drawer and on the Hosts page), tags, filtering, drag-to-move, per-session auth |
 | Settings page | ✅ appearance, terminal, clipboard, shortcuts, host keys, credentials |
 | Clipboard | ✅ copy-on-select, right-click / middle-click paste, multi-line paste guard |
 | Context menus | ✅ right-click a session, a folder or empty space in the tree |
@@ -174,6 +174,18 @@ again. Folded groups are kept the same way, and deliberately **not** in
 of one folder tree with different jobs, and collapsing twenty groups to see the
 shape of the host library should not fold the quick-connect list under someone on
 the terminal page. It also keeps "collapse them all" to a single write.
+
+The drawer's tree is the opposite case and keeps its fold **on the folder**
+(`SessionFolder.expanded`), because what is being folded there is the folder you are
+browsing rather than a preference of a page. "Fold every group" is one IPC call
+(`tree:setFolded`) that mutates all of them and commits once: a loop of `saveFolder`
+calls from the renderer would be one file write and one broadcast per group, so the
+list would redraw twenty times while the user watched. Two rules keep that control
+honest — it is disabled while a search is on, and **a search opens every group it can
+reach**. A folded group that swallows the match reads as "the session is gone", which
+is exactly the bug that surfaced while adding the button: the tree used to render a
+matching session's ancestors as folded, so the folder row matched and its contents
+were invisible.
 
 An older file that predates the rail/drawer merge is still understood: the
 retired `sidebarVisible` / `sidebarCollapsed` pair is read as "whether the rail
@@ -699,6 +711,7 @@ npm run smoke:tabmenu   # pane-tab menu actions
 npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick connect
 npm run smoke:share    # encrypted host export/import
 npm run smoke:i18n     # language switch, persistence, revert, and a whole tool page in Chinese
+npm run smoke:treefold # folding every group in the drawer's session tree at once
 npm run smoke:knownhosts # known hosts page: selection, batch forget, filter pruning
 npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input
