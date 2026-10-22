@@ -33,7 +33,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | Appearance | ✅ 13 themes (incl. the light Blossom and Lavender) with live preview, 80–150% interface scale, English + 简体中文, audited contrast |
 | Shell | ✅ navigation rail → list column → main area, with right-hand drawers |
 | Known Hosts | ✅ browse every stored key with its fingerprint, filter, multi-select and batch-forget |
-| Saved sessions | ✅ multi-level folders, tags, filtering, drag-to-move, per-session auth |
+| Saved sessions | ✅ multi-level folders (each foldable, plus collapse/expand all), tags, filtering, drag-to-move, per-session auth |
 | Settings page | ✅ appearance, terminal, clipboard, shortcuts, host keys, credentials |
 | Clipboard | ✅ copy-on-select, right-click / middle-click paste, multi-line paste guard |
 | Context menus | ✅ right-click a session, a folder or empty space in the tree |
@@ -161,14 +161,19 @@ structure that looks nothing like one on screen, and one that measures 276px aga
 
 The window reopens the way you left it: pane splits and tab groups, which rail
 section was showing, whether the rail was shrunk, whether the snippet bar was
-visible, and whether the Hosts page is listing rows or cards. The arrangement is
-written to `layout.json` in the app's user-data directory.
+visible, whether the Hosts page is listing rows or cards, and which of its groups
+are folded away. The arrangement is written to `layout.json` in the app's user-data
+directory.
 
 Anything the user picks *for a page* belongs in that file rather than in the
 page's own state: pages are unmounted when another rail section is showing, so a
 choice kept in `useState` lasts exactly until the user looks at something else.
 The rows/cards switch was like that — leave Hosts, come back, and it was rows
-again.
+again. Folded groups are kept the same way, and deliberately **not** in
+`SessionFolder.expanded`, which the drawer's session tree uses: those are two views
+of one folder tree with different jobs, and collapsing twenty groups to see the
+shape of the host library should not fold the quick-connect list under someone on
+the terminal page. It also keeps "collapse them all" to a single write.
 
 An older file that predates the rail/drawer merge is still understood: the
 retired `sidebarVisible` / `sidebarCollapsed` pair is read as "whether the rail
