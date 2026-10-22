@@ -233,6 +233,20 @@ the translations, so a key with no translation shows English and a missing entry
 never a blank label. Anything that is not prose is left alone on purpose — product
 and font names, `Ctrl`/`Alt`/`Esc`, sample commands and paths.
 
+**A whole page, not just its chrome.** The REST tool page was the last English left inside a Chinese
+interface: its 48 strings were already wrapped in `t()`, but the catalog held not a single
+`restpage.*` entry, so every one of them fell back — and an untranslated key is only a *note* in
+`check:i18n`, never a failure, which is how it survived a release. Three kinds of text on that page
+do not go through `t()` at all, and each needed its own route: the built-in templates' names and
+descriptions (shared data, translated by id with the English still the fallback for both
+languages), the four failures the main process words itself (`RestResponse.errorCode`, translated by
+code — raw Node errors such as `ECONNREFUSED` keep their text, which is the useful part), and one
+hardcoded fallback. `smoke:i18n` therefore asserts the page as a whole: it lists the English that
+used to be there and requires that none of it comes back, which the untranslated page fails outright.
+Everything that is not prose stays English on purpose, exactly as elsewhere: `REST`, `URL`, `JSON`,
+the sample values and the units. **S3 and port forwarding are still English-only** — they are owed
+the same treatment.
+
 ```bash
 npm run extract:i18n   # after adding UI text: wrap the new strings, list them
 npm run check:i18n     # in `verify`: stale keys, and one key with two English texts
@@ -679,7 +693,7 @@ npm run smoke:ctxmenu   # context menu geometry inside a drawer
 npm run smoke:tabmenu   # pane-tab menu actions
 npm run smoke:features2 # timestamp gutter, saving output, auto-saved quick connect
 npm run smoke:share    # encrypted host export/import
-npm run smoke:i18n     # language switch, persistence, revert
+npm run smoke:i18n     # language switch, persistence, revert, and a whole tool page in Chinese
 npm run smoke:knownhosts # known hosts page: selection, batch forget, filter pruning
 npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input

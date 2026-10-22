@@ -80,7 +80,8 @@ TermDeck 把三件事做进同一个窗口：
 ![主题](docs/images/shot-appearance.png)
 
 13 套主题（深色为主，含浅色的 Blossom / Lavender），终端字体可换（自带 Roboto Mono / JetBrains Mono），
-界面缩放 80%–150%，中英文界面。所有主题都通过对比度审计。
+界面缩放 80%–150%，**中英文界面**（设置 → 外观 → 语言，选完立刻生效；REST 页已是整页中文，
+S3 与端口转发两页还在补）。所有主题都通过对比度审计。
 
 ## 截图
 
