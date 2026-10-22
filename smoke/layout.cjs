@@ -465,18 +465,73 @@ async function main() {
     if (!button) {
       return { error: 'no reconnect button on that pane', before, paneParams, sessionNames }
     }
-    button.click()
+    /*
+     * Reconnected with the key rather than the button: a pane restored from the last
+     * layout is the case that used to go wrong. Ctrl+R sent it down the "reopen the
+     * session this pane had" path, which asks for a session id that never existed, so
+     * the key did nothing on the one page that most needs it. Its reconnect has to go
+     * through the saved host instead.
+     *
+     * The button is asserted to be there above; its own click is covered by the
+     * ended-session notice in the reconnect suite.
+     */
+    const keyHint = pane.querySelector('[data-testid="reconnect-keys"]')
+    /*
+     * Activate the *panel*, not its tab: the shortcut acts on the active panel, and a
+     * click on a tab in another group does not always make that pane the active one — the
+     * press then lands on whatever was active, which is a different pane entirely.
+     */
+    const dockApi = window.__tdDockApi
+    const targetPanel = dockApi.panels.filter(
+      (p) => String((p.api.getParameters() || {}).title || '') === title
+    )[0]
+    if (targetPanel) {
+      targetPanel.api.setActive()
+      await wait(700)
+    }
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'r',
+        code: 'KeyR',
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true
+      })
+    )
     const gone = await waitFor(async () => !paneFor(title))
     await wait(600)
     const alert = [].slice.call(document.querySelectorAll('.td-alert'))
       .map((e) => (e.textContent || '').trim()).join(' | ')
-    return { before, gone, after: snap(), alert, paneParams, sessionNames }
+    const settings = await window.termdeck.loadSettings()
+    const boundKeys =
+      ((settings.keybindings || []).filter((b) => b.id === 'reconnectSession').map((b) => b.keys)[0]) ||
+      ''
+    return {
+      before,
+      gone,
+      after: snap(),
+      alert,
+      paneParams,
+      sessionNames,
+      keyShown: keyHint ? keyHint.getAttribute('data-keys') : null,
+      boundKeys
+    }
   })()`)
   console.log('reconnect result:', JSON.stringify(reconnected))
 
   report([
     {
-      name: 'a restored pane whose saved session exists reconnects',
+      name: 'the restored pane names the reconnect key, and it is the bound one',
+      ok:
+        !reconnected.error &&
+        !!reconnected.keyShown &&
+        reconnected.keyShown === reconnected.boundKeys,
+      detail:
+        reconnected.error ||
+        'shown=' + reconnected.keyShown + ' bound=' + reconnected.boundKeys
+    },
+    {
+      name: 'a restored pane whose saved session exists reconnects (by key)',
       ok: !reconnected.error && reconnected.gone === true,
       detail:
         reconnected.error ||

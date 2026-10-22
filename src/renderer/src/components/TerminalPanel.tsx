@@ -15,6 +15,24 @@ import { t } from '../i18n'
  */
 const STABLE_CONNECTION_MS = 10_000
 
+/** A key combination as individual keys, the way the rest of the app draws them. */
+function Keys({ keys, testId }: { keys: string; testId?: string }): JSX.Element {
+  const parts = keys
+    .split('+')
+    .map((part) => part.trim())
+    .filter(Boolean)
+  return (
+    <span className="td-keys" data-testid={testId} data-keys={keys}>
+      {parts.map((part, index) => (
+        <span key={part + index}>
+          {index > 0 && ' + '}
+          <kbd>{part}</kbd>
+        </span>
+      ))}
+    </span>
+  )
+}
+
 interface TerminalPanelProps {
   /** Absent for a pane restored from a saved layout. */
   session?: SessionInfo
@@ -40,6 +58,12 @@ interface TerminalPanelProps {
    * stop saying "Reconnecting…".
    */
   onReconnectSession?: () => Promise<boolean>
+  /**
+   * The reconnect shortcut as currently bound, shown on both reconnect pages.
+   *
+   * Passed in rather than written here so a remapped key shows as the key that works.
+   */
+  reconnectHint?: string
 }
 
 /**
@@ -58,7 +82,8 @@ export function TerminalPanel({
   disconnected,
   onSessionEnded,
   onReconnect,
-  onReconnectSession
+  onReconnectSession,
+  reconnectHint
 }: TerminalPanelProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<TerminalHandle | null>(null)
@@ -343,6 +368,13 @@ export function TerminalPanel({
           >
             {busy ? 'Reconnecting…' : 'Reconnect'}
           </button>
+          {reconnectHint && (
+            <p className="td-hint td-reconnect-hint">
+              {t('terminalpanel.or_press', 'Or press')}{' '}
+              <Keys keys={reconnectHint} testId="reconnect-keys" />{' '}
+              {t('terminalpanel.to_reconnect_2', 'to reconnect.')}
+            </p>
+          )}
         </div>
       </div>
     )
@@ -460,6 +492,12 @@ export function TerminalPanel({
                   >
                     {t('terminalpanel.cancel_retry', 'Stop retrying')}
                   </button>
+                )}
+                {reconnectHint && (
+                  <span className="td-reconnect-hint" data-testid="reconnect-keys-hint">
+                    {t('terminalpanel.or_press', 'Or press')}{' '}
+                    <Keys keys={reconnectHint} testId="reconnect-keys" />
+                  </span>
                 )}
               </div>
             )}

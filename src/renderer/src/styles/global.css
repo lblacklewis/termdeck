@@ -3835,6 +3835,22 @@ body {
   pointer-events: none;
 }
 
+
+/* The reconnect pages name the shortcut that does the same thing. */
+.td-reconnect-hint {
+  margin: 6px 0 0;
+  font-size: 11.5px;
+  color: var(--td-text-dim);
+}
+
+.td-keys {
+  white-space: nowrap;
+}
+
+.td-terminal-overlay-actions .td-reconnect-hint {
+  margin: 0 0 0 8px;
+  align-self: center;
+}
 /* ---- transitions feel intentional ------------------------------------- */
 
 .td-theme-card,

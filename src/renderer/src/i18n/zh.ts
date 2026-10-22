@@ -421,7 +421,8 @@ export const zh: Catalog = {
   'terminalpanel.ended_hint': '这个窗格还在，上面的内容也还在。重连即可继续在这里工作。',
   'terminalpanel.paste': '粘贴',
   'terminalpanel.paste_2': '粘贴',
-  'terminalpanel.reconnect': '重连',
+  'terminalpanel.or_press': '或按',
+  'terminalpanel.to_reconnect_2': '重连。',  'terminalpanel.reconnect': '重连',
   'terminalpanel.reconnecting': '正在重连…',
   'terminalpanel.session_ended': '会话已结束',
   'terminalpanel.this_pane_was_restored_from':

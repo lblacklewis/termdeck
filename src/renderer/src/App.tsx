@@ -755,6 +755,12 @@ export function App(): JSX.Element {
                 disconnected={panelParams.disconnected}
                 onReconnect={(id, name) => reconnectRef.current(options.id, id, name)}
                 onReconnectSession={() => reconnectEndedRef.current(options.id)}
+                /*
+                 * The key that does the same thing, read from the bindings rather than
+                 * written into the overlay: a remapped shortcut has to show as the key
+                 * that actually works.
+                 */
+                reconnectHint={reconnectHint}
                 onSessionEnded={(id) => {
                   endedSessionsRef.current.add(id)
                   endedRef.current(id)
@@ -2373,6 +2379,17 @@ export function App(): JSX.Element {
     [settings.keybindings, snippetBindings]
   )
 
+  /**
+   * The reconnect shortcut as it is currently bound.
+   *
+   * Shown on both reconnect pages, so the key that works is the key on screen — a
+   * hard-coded Ctrl+R would lie the moment somebody remaps it.
+   */
+  const reconnectHint = useMemo(
+    () => settings.keybindings.find((binding) => binding.id === 'reconnectSession')?.keys ?? '',
+    [settings.keybindings]
+  )
+
   /** What each snippet's key runs. Lives beside the bindings it belongs to. */
   const snippetHandlers = useMemo(() => {
     const out: Record<string, () => void> = {}
@@ -2878,14 +2895,26 @@ export function App(): JSX.Element {
       closeSession(active.id)
     },
     /*
-     * Ctrl+R reconnects only a pane whose session has ended, and declines the key
-     * otherwise — the same rule as Ctrl+D above. In a live shell Ctrl+R is
+     * Ctrl+R reconnects the pane on screen, and declines the key when the pane is a
+     * live shell — the same rule as Ctrl+D above. In a live shell Ctrl+R is
      * reverse-i-search, and swallowing that would be a regression dressed up as a
      * shortcut.
+     *
+     * There are two reconnect pages and they are not the same call. A pane restored from
+     * the last layout never had a session, so reopening "the session this pane had"
+     * would ask for an id that never existed; that one goes through its *saved host*.
+     * Everything else that is dead reopens the connection the pane was using.
      */
     reconnectSession: () => {
       const active = dockApiRef.current?.activePanel
       if (!active || active.id === 'welcome') return false
+      const params = active.api.getParameters() as
+        | { disconnected?: boolean; savedSessionId?: string; title?: string }
+        | undefined
+      if (params?.disconnected && params.savedSessionId) {
+        reconnectRef.current(active.id, params.savedSessionId, params.title || 'Session')
+        return
+      }
       if (!isPaneDead(active.id)) return false
       void reconnectEndedRef.current(active.id)
     },

@@ -229,6 +229,20 @@ async function main() {
         (document.querySelector('[data-testid="session-ended-title"]') || {}).textContent || 'none')
       const revive = document.querySelector('[data-testid="reconnect-session"]')
       push('and offers a reconnect button', !!revive)
+      /*
+       * The notice also names the key, and it has to be the key that is bound: a
+       * hard-coded label would keep saying Ctrl+R after somebody remapped it.
+       */
+      const keysShown = document.querySelector('[data-testid="reconnect-keys"]')
+      const boundKeys = ((await window.termdeck.loadSettings()).keybindings || [])
+        .filter((b) => b.id === 'reconnectSession')
+        .map((b) => b.keys)[0]
+      push('and names the reconnect shortcut on it', !!keysShown,
+        'shown=' + (keysShown ? keysShown.getAttribute('data-keys') : 'none'))
+      push('which is the key that is actually bound',
+        !!keysShown && !!boundKeys && keysShown.getAttribute('data-keys') === boundKeys,
+        'shown=' + (keysShown ? keysShown.getAttribute('data-keys') : 'none') +
+          ' bound=' + boundKeys)
       push('the old drag-or-close hint is gone', !document.querySelector('.td-terminal-banner-hint'))
       /*
        * Typing "exit" is the user ending the session, not a connection dropping:
