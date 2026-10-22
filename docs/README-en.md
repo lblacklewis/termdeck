@@ -438,6 +438,33 @@ A pane backed by a saved session reconnects to that session; one with nothing
 behind it (a quick connect, or a local shell) gets a new session and the old
 process is closed.
 
+**A reconnect runs in the background, and that is a promise with three parts.** The
+automatic retry fires on its own while the user may be typing in another pane, so:
+
+- it does **not** bring its pane to the front. Binding a session to a pane takes an
+  `activate` flag, and a reconnect passes `false`; only a connection the user asked
+  for steals the view.
+- a failure is reported **on the pane that failed**, in red on its own ended-overlay
+  next to the retry button — never as the window's "Connection failed" bar. The
+  outcome travels back as `{ ok, error }`, and a coded failure
+  (`NOT_RECONNECTABLE`) is translated by the renderer while anything else is shown
+  as the main process worded it.
+- it comes back at the size the **pane** is, not at the size the connection was born
+  with. That one was a real bug: `session:resize` never wrote the new size back to
+  the blueprint, and every rebuild is created from the blueprint's `cols`/`rows` —
+  so a reconnected PTY was always 80x24 while the terminal might be 138x41, and
+  nothing corrected it because the renderer only pushes a resize when the size
+  *changes*. The blueprint now follows the resize (even while the backend is gone),
+  and `useTerminal.resendSize()` pushes the size again when the session behind a pane
+  is replaced. The symptom was full-screen programs — vim — drawing into half the
+  pane.
+
+The history is unaffected by all of this: the id is reused, so the main process keeps
+the session's rolling buffer and the pane replays it. Note that a hidden tab is
+unmounted by dockview, so "the history is kept" lives in that buffer rather than in a
+terminal that is still on screen — and a reconnected shell clears the screen itself as
+it starts, which is not something the app can promise anything about.
+
 ## Themes
 
 Themes restyle the application shell and the terminal together. A theme is plain
@@ -733,6 +760,7 @@ npm run smoke:share    # encrypted host export/import
 npm run smoke:i18n     # language switch, persistence, revert, and a whole tool page in Chinese
 npm run smoke:treefold # folding every group in the drawer's session tree at once
 npm run smoke:hostsbatch # ticking hosts on the Hosts page: batch delete / duplicate / move
+npm run smoke:reconnectbg # a background reconnect: no focus change, right PTY size, failure in the pane
 npm run smoke:knownhosts # known hosts page: selection, batch forget, filter pruning
 npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input

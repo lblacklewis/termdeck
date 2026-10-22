@@ -1,6 +1,6 @@
 {
   "name": "termdeck",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "description": "A Termius-style SSH client with draggable, dockable terminal panes.",
   "main": "./out/main/index.js",
   "author": "termdeck",
