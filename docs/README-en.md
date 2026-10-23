@@ -465,6 +465,28 @@ unmounted by dockview, so "the history is kept" lives in that buffer rather than
 terminal that is still on screen — and a reconnected shell clears the screen itself as
 it starts, which is not something the app can promise anything about.
 
+The overlay that reports a finished session also carries a **Close pane** button, and
+closing stops the automatic retry. The button stops the loop *before* closing, which is
+the order that matters: closing unmounts the pane, and a reconnect already in flight
+would otherwise land on a pane that no longer exists.
+
+## Keys the shell owns
+
+`Ctrl+W` is delete-previous-word in every readline line editor — bash, zsh, and the
+Python and Node REPLs — so it is **not bound by default**. It used to close the active
+session, and because the shortcut matcher listens on `window` in the *capture* phase and
+calls `stopPropagation`, the key never reached the terminal at all: the probe measured a
+session going from one to zero and the terminal never seeing `0x17`. The action is still
+in the shortcut list for anyone who wants it on a chord, and a stored `Ctrl+W` from an
+older install is migrated away by `RETIRED_BINDING_DEFAULTS` — only when the value is
+exactly the retired default, so a chord the user chose is left alone.
+
+Settings shows the running build's version on its action bar (`TermDeck v1.13.0`, with
+the Electron/Chromium/Node versions in the tooltip). It comes from `appVersion()` in
+`src/main/ipc.ts` rather than `app.getVersion()`: pointed at a script rather than a
+packaged app — which is how every probe starts it — the latter falls back to the
+*Electron* version and the line would read `TermDeck v33.4.11`.
+
 ## Highlighting
 
 Settings → Terminal → *Colour addresses, links and error words in the output*. Off until it
@@ -799,6 +821,7 @@ npm run smoke:treefold # folding every group in the drawer's session tree at onc
 npm run smoke:hostsbatch # ticking hosts on the Hosts page: batch delete / duplicate / move
 npm run smoke:reconnectbg # a background reconnect: no focus change, right PTY size, failure in the pane
 npm run smoke:highlight # output highlighting: right cells, right colours, and copy stays plain text
+npm run smoke:keys # Ctrl+W belongs to the shell: the byte reaches the terminal and no pane closes
 npm run smoke:knownhosts # known hosts page: selection, batch forget, filter pruning
 npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input
