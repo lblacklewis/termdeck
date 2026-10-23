@@ -287,6 +287,68 @@ async function main() {
       push('a reconnect that cannot be attempted says so in the pane, not in a popup',
         inPane && !alertUp(),
         'inPane=' + inPane + ' popup=' + alertUp())
+
+      // ---- a finished pane can be closed, and closing ends the retry -------
+      /*
+       * One more shell, dropped on purpose and then closed from its own overlay while
+       * the automatic retry is counting down. Two claims: the pane goes away, and no
+       * reconnect lands afterwards. A pane the user closed must not come back — that
+       * is the whole point of closing it rather than just stopping the retry.
+       */
+      const opener = document.querySelector('[data-testid="local-shell"]')
+      const beforeOpen = (await api.listSessions()).length
+      if (!opener) {
+        push('a finished pane offers a way out from its own overlay', false, 'no local-shell button')
+        return out
+      }
+      opener.click()
+      const fresh = await waitFor(async () => {
+        const now = await api.listSessions()
+        return now.length > beforeOpen ? now[now.length - 1] : null
+      }, 20000)
+      if (!fresh) {
+        push('a finished pane offers a way out from its own overlay', false, 'could not open a shell')
+        return out
+      }
+      await wait(2500)
+      const panelsBefore = dock().panels.length
+      api.writeSession(fresh.id, 'exit 1' + String.fromCharCode(13))
+      const retrying = await waitFor(
+        () => !!document.querySelector('[data-testid="reconnect-progress"]'),
+        20000
+      )
+      const closeButton = document.querySelector('[data-testid="close-ended-pane"]')
+      push('a finished pane offers a way out from its own overlay',
+        !!closeButton && !!retrying,
+        'button=' + !!closeButton + ' retry counting down=' + !!retrying)
+      if (closeButton) {
+        closeButton.click()
+        await wait(1800)
+        const panelsAfter = dock().panels.length
+        const alive = (await api.listSessions()).some((entry) => entry.id === fresh.id)
+        push('closing it takes the pane and its session away',
+          panelsAfter === panelsBefore - 1 && alive === false,
+          'panels ' + panelsBefore + ' -> ' + panelsAfter + ' sessionAlive=' + alive)
+        /*
+         * Longer than every retry the settings allow (three attempts, one second
+         * apart): if the loop were still alive, something would have come back.
+         */
+        await wait(6500)
+        const cameBack = (await api.listSessions()).some((entry) => entry.id === fresh.id)
+        push('and a closed pane does not reconnect behind the user',
+          cameBack === false && dock().panels.length === panelsAfter,
+          'cameBack=' + cameBack + ' panels=' + dock().panels.length)
+      } else {
+        /*
+         * Stated, not skipped: an assertion that only runs when the feature exists
+         * passes silently on the build that does not have it, which is how a probe
+         * ends up green about nothing.
+         */
+        push('closing it takes the pane and its session away', false,
+          'no close button on the overlay, so nothing could be closed')
+        push('and a closed pane does not reconnect behind the user', false,
+          'no close button on the overlay, so nothing could be closed')
+      }
       return out
     })()
   `

@@ -68,6 +68,15 @@ interface TerminalPanelProps {
    * Passed in rather than written here so a remapped key shows as the key that works.
    */
   reconnectHint?: string
+  /**
+   * Close this pane outright.
+   *
+   * The overlay that reports a finished session had a Retry button and a Stop
+   * retrying button but no way out of it: the only ways to be rid of a dead pane were
+   * the tab's ✕ or a shortcut. Closing from here stops the automatic retry as well —
+   * a pane the user has closed must not keep reconnecting behind their back.
+   */
+  onClose?: () => void
 }
 
 /** How a reconnect attempt ended; the message is shown in the pane that asked. */
@@ -93,7 +102,8 @@ export function TerminalPanel({
   onSessionEnded,
   onReconnect,
   onReconnectSession,
-  reconnectHint
+  reconnectHint,
+  onClose
 }: TerminalPanelProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<TerminalHandle | null>(null)
@@ -551,6 +561,34 @@ export function TerminalPanel({
                     <Keys keys={reconnectHint} testId="reconnect-keys" />
                   </span>
                 )}
+              </div>
+            )}
+            {/*
+              The way out.
+
+              Rendered outside the reconnect block so it is there for every finished
+              pane — including a restored one with no session left to reconnect to,
+              which is exactly when a user wants to be rid of it.
+            */}
+            {onClose && (
+              <div className="td-terminal-overlay-actions">
+                <button
+                  className="td-btn"
+                  data-testid="close-ended-pane"
+                  onClick={() => {
+                    /*
+                     * Stop first, close second.
+                     *
+                     * Closing unmounts this pane, and the retry loop has to be dead
+                     * before that: otherwise a reconnect attempt already in the air
+                     * would come back to a pane that no longer exists.
+                     */
+                    stopRetry()
+                    onClose()
+                  }}
+                >
+                  {t('terminalpanel.close_pane', 'Close pane')}
+                </button>
               </div>
             )}
           </div>

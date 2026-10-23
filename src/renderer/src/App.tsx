@@ -777,6 +777,18 @@ export function App(): JSX.Element {
                   endedSessionsRef.current.add(id)
                   endedRef.current(id)
                 }}
+                /*
+                 * Closing the pane cancels its retry for good.
+                 *
+                 * `closeSession` removes the panel, which unmounts this pane and with it
+                 * the retry loop — the button on the overlay stops the loop first as
+                 * well, so a reconnect already in flight cannot land on a pane that is
+                 * being torn down.
+                 */
+                onClose={() => {
+                  const live = panelParams.session?.id ?? options.id
+                  closeSession(live)
+                }}
               />
             )
           })
