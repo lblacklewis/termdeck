@@ -264,6 +264,29 @@ async function main() {
       import: !!document.querySelector('[data-testid="credentials-import"]')
     }
   })()`)
+
+  /*
+   * Which build this is, on the settings bar.
+   *
+   * Compared against package.json on disk rather than trusted on its own: the point
+   * of the line is to answer "am I on the current release?", so a version that came
+   * from anywhere but the build would be worse than none. `app.getVersion()` reads
+   * that same file in development and the asar's copy once packaged.
+   */
+  const shownVersion = await page(`(() => {
+    const el = document.querySelector('[data-testid="settings-version"]')
+    return el ? el.innerText.trim() : null
+  })()`)
+  const builtVersion = JSON.parse(
+    fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')
+  ).version
+  push('Settings shows which build this is',
+    !!shownVersion && shownVersion.includes(builtVersion),
+    'shown=' + JSON.stringify(shownVersion) + ' package.json=' + builtVersion)
+  push('and it says TermDeck rather than a bare number',
+    !!shownVersion && shownVersion.indexOf('TermDeck') === 0,
+    'shown=' + JSON.stringify(shownVersion))
+
   push('Settings → Credentials offers a hosts backup section', !!credSection,
     credSection ? credSection.text.split('\n')[0] : 'missing')
   push('with export and import buttons',

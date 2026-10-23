@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type {
+  AppInfo,
   AppSettings,
   BreakMode,
   BreakSettings,
@@ -76,6 +77,24 @@ export function SettingsDialog({
   const [draft, setDraft] = useState<AppSettings>(settings)
   const [recording, setRecording] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  /**
+   * The running build's version, for the bar at the bottom.
+   *
+   * Asked for here rather than passed down from the shell: it is one call, only made
+   * when the drawer is open, and it keeps the shell's props free of something only
+   * this panel shows.
+   */
+  const [appInfo, setAppInfo] = useState<AppInfo | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    void api.appInfo().then((info) => {
+      if (alive) setAppInfo(info)
+    })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   // Shortcut list interaction state.
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
@@ -594,6 +613,30 @@ export function SettingsDialog({
       {error && <div className="td-form-error td-settings-error">{error}</div>}
 
       <div className="td-drawer-actions">
+        {/*
+          Which build this is, on the bar that is always on screen.
+
+          "Am I on the current release?" is asked while looking at settings, and the
+          answer has to be readable at a glance — and in a screenshot, which is how it
+          usually gets asked of somebody else. The engine versions are in the tooltip
+          rather than the line: useful when reporting a bug, noise the rest of the time.
+        */}
+        <span
+          className="td-settings-version"
+          data-testid="settings-version"
+          title={
+            appInfo
+              ? 'Electron ' +
+                appInfo.versions.electron +
+                ' · Chromium ' +
+                appInfo.versions.chrome +
+                ' · Node ' +
+                appInfo.versions.node
+              : ''
+          }
+        >
+          TermDeck {appInfo ? 'v' + appInfo.version : ''}
+        </span>
         <span className="td-spacer" />
         <button className="td-btn" onClick={dismiss}>
           {t('settingsdialog.close', 'Close')}

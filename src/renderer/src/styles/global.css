@@ -2586,6 +2586,20 @@ kbd {
 }
 
 /*
+ * The version, on the settings action bar.
+ *
+ * Muted enough not to compete with the buttons beside it, but readable in a
+ * screenshot — which is usually how the question "which build are you on?" gets asked.
+ */
+.td-settings-version {
+  font-size: 11.5px;
+  color: var(--td-text-faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  user-select: text;
+}
+
+/*
  * The highlighter's rule chips.
  *
  * Each one carries a swatch in the scheme's real colours: a palette is otherwise

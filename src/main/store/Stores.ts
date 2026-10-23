@@ -277,6 +277,21 @@ export function clampScale(value: unknown): number {
 }
 
 /**
+ * Bindings whose *default* changed after this app had already shipped.
+ *
+ * A stored file is the user's word, so a value is only rewritten when it is exactly
+ * the old default: anything else means they chose it themselves, and that stays.
+ *
+ * `closeSession` moved off `Ctrl+W`, which is delete-previous-word in every readline
+ * line editor — bash, zsh, and the Python and Node REPLs. The app was eating a key
+ * the terminal reads, and every install that has ever run has the old value on disk,
+ * so changing the default alone would have fixed it for nobody.
+ */
+const RETIRED_BINDING_DEFAULTS: Record<string, { from: string; to: string }> = {
+  closeSession: { from: 'Ctrl+W', to: '' }
+}
+
+/**
  * Reconcile stored keybindings with the built-in list.
  *
  * The stored **order is preserved**: the settings UI lets the user drag rows
@@ -298,11 +313,12 @@ function mergeKeybindings(stored: unknown): Keybinding[] {
 
   const merged: Keybinding[] = valid.map((entry) => {
     const def = canonical.get(entry.id)
+    const retired = RETIRED_BINDING_DEFAULTS[entry.id]
     return {
       id: entry.id,
       // A built-in keeps its canonical label; a custom binding keeps its own.
       label: def ? def.label : entry.label || entry.id,
-      keys: entry.keys,
+      keys: retired && entry.keys === retired.from ? retired.to : entry.keys,
       builtin: !!def
     }
   })

@@ -246,6 +246,15 @@ export interface SessionExitInfo {
 
 export interface AppInfo {
   platform: string
+  /**
+   * The app's own version, from `app.getVersion()`.
+   *
+   * Read in the main process rather than the renderer: the packaged renderer has no
+   * way to reach `package.json`, and the version shown in Settings has to be the one
+   * the running build was made from — the question it answers is "am I on the current
+   * release?".
+   */
+  version: string
   versions: { electron: string; node: string; chrome: string }
   localShellAvailable: boolean
   /** Absolute path of the directory holding settings, sessions and the vault. */
@@ -1046,7 +1055,17 @@ export interface DataDirectoryResult {
 /** Defaults live in the main process so they have a single source of truth. */
 export const DEFAULT_KEYBINDINGS: Keybinding[] = [
   { id: 'newConnection', label: 'New connection', keys: 'Ctrl+T', builtin: true },
-  { id: 'closeSession', label: 'Close active session', keys: 'Ctrl+W', builtin: true },
+  /*
+   * Unbound by default — `Ctrl+W` belongs to the shell.
+   *
+   * It is delete-previous-word in every readline line editor: bash, zsh, and the
+   * Python and Node REPLs all read it, and it is muscle memory there. An app that
+   * closes a pane on it eats a key the terminal needs, and closing a session is not
+   * what that key means to anyone typing in one. It stays in this list, so anyone who
+   * wants it on a chord can set one; the retired default is migrated for existing
+   * installs in `mergeKeybindings` rather than left in place.
+   */
+  { id: 'closeSession', label: 'Close active session', keys: '', builtin: true },
   /*
    * `Ctrl+D` closes a pane whose session has already ended — and only then.
    *

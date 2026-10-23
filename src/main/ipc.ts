@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, clipboard } from 'electron'
-import { mkdirSync, statSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { access, constants, readFile, writeFile } from 'node:fs/promises'
 import { timingSafeEqual } from 'node:crypto'
@@ -165,6 +165,52 @@ const knownHosts = process.env['TERMDECK_KNOWN_HOSTS']
 
 function configDir(): string {
   return resolveDataDirOnce()
+}
+
+/**
+ * The version of the build that is running.
+ *
+ * Not `app.getVersion()` on its own: when Electron is pointed at a *script* rather
+ * than a packaged app — which is how every probe suite starts it — that call falls
+ * back to the Electron version, and Settings would happily report "TermDeck v33.4.11".
+ *
+ * The app's own package.json is the single source of truth, and one relative path
+ * reaches it in every layout: `out/main/ipc.js` sits beside the root package.json in
+ * development, and inside `app.asar` once packaged. `app.getVersion()` is still the
+ * fallback for anything exotic.
+ */
+/**
+ * The version of the build that is running.
+ *
+ * Not `app.getVersion()` on its own: pointed at a *script* rather than a packaged app
+ * — which is how every probe suite starts it — that call falls back to the Electron
+ * version, and Settings would cheerfully report "TermDeck v33.4.11".
+ *
+ * The app's own package.json is the single source of truth, but where it is depends on
+ * how the process was started: beside `app.getAppPath()` once packaged (Electron hands
+ * over the asar and `fs` reads straight through it), the working directory in
+ * development, and three levels up from a bundled chunk. Every candidate is validated
+ * by the package name, so some other package.json along the way cannot be mistaken for
+ * ours. `app.getVersion()` remains the answer of last resort.
+ */
+function appVersion(): string {
+  const candidates = [
+    join(app.getAppPath(), 'package.json'),
+    join(process.cwd(), 'package.json'),
+    join(__dirname, '..', '..', '..', 'package.json')
+  ]
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(readFileSync(candidate, 'utf8')) as {
+        name?: string
+        version?: string
+      }
+      if (parsed.name === 'termdeck' && typeof parsed.version === 'string') return parsed.version
+    } catch {
+      /* try the next place this bundle might be running from */
+    }
+  }
+  return app.getVersion()
 }
 
 /**
@@ -1648,6 +1694,7 @@ export function registerIpc(): void {
 
   ipcMain.handle('app:info', () => ({
     platform: process.platform,
+    version: appVersion(),
     versions: {
       electron: process.versions.electron,
       node: process.versions.node,
