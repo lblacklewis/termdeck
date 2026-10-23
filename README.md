@@ -6,7 +6,7 @@
 
 多窗格分屏 · 内置 SFTP · 片段库 · REST / S3 / 端口转发
 
-![版本](https://img.shields.io/badge/版本-1.13.0-4c8dff)
+![版本](https://img.shields.io/badge/版本-1.13.1-4c8dff)
 ![平台](https://img.shields.io/badge/平台-Windows-4c8dff)
 ![许可](https://img.shields.io/badge/许可-MIT-4c8dff)
 
