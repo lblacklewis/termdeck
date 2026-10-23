@@ -612,7 +612,7 @@ export function SettingsDialog({
 
       {error && <div className="td-form-error td-settings-error">{error}</div>}
 
-      <div className="td-drawer-actions">
+      <div className="td-drawer-actions td-settings-actions">
         {/*
           Which build this is, on the bar that is always on screen.
 
@@ -637,6 +637,18 @@ export function SettingsDialog({
         >
           TermDeck {appInfo ? 'v' + appInfo.version : ''}
         </span>
+        {/*
+          The changes here do not apply until they are saved, and the button that saves
+          them sits at the bottom of a tab that is taller than the window. A user who
+          changed the palette, saw no effect and closed the drawer had no way of knowing
+          the change was still a draft — so the draft says so, on the bar that is always
+          on screen.
+        */}
+        {dirty && (
+          <span className="td-settings-dirty" data-testid="settings-dirty">
+            {t('settingsdialog.unsaved', 'Unsaved changes — press "Save settings" to keep them')}
+          </span>
+        )}
         <span className="td-spacer" />
         <button className="td-btn" onClick={dismiss}>
           {t('settingsdialog.close', 'Close')}
@@ -1144,44 +1156,54 @@ function TerminalTab({
       </label>
 
       {/*
-        Output highlighting. The detail rows appear only when it is on: an off switch
-        with a palette and eight checkboxes under it reads as settings that apply.
-      */}
-      <label className="td-check">
-        <input
-          type="checkbox"
-          aria-label="highlight-output"
-          data-testid="highlight-enabled"
-          checked={settings.highlightEnabled}
-          onChange={(e) => onChange({ highlightEnabled: e.target.checked })}
-        />
-        <span>
-          {t('settingsdialog.highlight_output', 'Colour addresses, links and error words in the output. Only the display changes — the text itself, and anything you copy or save, stays exactly as the remote sent it.')}
-        </span>
-      </label>
+        Output highlighting, as one block: the switch, the palette and the rules.
 
-      {/*
-        The palette and the rules are always shown *and always usable*.
-
-        They used to be hidden outright until the switch above was ticked, which read
-        as "there is no colour scheme here at all". Dimming them was the first fix and
-        it was wrong in the other direction: a disabled control cannot be set, and
-        choosing a scheme before switching the feature on is a perfectly reasonable
-        thing to want. The switch means "apply this", not "unlock this".
+        The switch used to sit up here among the other checkboxes with the palette a
+        separate block below, and a user set the palette, ticked rules, saw nothing
+        happen and reported it as "好像没生效呢？" — the switch was simply never ticked,
+        and nothing on screen tied the two together. One card, one decision.
       */}
-      <div className="td-highlight-settings" data-testid="highlight-settings">
-        <div className="td-field-row">
-          <label className="td-field td-field-grow">
-            <span>{t('settingsdialog.highlight_scheme', 'Colour scheme')}</span>
-            <select
-              className="td-select"
-              aria-label="highlight-scheme"
-              data-testid="highlight-scheme"
-              value={settings.highlightScheme}
-              onChange={(e) =>
-                onChange({ highlightScheme: e.target.value as HighlightSchemeId })
-              }
-            >
+      <div className="td-highlight-card" data-testid="highlight-card">
+        <label className="td-check td-highlight-switch">
+          <input
+            type="checkbox"
+            aria-label="highlight-output"
+            data-testid="highlight-enabled"
+            checked={settings.highlightEnabled}
+            onChange={(e) => onChange({ highlightEnabled: e.target.checked })}
+          />
+          <span>
+            {t('settingsdialog.highlight_output', 'Colour addresses, links and error words in the output. Only the display changes — the text itself, and anything you copy or save, stays exactly as the remote sent it.')}
+          </span>
+        </label>
+
+        {/*
+          The palette and the rules are always shown *and always usable*.
+
+          They used to be hidden outright until the switch above was ticked, which read
+          as "there is no colour scheme here at all". Dimming them was the first fix and
+          it was wrong in the other direction: a disabled control cannot be set, and
+          choosing a scheme before switching the feature on is a perfectly reasonable
+          thing to want. The switch means "apply this", not "unlock this".
+        */}
+        <div className="td-highlight-settings" data-testid="highlight-settings">
+          <div className="td-field-row">
+            <label className="td-field td-field-grow">
+              <span>{t('settingsdialog.highlight_scheme', 'Colour scheme')}</span>
+              <select
+                className="td-select"
+                aria-label="highlight-scheme"
+                data-testid="highlight-scheme"
+                value={settings.highlightScheme}
+                onChange={(e) =>
+                  onChange({
+                    highlightScheme: e.target.value as HighlightSchemeId,
+                    // Picking a palette is asking for it to be used: switching it on is
+                    // the obvious meaning, and the alternative was this exact report.
+                    highlightEnabled: true
+                  })
+                }
+              >
               {HIGHLIGHT_SCHEMES.map((scheme) => (
                 <option key={scheme.id} value={scheme.id}>
                   {t('highlight.scheme.' + scheme.id, scheme.english)}
@@ -1214,7 +1236,11 @@ function TerminalTab({
                       onChange({
                         highlightRules: on
                           ? settings.highlightRules.filter((id) => id !== rule.id)
-                          : [...settings.highlightRules, rule.id]
+                          : [...settings.highlightRules, rule.id],
+                        // Ticking a rule is asking for it to be used, same as picking a
+                        // palette. Unticking everything is not the way to switch the
+                        // feature off — the switch above is.
+                        ...(on ? {} : { highlightEnabled: true })
                       })
                     }
                   />
@@ -1232,6 +1258,7 @@ function TerminalTab({
               )
             })}
           </div>
+        </div>
         </div>
       </div>
     </div>

@@ -2611,6 +2611,45 @@ kbd {
   gap: 10px;
 }
 
+/*
+ * The switch, the palette and the rules as one card.
+ *
+ * They were three separate rows: a checkbox among the other terminal checkboxes, and a
+ * palette below it with nothing tying them together. Set the palette, tick the rules,
+ * see nothing happen, report "好像没生效呢？" — which is exactly what happened. One
+ * border says "this is one decision".
+ */
+.td-highlight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius-md);
+  background: var(--td-bg-sunken);
+}
+
+.td-highlight-switch {
+  font-weight: 500;
+}
+
+/*
+ * Settings save on the button, not as you type, and that button lives at the bottom of
+ * a tab taller than the window. Pinned so the way to keep a change is always in view.
+ */
+.td-settings-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--td-bg);
+  z-index: 2;
+}
+
+.td-settings-dirty {
+  font-size: 11.5px;
+  color: var(--td-accent);
+  white-space: nowrap;
+}
+
 .td-highlight-rules {
   display: flex;
   flex-wrap: wrap;

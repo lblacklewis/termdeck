@@ -218,6 +218,27 @@ async function main() {
       push('and they can be set while it is switched off, not just seen',
         usable && picked === 'soft',
         'enabled=' + usable + ' schemeAfterPicking=' + JSON.stringify(picked))
+
+      /*
+       * Picking a palette switches the feature on.
+       *
+       * A user set the palette, ticked rules, saw nothing change in the terminal and
+       * reported "好像没生效呢？" — the master switch, a separate row above, was never
+       * ticked. Configuring the thing is asking for it; one card now holds both, and
+       * touching it turns it on.
+       */
+      const switchBox = document.querySelector('[data-testid="highlight-enabled"]')
+      const card = document.querySelector('[data-testid="highlight-card"]')
+      push('picking a palette switches highlighting on by itself',
+        !!switchBox && switchBox.checked === true,
+        'switchChecked=' + (switchBox ? switchBox.checked : 'n/a'))
+      push('the switch and the palette are one block, not two',
+        !!card && !!card.querySelector('[data-testid="highlight-enabled"]') &&
+          !!card.querySelector('[data-testid="highlight-scheme"]'),
+        'card holds both=' + !!card)
+      const dirtyHint = document.querySelector('[data-testid="settings-dirty"]')
+      push('and an unsaved change says so, instead of silently doing nothing',
+        !!dirtyHint, dirtyHint ? 'hint=' + JSON.stringify(dirtyHint.innerText.trim()) : 'no hint')
       // Leave the drawer as it was found.
       const drawerButtons = Array.prototype.slice.call(
         document.querySelectorAll('.td-drawer-actions button')

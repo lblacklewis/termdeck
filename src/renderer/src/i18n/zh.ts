@@ -579,6 +579,8 @@ export const zh: Catalog = {
   'settingsdialog.highlight_output':
     '把输出里的地址、链接、错误关键字上色。只改显示 —— 文本本身、复制出去的内容、保存的输出都仍与远端发出的一模一样。',
   'settingsdialog.highlight_scheme': '配色方案',
+  // 设置是"改草稿 → 点保存"才生效，未保存时必须显眼地说出来。
+  'settingsdialog.unsaved': '有未保存的更改 —— 点「保存设置」才会生效',
   'settingsdialog.highlight_what': '高亮这些',
   'highlight.scheme.classic': '经典（亮色前景，适合深色主题）',
   'highlight.scheme.xshell': 'XShell 色块（前景+背景，深浅主题都清楚）',
