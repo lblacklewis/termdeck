@@ -2611,18 +2611,6 @@ kbd {
   gap: 10px;
 }
 
-/*
- * Dimmed, not hidden, while output highlighting is switched off.
- *
- * These controls used to be hidden outright until the switch was ticked, and a bare
- * checkbox does not read as "there is a palette behind this" — the tab looked like the
- * feature had never been built. Disabled controls keep the state obvious and the
- * feature findable.
- */
-.td-highlight-settings.is-off {
-  opacity: 0.55;
-}
-
 .td-highlight-rules {
   display: flex;
   flex-wrap: wrap;

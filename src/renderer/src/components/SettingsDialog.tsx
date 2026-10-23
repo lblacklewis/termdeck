@@ -1161,17 +1161,15 @@ function TerminalTab({
       </label>
 
       {/*
-        The palette and the rules are shown whether or not highlighting is on.
+        The palette and the rules are always shown *and always usable*.
 
-        They used to appear only once the switch above was ticked, and that read as
-        "there is no colour scheme here at all" to anyone who opened this tab looking
-        for one — a bare checkbox is not obviously a door. While it is off the controls
-        are disabled rather than hidden, so the state is still unmistakable.
+        They used to be hidden outright until the switch above was ticked, which read
+        as "there is no colour scheme here at all". Dimming them was the first fix and
+        it was wrong in the other direction: a disabled control cannot be set, and
+        choosing a scheme before switching the feature on is a perfectly reasonable
+        thing to want. The switch means "apply this", not "unlock this".
       */}
-      <div
-        className={`td-highlight-settings${settings.highlightEnabled ? '' : ' is-off'}`}
-        data-testid="highlight-settings"
-      >
+      <div className="td-highlight-settings" data-testid="highlight-settings">
         <div className="td-field-row">
           <label className="td-field td-field-grow">
             <span>{t('settingsdialog.highlight_scheme', 'Colour scheme')}</span>
@@ -1179,7 +1177,6 @@ function TerminalTab({
               className="td-select"
               aria-label="highlight-scheme"
               data-testid="highlight-scheme"
-              disabled={!settings.highlightEnabled}
               value={settings.highlightScheme}
               onChange={(e) =>
                 onChange({ highlightScheme: e.target.value as HighlightSchemeId })
@@ -1213,7 +1210,6 @@ function TerminalTab({
                     data-testid="highlight-rule"
                     data-rule={rule.id}
                     checked={on}
-                    disabled={!settings.highlightEnabled}
                     onChange={() =>
                       onChange({
                         highlightRules: on

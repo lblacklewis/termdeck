@@ -197,10 +197,27 @@ async function main() {
       push('the colour schemes are there before it is switched on',
         !!picker && schemes === 4 && chips.length === 8,
         'picker=' + !!picker + ' schemes=' + schemes + ' rules=' + chips.length)
-      push('and they read as inactive while it is off',
-        !!picker && picker.disabled === true && chips.length > 0 && chips[0].disabled === true,
-        'pickerDisabled=' + (picker ? picker.disabled : 'n/a') +
-          ' ruleDisabled=' + (chips.length > 0 ? chips[0].disabled : 'n/a'))
+      /*
+       * And they have to be *usable* while it is off.
+       *
+       * Dimming them was the first attempt at "I could not find the palette" and it
+       * broke the other half of the job: a greyed control cannot be set, and choosing
+       * a scheme before switching the feature on is a reasonable thing to want —
+       * "灰色的选择不了呢". Proved by using it, not by inspecting it.
+       */
+      const usable = !!picker && picker.disabled === false &&
+        chips.length > 0 && chips[0].disabled === false
+      let picked = ''
+      if (picker) {
+        picker.value = 'soft'
+        picker.dispatchEvent(new Event('change', { bubbles: true }))
+        await wait(500)
+        const after = document.querySelector('[data-testid="highlight-scheme"]')
+        picked = after ? after.value : ''
+      }
+      push('and they can be set while it is switched off, not just seen',
+        usable && picked === 'soft',
+        'enabled=' + usable + ' schemeAfterPicking=' + JSON.stringify(picked))
       // Leave the drawer as it was found.
       const drawerButtons = Array.prototype.slice.call(
         document.querySelectorAll('.td-drawer-actions button')
