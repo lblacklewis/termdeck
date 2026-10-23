@@ -465,6 +465,43 @@ unmounted by dockview, so "the history is kept" lives in that buffer rather than
 terminal that is still on screen — and a reconnected shell clears the screen itself as
 it starts, which is not something the app can promise anything about.
 
+## Highlighting
+
+Settings → Terminal → *Colour addresses, links and error words in the output*. Off until it
+is switched on, because it repaints text the remote host chose the colours of.
+
+Eight rules, each with its own tick: addresses, links, email addresses, MAC addresses, file
+paths, and error / warning / success words. File paths are the one rule that starts off — a
+directory listing makes them the noisiest of the eight. Four palettes: `classic` (bright
+foregrounds, oh-my-zsh register), `xshell` (foreground *and* background, so a match reads as a
+block and its own foreground keeps it legible on a light theme too), `soft` (mid tones for
+light themes) and `mono`. The swatch beside each rule shows the palette's real colours for it.
+
+**Nothing is written into the data stream.** A match becomes an xterm *decoration* — a
+rectangle of cells with a foreground and background — rather than a match wrapped in SGR
+escapes. That distinction is the whole design: injected escapes would corrupt column
+arithmetic, break reflow, and travel with a copy into whatever it is pasted into. The buffer
+is untouched, so copying, *copy whole screen*, saving output and exporting all hand back
+exactly what the remote sent, with no ESC or OSC sequences in it. The probe asserts precisely
+that, and — as a fact worth knowing rather than a choice — that a wrapped long line still
+copies back as one line.
+
+Two facts about the implementation that cost time to find, recorded so they are not guessed
+at again:
+
+- **The colours are not on the decoration element.** xterm's DOM renderer bakes them into the
+  row's own spans and splits a decorated run into *one span per character*
+  (`<span style="background-color:#1864ab;color:#d0ebff;">1</span>`, eleven of them for an
+  IPv4 address); the `.xterm-decoration` div carries only position and size and stays
+  transparent. Verifying a colour therefore means reading those spans' computed styles, and
+  the count of spans in a colour *is* the match length — which is why the probe's "the IP is
+  blue" and "exactly eleven cells are blue" are one assertion.
+- **Keep settings flat.** `mergeSettings` shallow-merges `terminal`, so a nested object would
+  be replaced wholesale and lose its siblings with it. The three highlighter fields are
+  therefore flat, and `mergeTerminal` validates the rule id list: a hand-edited file cannot
+  turn on a rule that does not exist, and a *missing* list means "the defaults" — reading it
+  as "nothing on" leaves the switch on and nothing coloured, which looks broken.
+
 ## Themes
 
 Themes restyle the application shell and the terminal together. A theme is plain
@@ -761,6 +798,7 @@ npm run smoke:i18n     # language switch, persistence, revert, and a whole tool 
 npm run smoke:treefold # folding every group in the drawer's session tree at once
 npm run smoke:hostsbatch # ticking hosts on the Hosts page: batch delete / duplicate / move
 npm run smoke:reconnectbg # a background reconnect: no focus change, right PTY size, failure in the pane
+npm run smoke:highlight # output highlighting: right cells, right colours, and copy stays plain text
 npm run smoke:knownhosts # known hosts page: selection, batch forget, filter pruning
 npm run smoke:onboarding # first run, data directory, settings-side export
 npm run smoke:features3 # font picker, cursor blink, broadcast input
