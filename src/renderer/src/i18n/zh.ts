@@ -573,6 +573,23 @@ export const zh: Catalog = {
   'settingsdialog.suggest_commands': '输入时从历史里提示命令。↑/↓ 选择，回车把它填进命令行但不执行。',
   'settingsdialog.show_a_timestamp_column_besi':
     '在每个窗格旁边显示时间列。时间在输出到达时按行记录，不会随会话保存。',
+  // 输出高亮：只改显示，不动文本本身。
+  'settingsdialog.highlight_output':
+    '把输出里的地址、链接、错误关键字上色。只改显示 —— 文本本身、复制出去的内容、保存的输出都仍与远端发出的一模一样。',
+  'settingsdialog.highlight_scheme': '配色方案',
+  'settingsdialog.highlight_what': '高亮这些',
+  'highlight.scheme.classic': '经典（亮色前景，适合深色主题）',
+  'highlight.scheme.xshell': 'XShell 色块（前景+背景，深浅主题都清楚）',
+  'highlight.scheme.soft': '柔和（中等色调，适合浅色主题）',
+  'highlight.scheme.mono': '单色（信息类同一颜色）',
+  'highlight.rule.ip': 'IP 地址',
+  'highlight.rule.url': '链接',
+  'highlight.rule.email': '邮箱',
+  'highlight.rule.mac': 'MAC 地址',
+  'highlight.rule.path': '文件路径',
+  'highlight.rule.error': '错误关键字',
+  'highlight.rule.warn': '警告关键字',
+  'highlight.rule.success': '成功关键字',
   'settingsdialog.slow_1_2s': '慢 —— 1.2 秒',
   'settingsdialog.to_keep_it': '即可保留。',
   'settingsdialog.try_it_now': '立即试用',

@@ -10,6 +10,16 @@
  * Node APIs, nothing the renderer cannot also import.
  */
 import type { S3Api } from './s3Types'
+/*
+ * The highlighter's ids and its default rule set. Runtime values rather than types
+ * only, for the same reason the sidebar defaults live here: the settings store has to
+ * validate a stored file against the same list the renderer draws from.
+ */
+import {
+  DEFAULT_HIGHLIGHT_RULES,
+  type HighlightRuleId,
+  type HighlightSchemeId
+} from './highlight'
 
 export type SessionKind = 'local' | 'ssh' | 'telnet' | 'serial'
 
@@ -637,6 +647,21 @@ export interface TerminalSettings {
   showTimestamps: boolean
   /** Inline suggestions from command history while typing. */
   suggestions: boolean
+  /**
+   * Colour what is worth spotting in output: addresses, links, error words.
+   *
+   * Off by default — it repaints text the remote host chose the colour of, and that
+   * is a decision the user should make once, on purpose.
+   */
+  highlightEnabled: boolean
+  highlightScheme: HighlightSchemeId
+  /**
+   * Which rules are on, by id.
+   *
+   * Ids rather than a map of booleans so a rule added in a later version does not
+   * switch itself on for everyone who already has a settings file.
+   */
+  highlightRules: HighlightRuleId[]
 }
 
 export interface ClipboardSettings {
@@ -1131,7 +1156,10 @@ export const DEFAULT_TERMINAL_SETTINGS: TerminalSettings = {
    * Settings → Terminal.
    */
   showTimestamps: false,
-  suggestions: true
+  suggestions: true,
+  highlightEnabled: false,
+  highlightScheme: 'classic',
+  highlightRules: DEFAULT_HIGHLIGHT_RULES
 }
 
 export const DEFAULT_CLIPBOARD_SETTINGS: ClipboardSettings = {

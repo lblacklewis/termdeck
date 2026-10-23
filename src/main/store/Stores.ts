@@ -17,6 +17,7 @@ import {
   rmSync
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { isHighlightRuleId, isHighlightSchemeId } from '../../shared/highlight'
 import {
   DEFAULT_BREAK_SETTINGS,
   DEFAULT_RECONNECT_SETTINGS,
@@ -28,6 +29,7 @@ import {
   type BreakSettings,
   type ReconnectSettings,
   type BreakStats,
+  type TerminalSettings,
   type HistoryEntry,
   type HistorySessionSummary,
   type Keybinding,
@@ -97,7 +99,7 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
   const defaults = DEFAULT_SETTINGS
 
   return {
-    terminal: { ...defaults.terminal, ...(stored.terminal ?? {}) },
+    terminal: mergeTerminal(stored.terminal, defaults.terminal),
     clipboard: { ...defaults.clipboard, ...(stored.clipboard ?? {}) },
     hostKeys: { ...defaults.hostKeys, ...(stored.hostKeys ?? {}) },
     keybindings: mergeKeybindings(stored.keybindings),
@@ -118,6 +120,30 @@ function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
     // An unknown language falls back to English rather than to a blank UI.
     language: stored.language === 'zh-CN' ? 'zh-CN' : 'en',
     onboarded: stored.onboarded === true
+  }
+}
+
+/**
+ * Merge the stored terminal settings, keeping the highlighter's rule list honest.
+ *
+ * Everything else in this block is a primitive the renderer clamps or ignores, so a
+ * shallow merge is right. The rule list is not: a hand-edited file can carry ids that
+ * no longer exist, and an *absent* list has to mean "the defaults" rather than "none on"
+ * — highlighting enabled with nothing ticked is a switch that appears to do nothing.
+ */
+function mergeTerminal(
+  stored: Partial<TerminalSettings> | undefined,
+  defaults: TerminalSettings
+): TerminalSettings {
+  return {
+    ...defaults,
+    ...(stored ?? {}),
+    highlightRules: Array.isArray(stored?.highlightRules)
+      ? stored.highlightRules.filter((id) => isHighlightRuleId(id))
+      : defaults.highlightRules,
+    highlightScheme: isHighlightSchemeId(stored?.highlightScheme)
+      ? stored.highlightScheme
+      : defaults.highlightScheme
   }
 }
 

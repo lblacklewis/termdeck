@@ -15,6 +15,12 @@ import type {
 } from '@shared/types'
 import { DEFAULT_KEYBINDINGS, SIDEBAR_SECTION_LABELS, UI_SCALES } from '@shared/types'
 import { THEMES, findTheme } from '@shared/themes'
+import {
+  HIGHLIGHT_RULES,
+  HIGHLIGHT_SCHEMES,
+  stylesFor,
+  type HighlightSchemeId
+} from '@shared/highlight'
 import { formatEvent, isValidBinding, parseBinding } from './useShortcuts'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { applyTheme } from './useTheme'
@@ -1093,6 +1099,91 @@ function TerminalTab({
           {t('settingsdialog.show_a_timestamp_column_besi', 'Show a timestamp column beside each pane. Times are recorded per line as output arrives; they are not saved with the session.')}
         </span>
       </label>
+
+      {/*
+        Output highlighting. The detail rows appear only when it is on: an off switch
+        with a palette and eight checkboxes under it reads as settings that apply.
+      */}
+      <label className="td-check">
+        <input
+          type="checkbox"
+          aria-label="highlight-output"
+          data-testid="highlight-enabled"
+          checked={settings.highlightEnabled}
+          onChange={(e) => onChange({ highlightEnabled: e.target.checked })}
+        />
+        <span>
+          {t('settingsdialog.highlight_output', 'Colour addresses, links and error words in the output. Only the display changes — the text itself, and anything you copy or save, stays exactly as the remote sent it.')}
+        </span>
+      </label>
+
+      {settings.highlightEnabled && (
+        <>
+          <div className="td-field-row">
+            <label className="td-field td-field-grow">
+              <span>{t('settingsdialog.highlight_scheme', 'Colour scheme')}</span>
+              <select
+                className="td-select"
+                aria-label="highlight-scheme"
+                data-testid="highlight-scheme"
+                value={settings.highlightScheme}
+                onChange={(e) =>
+                  onChange({ highlightScheme: e.target.value as HighlightSchemeId })
+                }
+              >
+                {HIGHLIGHT_SCHEMES.map((scheme) => (
+                  <option key={scheme.id} value={scheme.id}>
+                    {t('highlight.scheme.' + scheme.id, scheme.english)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="td-field td-field-grow" />
+          </div>
+
+          <div className="td-field">
+            <span>{t('settingsdialog.highlight_what', 'Highlight these')}</span>
+            <div className="td-highlight-rules" data-testid="highlight-rules">
+              {HIGHLIGHT_RULES.map((rule) => {
+                const style = stylesFor(settings.highlightScheme)[rule.id]
+                const on = settings.highlightRules.includes(rule.id)
+                return (
+                  <label
+                    key={rule.id}
+                    className={`td-highlight-rule${on ? ' is-on' : ''}`}
+                    data-rule={rule.id}
+                  >
+                    <input
+                      type="checkbox"
+                      aria-label={'highlight-rule-' + rule.id}
+                      data-testid="highlight-rule"
+                      data-rule={rule.id}
+                      checked={on}
+                      onChange={() =>
+                        onChange({
+                          highlightRules: on
+                            ? settings.highlightRules.filter((id) => id !== rule.id)
+                            : [...settings.highlightRules, rule.id]
+                        })
+                      }
+                    />
+                    {/* The swatch is the scheme's real colours, so the palette is
+                        readable without applying it and guessing. */}
+                    <span
+                      className="td-highlight-swatch"
+                      style={{ color: style.fg, background: style.bg }}
+                      data-contrast-exempt
+                    >
+                      Aa
+                    </span>
+                    <span>{t('highlight.rule.' + rule.id, rule.english)}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

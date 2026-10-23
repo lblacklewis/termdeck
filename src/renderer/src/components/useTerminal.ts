@@ -24,6 +24,7 @@ import {
 } from './terminalRegistry'
 import { registerSink, routeInput, unregisterSink } from './broadcast'
 import { attachSuggestions } from './commandSuggest'
+import { attachHighlighter } from './highlight'
 
 export interface TerminalHandle {
   /** Re-measure the terminal against its container and notify the backend. */
@@ -124,6 +125,15 @@ export function useTerminal(
      */
     const root = container.querySelector<HTMLElement>('.xterm')
     if (root) root.dataset.terminalId = sessionId
+
+    /*
+     * Output highlighting, attached here because nothing else holds this terminal.
+     *
+     * It reads the settings through a ref rather than taking them as an argument: the
+     * pane re-renders on every settings change, this effect does not, and the scan
+     * happens on its own schedule rather than during a render.
+     */
+    const highlight = attachHighlighter(term, () => optionsRef.current.terminal)
 
     /*
      * Leave the session shortcuts alone.
@@ -334,6 +344,8 @@ export function useTerminal(
         applyCursorBlink(container, settings.cursorBlink, settings.cursorBlinkMs)
         applyCursorShape(container, settings.cursorStyle)
         term.options.scrollback = settings.scrollback
+        // The rules, the palette or the switch itself may have changed.
+        highlight.refresh()
         scheduleFit()
         // Switching to a bundled face has the same race as opening with one: the
         // first measurement can land on the fallback.
@@ -501,6 +513,7 @@ export function useTerminal(
       window.clearTimeout(settleTimer)
       window.clearInterval(watchdog)
       handleRef.current = null
+      highlight.dispose()
       unregisterTerminal(sessionId)
       unregisterRefit(sessionId)
       unregisterStamps(sessionId)
@@ -530,6 +543,7 @@ export function useTerminal(
 
   // Apply appearance changes to the live terminal without rebuilding it, so
   // changing the font in settings updates every open pane immediately.
+  const highlightRuleKey = options.terminal.highlightRules.join(',')
   useEffect(() => {
     handleRef.current?.applySettings(options.terminal)
   }, [
@@ -538,7 +552,12 @@ export function useTerminal(
     options.terminal.lineHeight,
     options.terminal.cursorStyle,
     options.terminal.cursorBlink,
-    options.terminal.scrollback
+    options.terminal.scrollback,
+    options.terminal.highlightEnabled,
+    options.terminal.highlightScheme,
+    // Joined: a settings load hands over a fresh array with the same contents, and
+    // comparing identities would re-apply every appearance setting on every save.
+    highlightRuleKey
   ])
 
   // Follow the active theme without rebuilding the terminal.

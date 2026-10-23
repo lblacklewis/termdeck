@@ -2584,7 +2584,53 @@ kbd {
 .td-terminal-overlay-hint.is-error {
   color: var(--td-danger);
 }
-.td-terminal-banner {
+
+/*
+ * The highlighter's rule chips.
+ *
+ * Each one carries a swatch in the scheme's real colours: a palette is otherwise
+ * something you have to apply and then squint at the terminal to judge.
+ */
+.td-highlight-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.td-highlight-rule {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius-md);
+  font-size: 12px;
+  color: var(--td-text-faint);
+  cursor: pointer;
+  user-select: none;
+}
+
+.td-highlight-rule.is-on {
+  border-color: var(--td-border-strong);
+  color: var(--td-text);
+}
+
+.td-highlight-rule input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--td-accent);
+  cursor: pointer;
+}
+
+.td-highlight-swatch {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--td-bg-sunken);
+  font-family: var(--td-font-mono, monospace);
+  font-size: 11px;
+  line-height: 1.5;
+}.td-terminal-banner {
   background: var(--td-warn-soft);
   border-top: 1px solid var(--td-warn-border);
   color: var(--td-warn-text);
