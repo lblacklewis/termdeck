@@ -1160,73 +1160,84 @@ function TerminalTab({
         </span>
       </label>
 
-      {settings.highlightEnabled && (
-        <>
-          <div className="td-field-row">
-            <label className="td-field td-field-grow">
-              <span>{t('settingsdialog.highlight_scheme', 'Colour scheme')}</span>
-              <select
-                className="td-select"
-                aria-label="highlight-scheme"
-                data-testid="highlight-scheme"
-                value={settings.highlightScheme}
-                onChange={(e) =>
-                  onChange({ highlightScheme: e.target.value as HighlightSchemeId })
-                }
-              >
-                {HIGHLIGHT_SCHEMES.map((scheme) => (
-                  <option key={scheme.id} value={scheme.id}>
-                    {t('highlight.scheme.' + scheme.id, scheme.english)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="td-field td-field-grow" />
-          </div>
+      {/*
+        The palette and the rules are shown whether or not highlighting is on.
 
-          <div className="td-field">
-            <span>{t('settingsdialog.highlight_what', 'Highlight these')}</span>
-            <div className="td-highlight-rules" data-testid="highlight-rules">
-              {HIGHLIGHT_RULES.map((rule) => {
-                const style = stylesFor(settings.highlightScheme)[rule.id]
-                const on = settings.highlightRules.includes(rule.id)
-                return (
-                  <label
-                    key={rule.id}
-                    className={`td-highlight-rule${on ? ' is-on' : ''}`}
+        They used to appear only once the switch above was ticked, and that read as
+        "there is no colour scheme here at all" to anyone who opened this tab looking
+        for one — a bare checkbox is not obviously a door. While it is off the controls
+        are disabled rather than hidden, so the state is still unmistakable.
+      */}
+      <div
+        className={`td-highlight-settings${settings.highlightEnabled ? '' : ' is-off'}`}
+        data-testid="highlight-settings"
+      >
+        <div className="td-field-row">
+          <label className="td-field td-field-grow">
+            <span>{t('settingsdialog.highlight_scheme', 'Colour scheme')}</span>
+            <select
+              className="td-select"
+              aria-label="highlight-scheme"
+              data-testid="highlight-scheme"
+              disabled={!settings.highlightEnabled}
+              value={settings.highlightScheme}
+              onChange={(e) =>
+                onChange({ highlightScheme: e.target.value as HighlightSchemeId })
+              }
+            >
+              {HIGHLIGHT_SCHEMES.map((scheme) => (
+                <option key={scheme.id} value={scheme.id}>
+                  {t('highlight.scheme.' + scheme.id, scheme.english)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="td-field td-field-grow" />
+        </div>
+
+        <div className="td-field">
+          <span>{t('settingsdialog.highlight_what', 'Highlight these')}</span>
+          <div className="td-highlight-rules" data-testid="highlight-rules">
+            {HIGHLIGHT_RULES.map((rule) => {
+              const style = stylesFor(settings.highlightScheme)[rule.id]
+              const on = settings.highlightRules.includes(rule.id)
+              return (
+                <label
+                  key={rule.id}
+                  className={`td-highlight-rule${on ? ' is-on' : ''}`}
+                  data-rule={rule.id}
+                >
+                  <input
+                    type="checkbox"
+                    aria-label={'highlight-rule-' + rule.id}
+                    data-testid="highlight-rule"
                     data-rule={rule.id}
+                    checked={on}
+                    disabled={!settings.highlightEnabled}
+                    onChange={() =>
+                      onChange({
+                        highlightRules: on
+                          ? settings.highlightRules.filter((id) => id !== rule.id)
+                          : [...settings.highlightRules, rule.id]
+                      })
+                    }
+                  />
+                  {/* The swatch is the scheme's real colours, so the palette is
+                      readable without applying it and guessing. */}
+                  <span
+                    className="td-highlight-swatch"
+                    style={{ color: style.fg, background: style.bg }}
+                    data-contrast-exempt
                   >
-                    <input
-                      type="checkbox"
-                      aria-label={'highlight-rule-' + rule.id}
-                      data-testid="highlight-rule"
-                      data-rule={rule.id}
-                      checked={on}
-                      onChange={() =>
-                        onChange({
-                          highlightRules: on
-                            ? settings.highlightRules.filter((id) => id !== rule.id)
-                            : [...settings.highlightRules, rule.id]
-                        })
-                      }
-                    />
-                    {/* The swatch is the scheme's real colours, so the palette is
-                        readable without applying it and guessing. */}
-                    <span
-                      className="td-highlight-swatch"
-                      style={{ color: style.fg, background: style.bg }}
-                      data-contrast-exempt
-                    >
-                      Aa
-                    </span>
-                    <span>{t('highlight.rule.' + rule.id, rule.english)}</span>
-                  </label>
-                )
-              })}
-            </div>
+                    Aa
+                  </span>
+                  <span>{t('highlight.rule.' + rule.id, rule.english)}</span>
+                </label>
+              )
+            })}
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </div>
   )
 }

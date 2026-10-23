@@ -176,6 +176,39 @@ async function main() {
       await write('echo 10.20.30.40 error http://example.com/x')
       out.push({ name: 'the pane printed a line worth highlighting', ok: true, detail: 'echoed' })
 
+      // ---- 0b. the palette is findable before the switch is on -----------
+      /*
+       * The scheme picker and the rule chips have to be visible while highlighting is
+       * still off. Hidden behind the switch, this tab looked to the user like the
+       * feature had never been built — "配色方案没做吧？" — which is exactly the report
+       * this check exists to prevent coming back.
+       */
+      document.querySelector('[data-testid="rail-settings"]').click()
+      await wait(1300)
+      const tabButton = Array.prototype.find.call(
+        document.querySelectorAll('.td-settings-tab'),
+        (b) => (b.textContent || '').trim() === 'Terminal' || (b.textContent || '').trim() === '终端'
+      )
+      if (tabButton) tabButton.click()
+      await wait(700)
+      const picker = document.querySelector('[data-testid="highlight-scheme"]')
+      const chips = document.querySelectorAll('[data-testid="highlight-rule"]')
+      const schemes = picker ? picker.options.length : 0
+      push('the colour schemes are there before it is switched on',
+        !!picker && schemes === 4 && chips.length === 8,
+        'picker=' + !!picker + ' schemes=' + schemes + ' rules=' + chips.length)
+      push('and they read as inactive while it is off',
+        !!picker && picker.disabled === true && chips.length > 0 && chips[0].disabled === true,
+        'pickerDisabled=' + (picker ? picker.disabled : 'n/a') +
+          ' ruleDisabled=' + (chips.length > 0 ? chips[0].disabled : 'n/a'))
+      // Leave the drawer as it was found.
+      const drawerButtons = Array.prototype.slice.call(
+        document.querySelectorAll('.td-drawer-actions button')
+      )
+      const closer = drawerButtons.find((b) => !b.hasAttribute('data-testid'))
+      if (closer) closer.click()
+      await wait(800)
+
       // ---- 1. off by default ---------------------------------------------
       const off = decorations()
       push('highlighting is off until it is switched on', off.length === 0, 'decorations=' + off.length)
