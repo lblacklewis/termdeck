@@ -19,6 +19,11 @@ interface DrawerFooterProps {
   onToggleTimestamps: () => void
   onArrange: () => void
   onNewConnection: () => void
+  /**
+   * The chord that opens a connection, already written for this platform (`Cmd+T`
+   * or `Ctrl+T`), or `''` when the user unbound it.
+   */
+  newConnectionChord: string
   onLocalShell: () => void
   /** Null when the app metadata has not arrived yet (same as "not available"). */
   localShellAvailable: boolean | null
@@ -64,6 +69,7 @@ export function DrawerFooter({
   onToggleTimestamps,
   onArrange,
   onNewConnection,
+  newConnectionChord,
   onLocalShell,
   localShellAvailable,
   sessionCount,
@@ -185,7 +191,18 @@ export function DrawerFooter({
         </button>
         <button
           className="td-icon-btn"
-          title={t('app.new_connection_ctrl_t', 'New connection (Ctrl+T)')}
+          /*
+           * The chord comes from the binding, not from a copied string: it is
+           * `Cmd+T` on a Mac and `Ctrl+T` elsewhere, and it changes when the user
+           * rebinds it. The old hardcoded "(Ctrl+T)" was wrong on every Mac.
+           */
+          title={
+            newConnectionChord
+              ? t('app.new_connection_chord', 'New connection ({chord})', {
+                  chord: newConnectionChord
+                })
+              : t('app.new_connection', 'New connection')
+          }
           data-testid="new-connection"
           onClick={onNewConnection}
         >

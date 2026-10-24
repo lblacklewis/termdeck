@@ -39,6 +39,19 @@ function seedDefaultScale(): void {
   setScreenDefaultScale(defaultScaleForWidth(screen.getPrimaryDisplay().workAreaSize.width))
 }
 
+/**
+ * The macOS application menu's "Settings…" item.
+ *
+ * The settings drawer lives in the renderer, so the menu only says "now"; nothing is
+ * decided here. On a Mac this is the *only* path for `Cmd+,` — the renderer's binding
+ * for it is unbound on that platform so the menu and the page cannot both answer.
+ */
+function requestOpenSettings(): void {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  if (!win) return
+  win.webContents.send('app:open-settings')
+}
+
 function createWindow(): BrowserWindow {
   const size = preferredWindowSize()
   const win = new BrowserWindow({
@@ -115,7 +128,11 @@ if (!gotLock) {
      * menu on macOS, where Edit's roles are what provide Cmd+C / Cmd+V / Cmd+A at
      * all. See `menu.ts` for why the Quit item is ours rather than the `quit` role.
      */
-    installApplicationMenu({ appName: APP_NAME, askQuit: requestQuitConfirmation })
+    installApplicationMenu({
+      appName: APP_NAME,
+      askQuit: requestQuitConfirmation,
+      openSettings: requestOpenSettings
+    })
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

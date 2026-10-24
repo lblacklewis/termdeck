@@ -277,6 +277,13 @@ const api = {
     on<[string, string, number]>('session:data', handler),
   onQuitRequested: (handler: (request: QuitRequest) => void): (() => void) =>
     on<[QuitRequest]>('app:quit-requested', handler),
+  /**
+   * The macOS application menu's "Settings…" item.
+   *
+   * On a Mac `Cmd+,` is answered by the menu, so on that platform this event — not a
+   * key binding — is what opens the drawer.
+   */
+  onOpenSettings: (handler: () => void): (() => void) => on<[]>('app:open-settings', handler),
   /** Full-screen state, including changes the app did not initiate. */
   onFullScreenChanged: (handler: (on: boolean) => void): (() => void) =>
     on<[boolean]>('app:focus-mode', handler),

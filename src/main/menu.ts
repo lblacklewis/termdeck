@@ -13,7 +13,7 @@
  * — so a Mac build with no menu has no working copy/paste in any input field. The App
  * and Window menus are needed for the same reason (`Cmd+Q`, `Cmd+H`, `Cmd+M`).
  *
- * Two deliberate departures from the standard menu:
+ * Three deliberate departures from the standard menu:
  *
  *  - **Quit asks first.** The plain `quit` role calls `app.quit()` immediately, and a
  *    quit tears down every live SSH login. Every other path into a quit (the close
@@ -22,10 +22,14 @@
  *    still calls `app.quit()` directly, which is why the teardown in `index.ts` only
  *    runs once a quit has been confirmed.
  *  - **`Cmd+W` is not the window close.** On a Mac `Cmd+W` is the app's own binding
- *    for "close the active pane" (see `MAC_ONLY_BINDING_DEFAULTS` in
+ *    for "close the active pane" (see `MAC_BINDING_DEFAULTS` in
  *    `shared/platform.ts`); the system window close sits on `Cmd+Shift+W` so the two
- *    are not fighting over one chord. The terminal's own copy/paste is untouched and
- *    keeps working through the app's bindings.
+ *    are not fighting over one chord. Copy and paste are the app's own bindings on
+ *    the same modifier, so the Edit roles below cover ordinary text fields and the
+ *    terminal keeps its own paths.
+ *  - **Settings lives in the App menu** (`Cmd+,`), which is where a Mac user looks for
+ *    it; the renderer's binding for the same key is unbound on darwin so exactly one
+ *    of the two answers it.
  */
 import { Menu, type MenuItemConstructorOptions } from 'electron'
 
@@ -34,6 +38,8 @@ export interface MenuActions {
   appName: string
   /** Ask the renderer to show the quit confirmation. */
   askQuit: () => void
+  /** Ask the renderer to open the settings drawer. */
+  openSettings: () => void
 }
 
 /**
@@ -54,6 +60,20 @@ export function menuTemplateFor(
       label: actions.appName,
       submenu: [
         { role: 'about' },
+        { type: 'separator' },
+        /*
+         * Settings lives here, not in the shortcut table.
+         *
+         * `Cmd+,` opening the settings is a Mac *menu* convention: people look for
+         * it under the application menu, and a Mac build that answers the chord but
+         * shows nothing in the menu looks like it has no settings at all. The
+         * renderer's own binding for it is therefore unbound on darwin (see
+         * `MAC_BINDING_DEFAULTS`), so the two are not both listening for one key.
+         *
+         * The label is "Settings…" rather than "Preferences…": Apple renamed the
+         * item in macOS 13, and this builds for the versions where that is current.
+         */
+        { label: 'Settings…', accelerator: 'Command+,', click: () => actions.openSettings() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },

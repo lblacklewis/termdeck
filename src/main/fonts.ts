@@ -114,9 +114,15 @@ export async function listInstalledFonts(): Promise<string[]> {
 
     if (process.platform === 'darwin') {
       // The whole font catalogue is a few MB of JSON and takes seconds on a cold
-      // cache; the caller keeps the result for the life of the process.
-      const { stdout } = await run('system_profiler', ['SPFontsDataType', '-json'], {
-        timeout: 20000,
+      // cache — on a CI runner it has taken long enough to hit a 20s limit. The
+      // caller keeps the result for the life of the process, so a generous timeout
+      // costs nothing after the first call.
+      //
+      // Absolute path: a GUI-launched app inherits launchd's PATH, which is not
+      // guaranteed to include /usr/sbin. A missing `system_profiler` would silently
+      // empty the picker, which is exactly the kind of failure nobody reports.
+      const { stdout } = await run('/usr/sbin/system_profiler', ['SPFontsDataType', '-json'], {
+        timeout: 60000,
         maxBuffer: 32 * 1024 * 1024
       })
       return parseMacFontFamilies(stdout)

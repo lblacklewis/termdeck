@@ -35,6 +35,7 @@ import {
   type TerminalPanelMeta,
   type TransferInfo
 } from '@shared/types'
+import { displayChord, isNativeEditTarget, sessionJumpModifier } from '@shared/platform'
 
 /**
  * A connect attempt's own payload, whichever transport it belongs to.
@@ -152,6 +153,22 @@ interface HostKeyRequest {
 }
 
 const EMPTY_TREE: Tree = { folders: [], sessions: [] }
+
+/**
+ * Is the focused element a real text field, rather than the terminal's own textarea?
+ *
+ * The rule itself is `isNativeEditTarget` in `shared/platform.ts` (a decision table,
+ * so it can be asserted without a window); this only reads where the focus is.
+ */
+function nativeEditTarget(): boolean {
+  const el = document.activeElement as HTMLElement | null
+  if (!el) return false
+  return isNativeEditTarget({
+    tagName: el.tagName,
+    isContentEditable: el.isContentEditable === true,
+    insideTerminal: !!el.closest('.xterm')
+  })
+}
 
 export function App(): JSX.Element {
   const dockRef = useRef<HTMLDivElement | null>(null)
@@ -321,6 +338,13 @@ export function App(): JSX.Element {
   const [sessionQuery, setSessionQuery] = useState('')
 
   const [appMeta, setAppMeta] = useState<Awaited<ReturnType<typeof api.appInfo>> | null>(null)
+  /**
+   * The platform this build runs on, from `app:info`.
+   *
+   * Empty until that call lands, which every helper treats as "not macOS" — the same
+   * fallback the main process applies for an unknown platform.
+   */
+  const platform = appMeta?.platform ?? ''
   /**
    * The rail's list drawer is hidden and only icons remain.
    *
@@ -1687,6 +1711,15 @@ export function App(): JSX.Element {
   }, [])
 
   /**
+   * The macOS application menu's "Settings…" item.
+   *
+   * On a Mac `Cmd+,` is answered by the menu rather than by a key binding (see
+   * `MAC_BINDING_DEFAULTS` in `shared/platform.ts`), so this event is the only path
+   * on that platform — and unlike a key press it works with no pane focused.
+   */
+  useEffect(() => api.onOpenSettings(() => setSettingsOpen(true)), [])
+
+  /**
    * The quit shortcut asks the same question as the X button.
    *
    * The count comes from the main process rather than from the pane list in
@@ -2439,14 +2472,19 @@ export function App(): JSX.Element {
   )
 
   /**
-   * The reconnect shortcut as it is currently bound.
+   * The reconnect shortcut as it is currently bound, written for this platform.
    *
    * Shown on both reconnect pages, so the key that works is the key on screen — a
-   * hard-coded Ctrl+R would lie the moment somebody remaps it.
+   * hard-coded Ctrl+R would lie the moment somebody remaps it, and `Cmd+R` is what a
+   * Mac user is looking at while the stored value says `Meta+R`.
    */
   const reconnectHint = useMemo(
-    () => settings.keybindings.find((binding) => binding.id === 'reconnectSession')?.keys ?? '',
-    [settings.keybindings]
+    () =>
+      displayChord(
+        settings.keybindings.find((binding) => binding.id === 'reconnectSession')?.keys ?? '',
+        platform
+      ),
+    [settings.keybindings, platform]
   )
 
   /** What each snippet's key runs. Lives beside the bindings it belongs to. */
@@ -2892,15 +2930,35 @@ export function App(): JSX.Element {
   )
 
   /**
-   * `Alt`+digit jumps straight to a session.
+   * A binding's chord, written the way this platform's users read it.
+   *
+   * The stored form stays portable (`Meta+W`) while the shown form is the platform's
+   * own name for that modifier (`Cmd+W`), so nothing in the UI hardcodes either one.
+   */
+  const chordFor = useCallback(
+    (id: string): string =>
+      displayChord(settings.keybindings.find((b) => b.id === id)?.keys ?? '', platform),
+    [settings.keybindings, platform]
+  )
+
+  /**
+   * `Alt`+digit (Windows/Linux) or `Cmd`+digit (macOS) jumps straight to a session.
    *
    * Deliberately not nine settings rows: the number is the pane's position in the
    * arrangement, which is something to match rather than to configure. The two
    * configurable bindings below walk the same list.
+   *
+   * The modifier is the platform's own: `Cmd`+digit is how a Mac user already goes to
+   * a tab, while `Option`+digit types a symbol in any Mac text field and is the wrong
+   * thing to hang a global shortcut on there.
    */
+  const jumpModifier = sessionJumpModifier(platform)
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (!event.altKey || event.ctrlKey || event.metaKey) return
+      const pressed = jumpModifier === 'meta' ? event.metaKey : event.altKey
+      const otherModifier = jumpModifier === 'meta' ? event.altKey : event.metaKey
+      // `Shift` stays unconstrained, exactly as it was before the platform split.
+      if (!pressed || otherModifier || event.ctrlKey) return
       const digit = Number(event.key)
       if (!Number.isInteger(digit) || digit < 1 || digit > 9) return
       event.preventDefault()
@@ -2909,7 +2967,7 @@ export function App(): JSX.Element {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [jumpToSession])
+  }, [jumpToSession, jumpModifier])
 
   /**
    * Terminal font size, one step at a time — `Ctrl`+`=` / `Ctrl`+`-`.
@@ -3016,8 +3074,18 @@ export function App(): JSX.Element {
     toggleBroadcast: () => setBroadcasting(toggleBroadcasting()),
     tilePanes: () => openTileDialog(),
     copy: () => {
+      /*
+       * A text field outside the terminal keeps the chord.
+       *
+       * On macOS copy and paste are `Cmd+C` / `Cmd+V` everywhere, including in this
+       * app's own dialogs, where the Edit menu's roles do that job. The dispatcher
+       * runs in the capture phase and would otherwise swallow the key before any
+       * input saw it, so those two handlers step aside (`false` = decline) whenever
+       * focus is in a real input rather than in a terminal.
+       */
+      if (nativeEditTarget()) return false
       const active = dockApiRef.current?.activePanel
-      if (!active || active.id === 'welcome') return
+      if (!active || active.id === 'welcome') return false
       /*
        * The pane's own selection comes first: it is the one that knows whether the
        * selection was a triple-click line, and a line copied without its newline
@@ -3028,6 +3096,7 @@ export function App(): JSX.Element {
       if (text) void api.copyToClipboard(text)
     },
     paste: () => {
+      if (nativeEditTarget()) return false
       void api.readClipboard().then((text) => {
         const active = dockApiRef.current?.activePanel
         if (active && text) api.writeSession(active.id, text)
@@ -3365,6 +3434,7 @@ export function App(): JSX.Element {
             }}
             onArrange={() => openTileDialog()}
             onNewConnection={() => setDialogOpen(true)}
+            newConnectionChord={chordFor('newConnection')}
             onLocalShell={() =>
               void api.createLocalSession({}).then((r) => {
                 if (r.ok) addSession(r.session)

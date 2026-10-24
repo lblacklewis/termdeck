@@ -8,8 +8,14 @@ name: mac
 # only produce the architecture it installed its dependencies for. That is why the
 # two architectures build on two runners instead of one.
 #
+# The two jobs are independent on purpose. `package` makes the artefacts;
+# `probe` is the evidence that the darwin branches work on a real Mac. A red probe
+# must not cost the artefacts (that is what happened on the v2.1.0 tag: the probe
+# failed and packaging was skipped, so there was nothing to download), and a green
+# package job must not be read as "the Mac side is fine" when the probe is red.
+#
 # Nothing here is signed: there is no Apple developer account behind this project,
-# so the artifacts are the "right-click → Open" kind. See
+# so the artefacts are the "right-click → Open" kind. See
 # `docs/交接-macOS适配.md` for what that means for the user.
 on:
   push:
@@ -19,7 +25,53 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  # The darwin branches, on a real Mac: shell choice, key bindings, menu, fonts.
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Platform probe on the real platform
+        # Failing checks are re-emitted as annotations: the run UI and the REST API
+        # both expose those, so a failure that only reproduces on macOS is readable
+        # without digging the raw log out of a zip.
+        run: |
+          set +e
+          npm run smoke:mac 2>&1 | tee smoke-mac.log
+          status=${PIPESTATUS[0]}
+          grep -E '^(FAIL|mac probe crashed)' smoke-mac.log | while IFS= read -r line; do
+            echo "::error title=smoke:mac::$line"
+          done
+          exit $status
+
+      - name: Keep the probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-mac-${{ matrix.arch }}
+          path: |
+            smoke-mac.log
+            node_modules/.smoke-data/mac-last.json
+          if-no-files-found: ignore
+
+  # The download people actually get.
+  package:
     strategy:
       fail-fast: false
       matrix:
@@ -58,12 +110,6 @@ jobs:
           npm run check:i18n
           npm run check:s3
           npm run typecheck
-
-      - name: Platform probe on the real platform
-        # The suites that need a Mac: the darwin branches (local shell, fonts,
-        # keybindings, menu) are asserted with an injected platform on Windows, and
-        # here they run against the real one.
-        run: npm run smoke:mac
 
       - name: Package (unsigned)
         run: npm run dist:mac -- --${{ matrix.arch }}

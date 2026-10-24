@@ -28,15 +28,20 @@ import {
 import { LayoutStore } from './store/LayoutStore'
 import { KnownHosts, fingerprint } from './ssh/KnownHosts'
 import { parseBatchHosts, BATCH_HOST_LIMIT } from '../shared/batchHosts'
-import { DEFAULT_KEYBINDINGS, DEFAULT_TERMINAL_SETTINGS } from '../shared/types'
+import { DEFAULT_CLIPBOARD_SETTINGS, DEFAULT_KEYBINDINGS, DEFAULT_TERMINAL_SETTINGS } from '../shared/types'
 import {
   defaultBindings,
+  defaultClipboardSettings,
   defaultFontFamily,
   defaultSettings,
+  displayChord,
   fallbackMonospaceFonts,
+  isNativeEditTarget,
+  MAC_BINDING_DEFAULTS,
   metaChord,
   migrateBindingKeys,
-  retiredBindingDefaults
+  retiredBindingDefaults,
+  sessionJumpModifier
 } from '../shared/platform'
 import {
   buildShareDocument,
@@ -89,15 +94,21 @@ export {
   shellArgs,
   parseMacFontFamilies,
   listInstalledFonts,
+  DEFAULT_CLIPBOARD_SETTINGS,
   DEFAULT_KEYBINDINGS,
   DEFAULT_TERMINAL_SETTINGS,
   defaultBindings,
+  defaultClipboardSettings,
   defaultFontFamily,
   defaultSettings,
+  displayChord,
   fallbackMonospaceFonts,
+  isNativeEditTarget,
+  MAC_BINDING_DEFAULTS,
   metaChord,
   migrateBindingKeys,
   retiredBindingDefaults,
+  sessionJumpModifier,
   SshShellBackend,
   HostKeyRequiredError,
   CredentialStore,

@@ -214,9 +214,10 @@ async function main() {
     'count=' + winBindings.length
   )
   push(
-    'Windows 的默认设置与旧版完全一致（字体 + 键位）',
+    'Windows 的默认设置与旧版完全一致（字体 + 键位 + 剪贴板）',
     JSON.stringify(mod.defaultSettings('win32').terminal) === JSON.stringify(mod.DEFAULT_TERMINAL_SETTINGS) &&
-      JSON.stringify(mod.defaultSettings('win32').keybindings) === JSON.stringify(base)
+      JSON.stringify(mod.defaultSettings('win32').keybindings) === JSON.stringify(base) &&
+      JSON.stringify(mod.defaultSettings('win32').clipboard) === JSON.stringify(mod.DEFAULT_CLIPBOARD_SETTINGS)
   )
 
   const mac = mod.defaultBindings('darwin')
@@ -224,14 +225,104 @@ async function main() {
   push('mac 上 Cmd+W 是"关闭当前窗格"', macKeys.get('closeSession') === 'Meta+W', 'closeSession=' + macKeys.get('closeSession'))
   push('mac 上 Ctrl+W 不再被应用占用', mac.every((b) => b.keys !== 'Ctrl+W'))
   push('mac 上新建连接是 Cmd+T', macKeys.get('newConnection') === 'Meta+T', 'newConnection=' + macKeys.get('newConnection'))
-  push('mac 上打开设置是 Cmd+,', macKeys.get('openSettings') === 'Meta+,', 'openSettings=' + macKeys.get('openSettings'))
   push(
-    'mac 的默认键位里一个 Ctrl+ 都不剩',
-    mac.every((b) => b.keys.indexOf('Ctrl+') < 0),
-    mac.filter((b) => b.keys.indexOf('Ctrl+') >= 0).map((b) => b.id + '=' + b.keys).join(', ') || 'none'
+    'mac 上复制是 Cmd+C（不是 Windows 那套 Ctrl+Shift+C）',
+    macKeys.get('copy') === 'Meta+C',
+    'copy=' + macKeys.get('copy')
   )
-  push('不带 Ctrl 的键位原样保留（F11）', macKeys.get('toggleFocus') === 'F11', 'toggleFocus=' + macKeys.get('toggleFocus'))
+  push('mac 上粘贴是 Cmd+V', macKeys.get('paste') === 'Meta+V', 'paste=' + macKeys.get('paste'))
+  push(
+    'mac 上切标签是 Cmd+Shift+] / Cmd+Shift+[',
+    macKeys.get('nextTab') === 'Meta+Shift+]' && macKeys.get('prevTab') === 'Meta+Shift+[',
+    'nextTab=' + macKeys.get('nextTab') + ' prevTab=' + macKeys.get('prevTab')
+  )
+  push(
+    'mac 上全屏是 Ctrl+Cmd+F（Mac 上没有 F11 这个习惯）',
+    macKeys.get('toggleFocus') === 'Ctrl+Meta+F',
+    'toggleFocus=' + macKeys.get('toggleFocus')
+  )
+  push(
+    'mac 上切会话是 Cmd+Alt+左右（iTerm 的换标签手势）',
+    macKeys.get('prevPage') === 'Meta+Alt+ArrowLeft' &&
+      macKeys.get('nextPage') === 'Meta+Alt+ArrowRight',
+    'prevPage=' + macKeys.get('prevPage') + ' nextPage=' + macKeys.get('nextPage')
+  )
+  push(
+    'mac 上设置与退出交给应用菜单（键位留空，免得和菜单抢同一个键）',
+    macKeys.get('openSettings') === '' && macKeys.get('quitApp') === '',
+    'openSettings="' + macKeys.get('openSettings') + '" quitApp="' + macKeys.get('quitApp') + '"'
+  )
+  push(
+    'mac 上"关已结束的窗格"不单独绑（Cmd+W 关任何窗格）',
+    macKeys.get('closeDeadPane') === '',
+    'closeDeadPane="' + macKeys.get('closeDeadPane') + '"'
+  )
+  push(
+    'mac 的默认键位里没有"裸 Ctrl"的键（Mac 上 Ctrl 是 shell 的）',
+    mac.every((b) => b.keys.indexOf('Ctrl+') !== 0 || b.keys.indexOf('+Meta+') > 0),
+    mac.filter((b) => b.keys.indexOf('Ctrl+') === 0 && b.keys.indexOf('+Meta+') < 0).map((b) => b.id + '=' + b.keys).join(', ') || 'none'
+  )
+  push(
+    'mac 表覆盖了全部内置键位（新增键位必须显式决定 mac 值，不许悄悄回退）',
+    base.every((b) => Object.prototype.hasOwnProperty.call(mod.MAC_BINDING_DEFAULTS, b.id)),
+    base.filter((b) => !Object.prototype.hasOwnProperty.call(mod.MAC_BINDING_DEFAULTS, b.id)).map((b) => b.id).join(', ') || 'all covered'
+  )
+  push(
+    '显示用 Cmd、存储用 Meta（两件事，别混）',
+    mod.displayChord('Meta+W', 'darwin') === 'Cmd+W' &&
+      mod.displayChord('Ctrl+Meta+F', 'darwin') === 'Ctrl+Cmd+F' &&
+      mod.displayChord('Meta+C', 'win32') === 'Meta+C' &&
+      mod.displayChord('Ctrl+Shift+C', 'win32') === 'Ctrl+Shift+C',
+    mod.displayChord('Meta+W', 'darwin') + ' / ' + mod.displayChord('Ctrl+Meta+F', 'darwin')
+  )
+  push(
+    '会话跳转的修饰键按平台（Windows 是 Alt，mac 是 Cmd）',
+    mod.sessionJumpModifier('win32') === 'alt' && mod.sessionJumpModifier('darwin') === 'meta',
+    mod.sessionJumpModifier('win32') + ' / ' + mod.sessionJumpModifier('darwin')
+  )
   push('两张默认表条数一致（没有多也没有少）', mac.length === base.length, mac.length + ' vs ' + base.length)
+
+  const macClip = mod.defaultClipboardSettings('darwin')
+  const winClip = mod.defaultClipboardSettings('win32')
+  push(
+    'mac 上默认不"选中即复制"（Mac 的习惯是选中后按 Cmd+C）',
+    macClip.copyOnSelect === false,
+    JSON.stringify(macClip)
+  )
+  push('mac 上默认不绑中键粘贴（Mac 没有中键）', macClip.pasteOnMiddleClick === false, 'pasteOnMiddleClick=' + macClip.pasteOnMiddleClick)
+  push(
+    'mac 上右键粘贴保留（还没有终端右键菜单可用，关掉就等于没了）',
+    macClip.pasteOnRightClick === true,
+    'pasteOnRightClick=' + macClip.pasteOnRightClick
+  )
+  push(
+    'Windows 的剪贴板默认值一个字都没变',
+    JSON.stringify(winClip) === JSON.stringify(mod.DEFAULT_CLIPBOARD_SETTINGS),
+    JSON.stringify(winClip)
+  )
+  push(
+    '默认设置里带上了平台剪贴板默认值',
+    mod.defaultSettings('darwin').clipboard.copyOnSelect === false &&
+      mod.defaultSettings('darwin').clipboard.pasteOnMiddleClick === false
+  )
+
+  /*
+   * Copy/paste in a text field: on a Mac `Cmd+C` is both the system copy chord and
+   * the app's terminal-copy binding, so the handlers step aside when the focus is in
+   * a real input. The rule is a decision table, asserted here in full — without it,
+   * `Cmd+C` would stop working in every settings field on a Mac and no other suite
+   * would notice.
+   */
+  const editTarget = (tagName, isContentEditable, insideTerminal) =>
+    mod.isNativeEditTarget({ tagName, isContentEditable, insideTerminal })
+  push('输入框里的 Cmd+C 交给系统（普通 input）', editTarget('INPUT', false, false) === true)
+  push('多行输入框一样交给系统（textarea）', editTarget('TEXTAREA', false, false) === true)
+  push('可编辑区域也交给系统（contenteditable）', editTarget('DIV', true, false) === true)
+  push(
+    '终端自己的隐藏 textarea 不算输入框（那个由应用处理）',
+    editTarget('TEXTAREA', false, true) === false
+  )
+  push('焦点在按钮 / 空白处时不抢键（继续走应用的处理）', editTarget('BUTTON', false, false) === false)
 
   push(
     '迁移：mac 上存盘里的旧 Ctrl+W 变成 Cmd+W',
@@ -265,6 +356,39 @@ async function main() {
     'own chord untouched, new default untouched'
   )
   push(
+    '迁移：mac 上 v2.1.0 的 Cmd+Shift+C 变成 Cmd+C',
+    mod.migrateBindingKeys('darwin', 'copy', 'Meta+Shift+C') === 'Meta+C',
+    mod.migrateBindingKeys('darwin', 'copy', 'Meta+Shift+C')
+  )
+  push(
+    '迁移：mac 上 Windows 的 Ctrl+Shift+C 也变成 Cmd+C',
+    mod.migrateBindingKeys('darwin', 'copy', 'Ctrl+Shift+C') === 'Meta+C',
+    mod.migrateBindingKeys('darwin', 'copy', 'Ctrl+Shift+C')
+  )
+  push(
+    '迁移：mac 上 v2.1.0 的 F11 变成 Ctrl+Cmd+F',
+    mod.migrateBindingKeys('darwin', 'toggleFocus', 'F11') === 'Ctrl+Meta+F',
+    mod.migrateBindingKeys('darwin', 'toggleFocus', 'F11')
+  )
+  push(
+    '迁移：mac 上设置与退出交还给应用菜单（值改成空）',
+    mod.migrateBindingKeys('darwin', 'openSettings', 'Meta+,') === '' &&
+      mod.migrateBindingKeys('darwin', 'quitApp', 'Meta+Shift+Q') === '',
+    "'" + mod.migrateBindingKeys('darwin', 'openSettings', 'Meta+,') + "' / '" +
+      mod.migrateBindingKeys('darwin', 'quitApp', 'Meta+Shift+Q') + "'"
+  )
+  push(
+    '迁移不是大锤 2：mac 上用户自己设的 Cmd+Alt+C 不动',
+    mod.migrateBindingKeys('darwin', 'copy', 'Meta+Alt+C') === 'Meta+Alt+C',
+    mod.migrateBindingKeys('darwin', 'copy', 'Meta+Alt+C')
+  )
+  push(
+    'Windows 上复制 / 退出 / 全屏这些键位一条都不迁移',
+    mod.migrateBindingKeys('win32', 'copy', 'Ctrl+Shift+C') === 'Ctrl+Shift+C' &&
+      mod.migrateBindingKeys('win32', 'quitApp', 'Ctrl+Shift+Q') === 'Ctrl+Shift+Q' &&
+      mod.migrateBindingKeys('win32', 'toggleFocus', 'F11') === 'F11'
+  )
+  push(
     '两份迁移表：mac 把整个 Ctrl 集合搬过去，Windows 只有 closeSession',
     Object.keys(mod.retiredBindingDefaults('win32')).length === 1 &&
       Object.keys(mod.retiredBindingDefaults('darwin')).length > 10,
@@ -274,14 +398,19 @@ async function main() {
 
   // ---- 4. 应用菜单（mac 上没有它就没有 Cmd+C/V） -------------------------
   let quitAsks = 0
+  let settingsAsks = 0
   const macMenu = mod.menuTemplateFor('darwin', {
     appName: 'TermDeck',
     askQuit: () => {
       quitAsks += 1
+    },
+    openSettings: () => {
+      settingsAsks += 1
     }
   })
-  push('Windows 上没有应用菜单', mod.menuTemplateFor('win32', { appName: 'TermDeck', askQuit: noop }) === null)
-  push('Linux 上没有应用菜单', mod.menuTemplateFor('linux', { appName: 'TermDeck', askQuit: noop }) === null)
+  const noopActions = { appName: 'TermDeck', askQuit: noop, openSettings: noop }
+  push('Windows 上没有应用菜单', mod.menuTemplateFor('win32', noopActions) === null)
+  push('Linux 上没有应用菜单', mod.menuTemplateFor('linux', noopActions) === null)
   push('mac 上有 App / Edit / Window 三个菜单', Array.isArray(macMenu) && macMenu.length === 3, 'menus=' + (macMenu || []).map((m) => m.label).join(','))
 
   const editRoles = rolesOf(findMenu(macMenu, 'Edit'))
@@ -328,6 +457,19 @@ async function main() {
     '退出项先问一句再退（点它会去问渲染端）',
     !!quitItem && typeof quitItem.click === 'function' && (quitItem.click(), quitAsks === 1),
     'askQuit calls=' + quitAsks
+  )
+  const settingsItem = appItems.find((item) => item.accelerator === 'Command+,')
+  push(
+    'mac 的 App 菜单里有 Settings…（Cmd+, 归菜单，不归键位表）',
+    !!settingsItem && settingsItem.label === 'Settings…',
+    settingsItem ? settingsItem.label : 'MISSING'
+  )
+  push(
+    'Settings… 点下去会去问渲染端开设置',
+    !!settingsItem &&
+      typeof settingsItem.click === 'function' &&
+      (settingsItem.click(), settingsAsks === 1),
+    'openSettings calls=' + settingsAsks
   )
   const windowRoles = rolesOf(findMenu(macMenu, 'Window'))
   push(
@@ -421,7 +563,11 @@ async function main() {
       real.shell
     )
     const installed = await mod.listInstalledFonts()
-    push('真实 mac 上能枚举出已装字体', installed.length > 20, 'count=' + installed.length)
+    push(
+      '真实 mac 上能枚举出已装字体（不是空表、也没超时）',
+      installed.length >= 3,
+      'count=' + installed.length
+    )
     push(
       '真实 mac 上枚举出的是族名而不是文件路径',
       installed.length > 0 && installed.every((name) => name.indexOf('/') < 0 && name.indexOf('.ttf') < 0),

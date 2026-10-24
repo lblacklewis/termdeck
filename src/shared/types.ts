@@ -1401,6 +1401,14 @@ export interface TermDeckApi extends S3Api {
    * `quitApp()` to let it through — or do nothing, which cancels the quit.
    */
   onQuitRequested(handler: (request: QuitRequest) => void): () => void
+  /**
+   * The macOS application menu's "Settings…" item.
+   *
+   * On a Mac `Cmd+,` belongs to the menu rather than to a binding (see
+   * `shared/platform.ts`), so the renderer has to be told to open the drawer — and
+   * the item works even when no pane has focus.
+   */
+  onOpenSettings(handler: () => void): () => void
   /** Confirm a pending quit and exit. */
   quitApp(): void
   /** Fired for every full-screen change, including ones the app did not start. */

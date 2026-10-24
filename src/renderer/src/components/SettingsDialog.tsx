@@ -15,7 +15,7 @@ import type {
   TerminalSettings
 } from '@shared/types'
 import { SIDEBAR_SECTION_LABELS, UI_SCALES } from '@shared/types'
-import { defaultBindings } from '@shared/platform'
+import { defaultBindings, displayChord } from '@shared/platform'
 import { THEMES, findTheme } from '@shared/themes'
 import {
   HIGHLIGHT_RULES,
@@ -107,6 +107,8 @@ export function SettingsDialog({
    * for an unknown platform.
    */
   const platformDefaults = useMemo(() => defaultBindings(appInfo?.platform ?? ''), [appInfo])
+  /** The platform's own name for the modifier: `Cmd` on macOS, `Meta` in storage. */
+  const platform = appInfo?.platform ?? ''
 
   // Shortcut list interaction state.
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
@@ -422,7 +424,14 @@ export function SettingsDialog({
             {tab === 'terminal' && (
               <>
                 <TerminalTab settings={draft.terminal} onChange={updateTerminal} />
-                <ReconnectTab settings={draft.reconnect} onChange={updateReconnect} />
+                <ReconnectTab
+                  settings={draft.reconnect}
+                  reconnectChord={displayChord(
+                    draft.keybindings.find((b) => b.id === 'reconnectSession')?.keys ?? '',
+                    appInfo?.platform ?? ''
+                  )}
+                  onChange={updateReconnect}
+                />
               </>
             )}
 
@@ -466,7 +475,7 @@ export function SettingsDialog({
                 {[...conflicts.values()].map((entry) => (
                   <div key={entry.keys} className="td-form-error" data-testid="shortcut-conflict">
                     {t('settingsdialog.shortcut_conflict_on', 'Shortcut conflict on')}{' '}
-                    <b>{entry.keys}</b>: {entry.labels.join(', ')}
+                    <b>{displayChord(entry.keys, platform)}</b>: {entry.labels.join(', ')}
                   </div>
                 ))}
                 <ul className="td-shortcut-list" data-testid="shortcut-list">
@@ -522,7 +531,9 @@ export function SettingsDialog({
                         data-testid={`binding-${binding.id}`}
                         onClick={() => setRecording(binding.id)}
                       >
-                        {recording === binding.id ? 'Press keys...' : binding.keys || 'Not set'}
+                        {recording === binding.id
+                          ? 'Press keys...'
+                          : displayChord(binding.keys, platform) || 'Not set'}
                       </button>
                       <button
                         className="td-mini"
@@ -569,7 +580,8 @@ export function SettingsDialog({
                           >
                             {recording === `snippet:${snippet.id}`
                               ? 'Press keys...'
-                              : snippet.keys || t('settingsdialog.not_set', 'Not set')}
+                              : displayChord(snippet.keys ?? '', platform) ||
+                                t('settingsdialog.not_set', 'Not set')}
                           </button>
                           <button
                             className="td-mini"
@@ -895,9 +907,12 @@ function CredentialsTab({
  */
 function ReconnectTab({
   settings,
+  reconnectChord,
   onChange
 }: {
   settings: ReconnectSettings
+  /** The reconnect binding, already written for this platform (`Cmd+R` / `Ctrl+R`). */
+  reconnectChord: string
   onChange: (patch: Partial<ReconnectSettings>) => void
 }): JSX.Element {
   return (
@@ -916,7 +931,8 @@ function ReconnectTab({
           <b>{t('settingsdialog.retry_automatically', 'Retry automatically')}</b>{' '}
           {t(
             'settingsdialog.retry_automatically_hint',
-            '— only for a connection that drops by itself. A shell you ended yourself stays ended, and Ctrl+R retries by hand at any time.'
+            '— only for a connection that drops by itself. A shell you ended yourself stays ended, and {chord} retries by hand at any time.',
+            { chord: reconnectChord || t('settingsdialog.reconnect_chord_fallback', 'the reconnect shortcut') }
           )}
         </span>
       </label>
