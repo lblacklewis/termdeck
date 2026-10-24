@@ -174,3 +174,52 @@ Window（minimize/zoom/close/front）；其它平台继续 `null`。
 7. 剩下键位（4.3）与细节（4.7）按用户拍板结果做；
 8. 版本号 **v2.1.0**（新增平台支持 = minor），走上面的发布流程 —— 注意产物变成
    Windows 三件 + mac 的 dmg/zip，`SHA256SUMS` 要**都列上**。
+
+## 9. Mac 验收清单（拿到 Mac 后照着做，逐条打勾）
+
+> 本机是 Windows，**下面每一步都必须在一台真的 Mac 上跑**。用户 2026-10-23 说
+> "现在没有 mac 验收，晚一些或者明天可以的" —— 所以代码可以先行，验收按这份清单补。
+
+前置：macOS 上装 Node 20+ 与 Xcode 命令行工具（`xcode-select --install`），然后 clone 仓库。
+
+1. **装依赖（必须在 Mac 上装，原生模块才有 darwin 产物）**
+   ```bash
+   git clone <repo> && cd termdeck && npm install
+   node -e "require('@lydell/node-pty'); console.log('pty ok')"   # 不报错才算过
+   node -e "require('serialport'); console.log('serial ok')"
+   ```
+   若 `@lydell/node-pty` 没有 darwin 预编译 → 在这里现编（需要 Xcode CLT），
+   编不过就换回官方 `node-pty` 并记录原因。
+
+2. **闸门全绿**
+   ```bash
+   rm -rf node_modules/.smoke-data && npm run verify     # 期望 EXITCODE=0、0 条 FAIL、46 套件
+   ```
+   有失败先逐条判断：是**真 bug**，还是**探针写死了 Windows**（本地 shell / 串口 / 字体这三类最可能）。
+   后者要把探针改成"按平台断言各自的期望值"，不是放宽断言。
+
+3. **开发版人工过一遍**（`npm run dev`）
+   - [ ] 开本地 shell：起的是 zsh、提示符正常、`brew` 装的命令找得到
+   - [ ] 设置里的输入框：`Cmd+C` / `Cmd+V` / `Cmd+A` 可用（Edit 菜单 role 生效）
+   - [ ] `Cmd+Q` 能退出；`Cmd+W` 是按我们绑定的行为（关窗格）
+   - [ ] Dock 图标点击能重新开窗口；关掉所有窗口后应用不退出
+   - [ ] 终端里按 `Ctrl+W`：**删掉光标前一个词**、不关窗格（v1.13.0 的决定在 mac 同样成立）
+   - [ ] 字体不是方块、中文能显示（默认等宽字体在 mac 上存在）
+   - [ ] 钥匙串：连一次带密码的主机，重启应用后密码还在（safeStorage 走 Keychain）
+
+4. **打包**
+   ```bash
+   npm run dist:mac      # 出 dmg + zip（arm64 与 x64）
+   ```
+   打开 dmg 拖进 Applications → **右键「打开」**（未签名；或
+   `xattr -dr com.apple.quarantine /Applications/TermDeck.app`）。
+   验：能起、能连 SSH、能开本地 shell、串口页能列出 `/dev/cu.*`。
+
+5. **打包版自检**（照 Windows 的 `.packcheck-*.cjs` 套路）
+   ```bash
+   release/mac*/TermDeck.app/Contents/MacOS/TermDeck \
+     --remote-debugging-port=9360 --user-data-dir=/tmp/td-check
+   ```
+   用 CDP 断言：版本号显示正确、能开出一个本地 shell、菜单快捷键生效。
+
+6. **记录结论**：哪些过了、哪些挂了（带日志与截图），下一轮照着修；别用"看起来没问题"结案。
