@@ -6375,3 +6375,140 @@ html[data-theme-scheme='light'] .td-select {
   grid-template-columns: 1fr 1fr;
   gap: 2px 12px;
 }
+
+/* ---- S3 page: a three-column workspace -----------------------------------
+ *
+ * The tool page used to stack form, listing and preview in one vertical flow,
+ * which on any window wider than a phone left the middle of the screen empty.
+ * The body is now one workspace row — the object tree on the left, the open
+ * file in the middle where the room is, the metadata of what is open on the
+ * right — and the three areas scroll inside their own columns. Below the
+ * breakpoint the same areas stack in the same DOM order; `[data-cols]` carries
+ * the decision, which is made by the pure `s3WorkspaceColumns()`.
+ */
+.td-s3-page .td-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.td-s3-page .td-drawer-form {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.td-s3-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(230px, 29fr) minmax(0, 49fr) minmax(190px, 22fr);
+  gap: 10px;
+}
+
+.td-s3-workspace[data-cols='stacked'] {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.td-s3-col {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius);
+  background: color-mix(in srgb, var(--td-surface) 40%, transparent);
+}
+
+.td-s3-workspace[data-cols='stacked'] .td-s3-col {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.td-s3-main {
+  display: flex;
+  flex-direction: column;
+}
+
+.td-s3-main .td-section {
+  flex: 1 1 auto;
+}
+
+.td-s3-preview-fill {
+  flex: 1 1 auto;
+  min-height: 240px;
+  resize: none;
+}
+
+.td-s3-put {
+  align-self: flex-start;
+  margin-top: 8px;
+}
+
+.td-s3-placeholder {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--td-text-faint);
+}
+
+.td-s3-tree-bar {
+  padding: 2px 0 8px;
+}
+
+.td-s3-recent {
+  margin-bottom: 10px;
+}
+
+.td-s3-recent .td-page-sub {
+  margin-bottom: 4px;
+}
+
+.td-s3-recent-open {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-s3-recent-at {
+  flex: 0 0 auto;
+  font-size: 10.5px;
+  color: var(--td-text-faint);
+}
+
+.td-s3-tree-open {
+  min-width: 0;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.td-s3-meta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--td-border) 55%, transparent);
+  font-size: 12px;
+}
+
+.td-s3-meta-label {
+  flex: 0 0 auto;
+  color: var(--td-text-dim);
+}
+
+.td-s3-meta-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-align: right;
+  color: var(--td-text);
+}

@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
 import type { S3Connection, S3PageState, S3Profile } from '@shared/s3Types'
+import { normaliseS3History } from '@shared/s3Layout'
 
 function draft(input: unknown): S3PageState['draft'] {
   if (!input || typeof input !== 'object') return null
@@ -57,9 +58,15 @@ function profiles(input: unknown): S3Profile[] {
 }
 
 function sanitise(input: unknown): S3PageState {
-  if (!input || typeof input !== 'object') return { draft: null, profiles: [] }
+  if (!input || typeof input !== 'object') return { draft: null, profiles: [], history: [] }
   const raw = input as Partial<S3PageState>
-  return { draft: draft(raw.draft), profiles: profiles(raw.profiles) }
+  return {
+    draft: draft(raw.draft),
+    profiles: profiles(raw.profiles),
+    // A file written before v2.3.0 has no history; `normaliseS3History` reads
+    // that as an empty list, so old state and new state load through one path.
+    history: normaliseS3History(raw.history)
+  }
 }
 
 export class S3Store {

@@ -89,10 +89,36 @@ export interface S3PickResult {
   filePath?: string
 }
 
+/**
+ * One remembered visit: where the user has been — endpoint, bucket, prefix —
+ * with the connection facts needed to go back, and deliberately nothing more.
+ * A history that could open doors by itself would be a key left under the mat:
+ * the secret never enters this shape (see `s3Layout.ts`, where the entry is
+ * built field by field for exactly that reason).
+ */
+export interface S3Visit {
+  endpoint: string
+  region: string
+  accessKeyId: string
+  pathStyle: boolean
+  insecure?: boolean
+  bucket: string
+  prefix: string
+  /** ISO instant of the most recent visit. */
+  at: string
+}
+
 export interface S3PageState {
   /** The connection form as it was left, without the secret. */
   draft: Omit<S3Connection, 'secretAccessKey' | 'sessionToken'> | null
   profiles: S3Profile[]
+  /**
+   * Recent bucket/prefix visits, newest first.
+   *
+   * Optional in the type so state written before v2.3.0 loads unchanged; the
+   * store fills an empty list in on the way in.
+   */
+  history?: S3Visit[]
 }
 
 /**

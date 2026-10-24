@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useState, type JSX, type ReactNode } from 'react'
 
 import type {
   S3Api,
@@ -6,8 +6,17 @@ import type {
   S3Connection,
   S3Listing,
   S3ObjectPreview,
-  S3Profile
+  S3Profile,
+  S3Visit
 } from '@shared/s3Types'
+import {
+  buildS3Tree,
+  pushS3Visit,
+  s3VisitKey,
+  s3WorkspaceColumns,
+  type S3TreeNode,
+  type S3WorkspaceColumns
+} from '@shared/s3Layout'
 import { t } from '../i18n'
 
 /**
@@ -42,6 +51,22 @@ function parentOf(path: string): string {
   return at < 0 ? '' : trimmed.slice(0, at + 1)
 }
 
+/** An ISO instant as the reader's own clock would say it; unparseable text passes through. */
+function when(at: string): string {
+  const time = Date.parse(at)
+  return Number.isFinite(time) ? new Date(time).toLocaleString() : at
+}
+
+/** One label/value line of the metadata column. */
+function MetaRow(props: { label: string; value: ReactNode }): JSX.Element {
+  return (
+    <div className="td-s3-meta-row">
+      <span className="td-s3-meta-label">{props.label}</span>
+      <span className="td-s3-meta-value">{props.value}</span>
+    </div>
+  )
+}
+
 /**
  * An S3 browser, sized to the job.
  *
@@ -49,6 +74,10 @@ function parentOf(path: string): string {
  * inside are usually reachable only from the host they are already logged into
  * (or from a gateway on that network), and configuring an `aws s3` CLI on every
  * jump box is not something anyone wants to do twice.
+ *
+ * The body is a three-column workspace: the object tree on the left, the open
+ * file in the middle where the room is, and the metadata of what is open on the
+ * right. Narrow windows stack the same three areas in the same order instead.
  *
  * What it deliberately is not: a sync tool, a policy editor, or a full object
  * manager. Listing, reading, writing one small text object and deleting is what
@@ -68,30 +97,72 @@ export function S3Page(): JSX.Element {
   const [uploaded, setUploaded] = useState('')
   /** Result of the last upload or download, e.g. where a file went. */
   const [note, setNote] = useState('')
+  /** Recent visits, newest first — persisted through the same store as the profiles. */
+  const [history, setHistory] = useState<S3Visit[]>([])
+  /**
+   * A history entry chosen before the connection is usable: the form has been
+   * filled but the secret is not typed yet, so the folder opens right after
+   * the next successful connect instead of never.
+   */
+  const [pending, setPending] = useState<{ bucket: string; prefix: string } | null>(null)
+  const [cols, setCols] = useState<S3WorkspaceColumns>(() => s3WorkspaceColumns(window.innerWidth))
 
-  const set = <K extends keyof S3Connection>(key: K, value: S3Connection[K]): void => {
-    setConnection((prev) => ({ ...prev, [key]: value }))
-  }
+  useEffect(() => {
+    const onResize = (): void => setCols(s3WorkspaceColumns(window.innerWidth))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     void api()
       .loadS3State()
       .then((state) => {
         setProfiles(state.profiles)
+        setHistory(state.history ?? [])
         if (state.draft) setConnection({ ...state.draft, secretAccessKey: '' })
       })
-    return api().onS3StateChanged((state) => setProfiles(state.profiles))
+    return api().onS3StateChanged((state) => {
+      setProfiles(state.profiles)
+      setHistory(state.history ?? [])
+    })
   }, [])
+
+  const set = <K extends keyof S3Connection>(key: K, value: S3Connection[K]): void => {
+    setConnection((prev) => ({ ...prev, [key]: value }))
+  }
 
   /** The draft never carries the secret; only a saved profile may. */
   const persist = useCallback(
     async (next: S3Profile[]): Promise<void> => {
       setProfiles(next)
       const { secretAccessKey: _s, sessionToken: _t, ...draft } = connection
-      await api().saveS3State({ draft, profiles: next })
+      await api().saveS3State({ draft, profiles: next, history })
     },
-    [connection]
+    [connection, history]
   )
+
+  /**
+   * Write one visit into the saved state.
+   *
+   * Everything the store needs is already in hand — the connection used for the
+   * call, the profiles, the history so far — so this is one IPC, one write, one
+   * broadcast; the page does not re-read the file to record where it just was.
+   */
+  const recordVisit = (conn: S3Connection, visitedBucket: string, visitedPrefix: string): void => {
+    const { secretAccessKey: _s, sessionToken: _t, ...draft } = conn
+    const next = pushS3Visit(history, {
+      endpoint: conn.endpoint,
+      region: conn.region,
+      accessKeyId: conn.accessKeyId,
+      pathStyle: conn.pathStyle,
+      insecure: conn.insecure,
+      bucket: visitedBucket,
+      prefix: visitedPrefix,
+      at: new Date().toISOString()
+    })
+    setHistory(next)
+    void api().saveS3State({ draft, profiles, history: next })
+  }
 
   const connect = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -103,7 +174,16 @@ export function S3Page(): JSX.Element {
     try {
       const result = await api().s3ListBuckets(connection)
       if (!result.ok) setError(result.error ?? 'Could not reach that endpoint.')
-      else setBuckets(result.value ?? [])
+      else {
+        setBuckets(result.value ?? [])
+        // The folder a history entry pointed at opens now: the connection it
+        // needed is the one that just succeeded.
+        if (pending && result.value) {
+          const target = pending
+          setPending(null)
+          await openBucketIn(connection, target.bucket, target.prefix)
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -111,7 +191,14 @@ export function S3Page(): JSX.Element {
     }
   }
 
-  const openBucket = async (name: string, at = ''): Promise<void> => {
+  /**
+   * List one folder with an explicit connection.
+   *
+   * The connection is a parameter, not the form state: a history entry may
+   * belong to a different endpoint than the one currently in the form, and the
+   * visit must be recorded with the connection that actually worked.
+   */
+  const openBucketIn = async (conn: S3Connection, name: string, at = ''): Promise<void> => {
     setBusy(true)
     setError(null)
     setPreview(null)
@@ -122,19 +209,27 @@ export function S3Page(): JSX.Element {
     setBucket(name)
     setPrefix(at)
     try {
-      const result = await api().s3ListObjects(connection, name, {
+      const result = await api().s3ListObjects(conn, name, {
         prefix: at,
         // A delimiter is what turns a flat key space into the folder view people
         // expect. Without it a bucket with a million keys is one endless list.
         delimiter: '/'
       })
       if (!result.ok) setError(result.error ?? 'Could not list that bucket.')
-      else setListing(result.value ?? null)
+      else {
+        setListing(result.value ?? null)
+        recordVisit(conn, name, at)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
+  }
+
+  const openBucket = (name: string, at = ''): Promise<void> => {
+    setPending(null)
+    return openBucketIn(connection, name, at)
   }
 
   const openObject = async (key: string): Promise<void> => {
@@ -235,6 +330,34 @@ export function S3Page(): JSX.Element {
     }
   }
 
+  /**
+   * Go back to a remembered visit.
+   *
+   * Still connected to the same endpoint with the same key and a secret in
+   * memory: the folder opens right away. Anything else — another endpoint, no
+   * secret in memory — fills the form and waits: the one thing a history must
+   * never do is reuse a secret typed for a different door.
+   */
+  const revisit = (visit: S3Visit): void => {
+    const samePlace =
+      connection.endpoint === visit.endpoint &&
+      connection.accessKeyId === visit.accessKeyId &&
+      connection.secretAccessKey !== ''
+    if (samePlace) {
+      void openBucket(visit.bucket, visit.prefix)
+      return
+    }
+    setConnection({
+      endpoint: visit.endpoint,
+      region: visit.region,
+      accessKeyId: visit.accessKeyId,
+      secretAccessKey: '',
+      pathStyle: visit.pathStyle,
+      insecure: visit.insecure
+    })
+    setPending({ bucket: visit.bucket, prefix: visit.prefix })
+  }
+
   const crumbs = useMemo(() => {
     const parts = prefix.split('/').filter(Boolean)
     return parts.map((part, index) => ({
@@ -243,8 +366,60 @@ export function S3Page(): JSX.Element {
     }))
   }, [prefix])
 
+  const tree = useMemo(
+    () => (buckets ? buildS3Tree(buckets, listing, bucket) : []),
+    [buckets, listing, bucket]
+  )
+
+  const treeNode = (node: S3TreeNode): JSX.Element => {
+    const active =
+      (node.kind === 'bucket' && node.path === bucket) ||
+      (node.kind === 'folder' && node.path === prefix) ||
+      (node.kind === 'object' && preview?.key === node.path)
+    const testid = node.kind === 'bucket' ? 's3-bucket' : node.kind === 'folder' ? 's3-prefix' : 's3-object'
+    return (
+      <li
+        key={`${node.kind}:${node.path}`}
+        className={`td-sftp-row${node.kind === 'folder' ? ' is-dir' : ''}${active ? ' is-selected' : ''}`}
+        data-testid={testid}
+        data-bucket={node.kind === 'bucket' ? node.path : undefined}
+        data-prefix={node.kind === 'folder' ? node.path : undefined}
+        data-key={node.kind === 'object' ? node.path : undefined}
+        style={{ paddingLeft: 4 + node.depth * 16 }}
+      >
+        <button
+          className="td-btn td-s3-tree-open"
+          type="button"
+          onClick={() =>
+            node.kind === 'bucket'
+              ? void openBucket(node.path)
+              : node.kind === 'folder'
+                ? void openBucket(bucket, node.path)
+                : void openObject(node.path)
+          }
+        >
+          {node.label}
+        </button>
+        {node.kind === 'object' && (
+          <span className="td-page-meta">
+            {bytes(node.size ?? 0)} · {node.lastModified}
+          </span>
+        )}
+      </li>
+    )
+  }
+
+  /** The open object's own row from the listing: the metadata column shows its timestamp. */
+  const openObjectRow = useMemo(
+    () => (preview && listing ? listing.objects.find((entry) => entry.key === preview.key) : undefined),
+    [preview, listing]
+  )
+
+  const yesNo = (flag: boolean | undefined): string =>
+    t(flag ? 's3page.meta_yes' : 's3page.meta_no', flag ? 'yes' : 'no')
+
   return (
-    <div className="td-page" data-testid="s3-page">
+    <div className="td-page td-s3-page" data-testid="s3-page">
       <header className="td-page-head">
         <div className="td-page-bar">
           <h1 className="td-page-sub">{t('s3page.title', 'S3')}</h1>
@@ -392,176 +567,233 @@ export function S3Page(): JSX.Element {
           </p>
         )}
 
-        {buckets && (
-          <section className="td-section" data-testid="s3-buckets">
-            <h2 className="td-page-sub">{t('s3page.buckets', 'Buckets')}</h2>
-            {buckets.length === 0 && (
-              <p className="td-page-empty">{t('s3page.no_buckets', 'This account has no buckets.')}</p>
+        <div className="td-s3-workspace" data-cols={cols} data-testid="s3-workspace">
+          <aside className="td-s3-col td-s3-side">
+            {history.length > 0 && (
+              <section className="td-s3-recent" data-testid="s3-history">
+                <h3 className="td-page-sub">{t('s3page.recent', 'Recent visits')}</h3>
+                <ul className="td-sftp-list">
+                  {history.map((visit) => (
+                    <li
+                      key={s3VisitKey(visit)}
+                      className="td-sftp-row"
+                      data-testid="s3-history-row"
+                      data-bucket={visit.bucket}
+                      data-prefix={visit.prefix}
+                    >
+                      <button
+                        className="td-btn td-s3-recent-open"
+                        type="button"
+                        title={visit.endpoint}
+                        onClick={() => revisit(visit)}
+                      >
+                        {visit.bucket}
+                        {visit.prefix ? `/${visit.prefix}` : ''}
+                      </button>
+                      <span className="td-s3-recent-at">{when(visit.at)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
-            <ul className="td-sftp-list">
-              {buckets.map((entry) => (
-                <li key={entry.name} className="td-sftp-row" data-testid="s3-bucket" data-bucket={entry.name}>
-                  <button className="td-btn" type="button" onClick={() => void openBucket(entry.name)}>
-                    {entry.name}
-                  </button>
-                  <span className="td-page-meta">{entry.createdAt}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
 
-        {listing && (
-          <section className="td-section" data-testid="s3-objects">
-            <div className="td-page-bar">
-              <h2 className="td-page-sub">
-                {bucket}
-                {prefix && `/${prefix}`}
-              </h2>
-              <div className="td-page-actions">
-                {prefix && (
+            {buckets === null && history.length === 0 && (
+              <p className="td-page-empty">{t('s3page.connect_hint', 'Connect to list the buckets.')}</p>
+            )}
+
+            {buckets !== null && (
+              <section className="td-section" data-testid="s3-buckets">
+                <h2 className="td-page-sub">{t('s3page.buckets', 'Buckets')}</h2>
+                {buckets.length === 0 && (
+                  <p className="td-page-empty">{t('s3page.no_buckets', 'This account has no buckets.')}</p>
+                )}
+                {tree.length > 0 && <ul className="td-sftp-list">{tree.map(treeNode)}</ul>}
+              </section>
+            )}
+
+            {listing && (
+              <section className="td-section" data-testid="s3-objects">
+                <div className="td-page-bar td-s3-tree-bar">
+                  <div className="td-page-actions">
+                    {prefix && (
+                      <button
+                        className="td-btn"
+                        data-testid="s3-up"
+                        type="button"
+                        onClick={() => void openBucket(bucket, parentOf(prefix))}
+                      >
+                        ↑
+                      </button>
+                    )}
+                    <button
+                      className="td-btn"
+                      data-testid="s3-root"
+                      type="button"
+                      onClick={() => void openBucket(bucket)}
+                    >
+                      {t('s3page.root', 'Root')}
+                    </button>
+                    <button
+                      className="td-btn"
+                      data-testid="s3-upload"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void uploadFile()}
+                    >
+                      {t('s3page.upload', 'Upload a file')}
+                    </button>
+                  </div>
+                </div>
+
+                {crumbs.length > 0 && (
+                  <p className="td-page-meta" data-testid="s3-breadcrumb">
+                    {crumbs.map((crumb) => (
+                      <button
+                        key={crumb.path}
+                        className="td-btn"
+                        type="button"
+                        onClick={() => void openBucket(bucket, crumb.path)}
+                      >
+                        {crumb.label}
+                      </button>
+                    ))}
+                  </p>
+                )}
+
+                {listing.objects.length === 0 && listing.prefixes.length === 0 && (
+                  <p className="td-page-empty">{t('s3page.empty_prefix', 'Nothing under this prefix.')}</p>
+                )}
+
+                {listing.truncated && (
                   <button
                     className="td-btn"
-                    data-testid="s3-up"
+                    data-testid="s3-more"
                     type="button"
-                    onClick={() => void openBucket(bucket, parentOf(prefix))}
+                    onClick={() => {
+                      if (!listing.nextToken) return
+                      void api()
+                        .s3ListObjects(connection, bucket, {
+                          prefix,
+                          delimiter: '/',
+                          continuationToken: listing.nextToken
+                        })
+                        .then((result) => {
+                          if (result.ok && result.value) {
+                            setListing({
+                              ...result.value,
+                              objects: [...listing.objects, ...result.value.objects],
+                              prefixes: [...listing.prefixes, ...result.value.prefixes]
+                            })
+                          }
+                        })
+                    }}
                   >
-                    ↑
+                    {t('s3page.more', 'More')}
                   </button>
                 )}
-                <button className="td-btn" data-testid="s3-root" type="button" onClick={() => void openBucket(bucket)}>
-                  {t('s3page.root', 'Root')}
-                </button>
-                <button
-                  className="td-btn"
-                  data-testid="s3-upload"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void uploadFile()}
-                >
-                  {t('s3page.upload', 'Upload a file')}
-                </button>
-              </div>
-            </div>
+              </section>
+            )}
+          </aside>
 
+          <main className="td-s3-col td-s3-main" data-testid="s3-content">
+            {preview ? (
+              <section className="td-section" data-testid="s3-preview">
+                <div className="td-page-bar td-s3-tree-bar">
+                  <span className="td-pill">{preview.key}</span>
+                  <div className="td-page-actions">
+                    <button
+                      className="td-btn"
+                      data-testid="s3-download"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void downloadFile()}
+                    >
+                      {t('s3page.download', 'Save as…')}
+                    </button>
+                    <button
+                      className="td-btn"
+                      data-testid="s3-delete"
+                      type="button"
+                      onClick={() => void removeObject(preview.key)}
+                    >
+                      {t('s3page.delete', 'Delete')}
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  className="td-textarea td-s3-preview-fill"
+                  data-testid="s3-preview-body"
+                  value={uploaded || preview.body}
+                  spellCheck={false}
+                  onChange={(e) => setUploaded(e.target.value)}
+                />
+                {uploaded && (
+                  <button
+                    className="td-btn td-btn-primary td-s3-put"
+                    data-testid="s3-put"
+                    type="button"
+                    onClick={() => void putObject()}
+                  >
+                    {t('s3page.write', 'Write back')}
+                  </button>
+                )}
+              </section>
+            ) : (
+              <div className="td-s3-placeholder">
+                <p>{t('s3page.no_selection', 'Pick a file from the tree on the left — its contents open here.')}</p>
+              </div>
+            )}
+          </main>
+
+          <aside className="td-s3-col td-s3-meta" data-testid="s3-meta">
             {note && (
               <p className="td-hint" data-testid="s3-transfer-note">
                 {note}
               </p>
             )}
 
-            {crumbs.length > 0 && (
-              <p className="td-page-meta" data-testid="s3-breadcrumb">
-                {crumbs.map((crumb) => (
-                  <button
-                    key={crumb.path}
-                    className="td-btn"
-                    type="button"
-                    onClick={() => void openBucket(bucket, crumb.path)}
-                  >
-                    {crumb.label}
-                  </button>
-                ))}
-              </p>
+            {preview ? (
+              <>
+                <MetaRow label={t('s3page.meta_key', 'Key')} value={preview.key} />
+                <MetaRow label={t('s3page.meta_bucket', 'Bucket')} value={preview.bucket} />
+                <MetaRow label={t('s3page.meta_size', 'Size')} value={bytes(preview.size)} />
+                {preview.contentType && (
+                  <MetaRow label={t('s3page.meta_type', 'Type')} value={preview.contentType} />
+                )}
+                {openObjectRow?.lastModified && (
+                  <MetaRow
+                    label={t('s3page.meta_modified', 'Modified')}
+                    value={when(openObjectRow.lastModified)}
+                  />
+                )}
+                <MetaRow label={t('s3page.meta_truncated', 'Truncated')} value={yesNo(preview.truncated)} />
+              </>
+            ) : listing ? (
+              <>
+                <MetaRow label={t('s3page.meta_bucket', 'Bucket')} value={listing.bucket} />
+                <MetaRow
+                  label={t('s3page.meta_prefix', 'Prefix')}
+                  value={listing.prefix || '/'}
+                />
+                <MetaRow label={t('s3page.meta_objects', 'Objects')} value={listing.objects.length} />
+                <MetaRow label={t('s3page.meta_folders', 'Folders')} value={listing.prefixes.length} />
+                <MetaRow label={t('s3page.meta_truncated', 'Truncated')} value={yesNo(listing.truncated)} />
+              </>
+            ) : buckets ? (
+              <>
+                <MetaRow label={t('s3page.meta_endpoint', 'Endpoint')} value={connection.endpoint} />
+                <MetaRow label={t('s3page.meta_objects', 'Objects')} value={buckets.length} />
+              </>
+            ) : (
+              <>
+                <MetaRow label={t('s3page.meta_endpoint', 'Endpoint')} value={connection.endpoint} />
+                <MetaRow label={t('s3page.meta_region', 'Region')} value={connection.region} />
+                <MetaRow label={t('s3page.meta_access', 'Access key')} value={connection.accessKeyId || '—'} />
+                <MetaRow label={t('s3page.meta_pathstyle', 'Path style')} value={yesNo(connection.pathStyle)} />
+              </>
             )}
-
-            <ul className="td-sftp-list">
-              {listing.prefixes.map((entry) => (
-                <li key={entry} className="td-sftp-row" data-testid="s3-prefix" data-prefix={entry}>
-                  <button className="td-btn" type="button" onClick={() => void openBucket(bucket, entry)}>
-                    {entry.slice(prefix.length) || entry}
-                  </button>
-                </li>
-              ))}
-              {listing.objects.map((entry) => (
-                <li key={entry.key} className="td-sftp-row" data-testid="s3-object" data-key={entry.key}>
-                  <button className="td-btn" type="button" onClick={() => void openObject(entry.key)}>
-                    {entry.key.slice(prefix.length) || entry.key}
-                  </button>
-                  <span className="td-page-meta">
-                    {bytes(entry.size)} · {entry.lastModified}
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            {listing.objects.length === 0 && listing.prefixes.length === 0 && (
-              <p className="td-page-empty">{t('s3page.empty_prefix', 'Nothing under this prefix.')}</p>
-            )}
-
-            {listing.truncated && (
-              <button
-                className="td-btn"
-                data-testid="s3-more"
-                type="button"
-                onClick={() => {
-                  if (!listing.nextToken) return
-                  void api()
-                    .s3ListObjects(connection, bucket, {
-                      prefix,
-                      delimiter: '/',
-                      continuationToken: listing.nextToken
-                    })
-                    .then((result) => {
-                      if (result.ok && result.value) {
-                        setListing({
-                          ...result.value,
-                          objects: [...listing.objects, ...result.value.objects],
-                          prefixes: [...listing.prefixes, ...result.value.prefixes]
-                        })
-                      }
-                    })
-                }}
-              >
-                {t('s3page.more', 'More')}
-              </button>
-            )}
-          </section>
-        )}
-
-        {preview && (
-          <section className="td-section" data-testid="s3-preview">
-            <div className="td-page-bar">
-              <span className="td-pill">{preview.key}</span>
-              <span className="td-page-meta">
-                {bytes(preview.size)}
-                {preview.contentType ? ` · ${preview.contentType}` : ''}
-                {preview.truncated ? ` · ${t('s3page.truncated', 'showing the first part')}` : ''}
-              </span>
-              <div className="td-page-actions">
-                <button
-                  className="td-btn"
-                  data-testid="s3-download"
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void downloadFile()}
-                >
-                  {t('s3page.download', 'Save as…')}
-                </button>
-                <button
-                  className="td-btn"
-                  data-testid="s3-delete"
-                  type="button"
-                  onClick={() => void removeObject(preview.key)}
-                >
-                  {t('s3page.delete', 'Delete')}
-                </button>
-              </div>
-            </div>
-            <textarea
-              className="td-textarea"
-              data-testid="s3-preview-body"
-              value={uploaded || preview.body}
-              spellCheck={false}
-              onChange={(e) => setUploaded(e.target.value)}
-            />
-            {uploaded && (
-              <button className="td-btn td-btn-primary" data-testid="s3-put" type="button" onClick={() => void putObject()}>
-                {t('s3page.write', 'Write back')}
-              </button>
-            )}
-          </section>
-        )}
+          </aside>
+        </div>
       </div>
     </div>
   )

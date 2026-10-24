@@ -105,6 +105,106 @@ async function main() {
   const endpoint = 'http://127.0.0.1:' + port
   console.log('mock S3 on ' + endpoint)
 
+  /*
+   * ---- 0. the pure rules -------------------------------------------------
+   * The tree, the history and the column decision are rules, not effects: they
+   * are bundled out of src/shared on plain node here and asserted with
+   * injected inputs — a clock, a cap, a window width — exactly the way the
+   * SigV4 vectors are. An implementation that guessed at these rules in the
+   * component would fail here before any window exists.
+   */
+  try {
+    const { buildSync } = require('esbuild')
+    const layoutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-s3-layout-'))
+    const entryFile = path.join(layoutDir, 'entry.ts')
+    const sharedDir = path.join(ROOT, 'src', 'shared').split(path.sep).join('/')
+    fs.writeFileSync(entryFile, 'export * from ' + JSON.stringify(sharedDir + '/s3Layout'), 'utf8')
+    buildSync({
+      entryPoints: [entryFile],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: path.join(layoutDir, 's3layout.cjs'),
+      logLevel: 'silent'
+    })
+    const layout = require(path.join(layoutDir, 's3layout.cjs'))
+    const visit = { endpoint: 'http://e', region: 'r', accessKeyId: 'AKIA', pathStyle: true, bucket: 'b', prefix: 'p/', at: 'T0' }
+    const h1 = layout.pushS3Visit([], visit, { now: 'T1' })
+    const h2 = layout.pushS3Visit(h1, Object.assign({}, visit, { bucket: 'b2' }), { now: 'T2' })
+    const h3 = layout.pushS3Visit(h2, visit, { now: 'T3' })
+    const capped = ['1', '2', '3', '4', '5'].reduce(
+      (acc, n) => layout.pushS3Visit(acc, Object.assign({}, visit, { bucket: 'b' + n }), { max: 3, now: 'T' }),
+      []
+    )
+    const sneaky = layout.pushS3Visit([], Object.assign({}, visit, { secretAccessKey: 'SHOULD-NOT-SURVIVE' }))
+    const kept = layout.normaliseS3History([null, { bucket: 'no-endpoint' }, { endpoint: 'http://e', bucket: 'ok' }])
+    const treeShape = function (nodes) {
+      return JSON.stringify(nodes.map((n) => n.kind + ':' + n.path + '@' + n.depth))
+    }
+    const rootTree = layout.buildS3Tree(
+      [{ name: 'alpha', createdAt: 'c1' }, { name: 'beta', createdAt: 'c2' }],
+      { bucket: 'alpha', prefix: '', objects: [{ key: 'readme.md', size: 12, lastModified: 'L' }], prefixes: ['dir/', 'logs/'], truncated: false },
+      'alpha'
+    )
+    const chainTree = layout.buildS3Tree(
+      [{ name: 'alpha', createdAt: 'c1' }],
+      { bucket: 'alpha', prefix: 'dir/', objects: [{ key: 'dir/a.txt', size: 8, lastModified: 'L' }], prefixes: [], truncated: false },
+      'alpha'
+    )
+    report([
+      {
+        name: 'a visit is recorded newest first with the injected instant',
+        ok: h1.length === 1 && h1[0].at === 'T1' && h1[0].bucket === 'b',
+        detail: JSON.stringify(h1[0] || null)
+      },
+      {
+        name: 'a different place is added, not merged',
+        ok: h2.length === 2 && h2[0].bucket === 'b2',
+        detail: h2.length + ' entries'
+      },
+      {
+        name: 'revisiting the same place moves it to the top instead of duplicating',
+        ok: h3.length === 2 && h3[0].prefix === 'p/' && h3[0].at === 'T3',
+        detail: JSON.stringify(h3.map((v) => v.bucket + '/' + v.prefix + '@' + v.at))
+      },
+      {
+        name: 'the cap is the injected one, keeping the newest',
+        ok: capped.length === 3 && capped[0].bucket === 'b5',
+        detail: JSON.stringify(capped.map((v) => v.bucket))
+      },
+      {
+        name: 'a stray secret field does not survive the recording',
+        ok: JSON.stringify(sneaky).indexOf('SHOULD-NOT-SURVIVE') < 0,
+        detail: JSON.stringify(Object.keys(sneaky[0] || {}))
+      },
+      {
+        name: 'a history that is not a list becomes an empty one',
+        ok: layout.normaliseS3History('nonsense').length === 0 && kept.length === 1,
+        detail: kept.length + ' usable of 3'
+      },
+      {
+        name: 'the tree hangs folders and files under their own bucket',
+        ok: treeShape(rootTree) === JSON.stringify(['bucket:alpha@0', 'folder:dir/@1', 'folder:logs/@1', 'object:readme.md@1', 'bucket:beta@0']),
+        detail: treeShape(rootTree)
+      },
+      {
+        name: 'the folders above the open prefix hold the tree up',
+        ok: treeShape(chainTree) === JSON.stringify(['bucket:alpha@0', 'folder:dir/@1', 'object:dir/a.txt@2']),
+        detail: treeShape(chainTree)
+      },
+      {
+        name: 'the column decision follows the injected width and threshold',
+        ok: layout.s3WorkspaceColumns(1400) === 'three' &&
+          layout.s3WorkspaceColumns(900) === 'stacked' &&
+          layout.s3WorkspaceColumns(900, { three: 800 }) === 'three',
+        detail: '1400/900/900@800'
+      }
+    ])
+    fs.rmSync(layoutDir, { recursive: true, force: true })
+  } catch (err) {
+    report([{ name: 'the pure S3 rules could not be bundled', ok: false, detail: String((err && err.message) || err) }])
+  }
+
   require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
@@ -348,6 +448,100 @@ async function main() {
       push('an object can be saved to a local file', down.ok,
         down.ok ? down.value.bytes + ' bytes' : down.error)
       push('and the page offers uploading a file', !!field('s3-upload'))
+
+      // ---- 9. the three-column workspace ------------------------------------
+      /*
+       * The page used to stack listing and preview in one vertical flow, which
+       * left the middle of the window empty. These asserts read real geometry:
+       * on the old layout the workspace does not exist at all, and no amount
+       * of "it rendered without errors" would have caught the blank page.
+       */
+      step = 'workspace'
+      const openForLayout = rows('s3-object').find((r) => r.dataset.key === 'dir/b.txt')
+      if (!openForLayout) {
+        push('the object to open for the layout check is listed', false)
+        return out
+      }
+      openForLayout.querySelector('button').click()
+      push('the object opens for the layout check',
+        await waitFor(() => valueOf('s3-preview-body') === 'second object', 15000))
+
+      const ws = field('s3-workspace')
+      push('the page lays its results out in a three-column workspace',
+        !!ws, ws ? ws.getAttribute('data-cols') : 'none')
+      const boxOf = (el) => (el ? el.getBoundingClientRect() : null)
+      const sideRect = boxOf(ws ? ws.querySelector('.td-s3-side') : null)
+      const mainRect = boxOf(ws ? ws.querySelector('.td-s3-main') : null)
+      const metaBox = ws ? ws.querySelector('.td-s3-meta') : null
+      const metaRect = boxOf(metaBox)
+      push('tree, contents and metadata sit side by side in that order',
+        !!sideRect && !!mainRect && !!metaRect &&
+        sideRect.right <= mainRect.left + 1 && mainRect.right <= metaRect.left + 1,
+        [sideRect, mainRect, metaRect]
+          .map((r) => (r ? Math.round(r.left) + '..' + Math.round(r.right) : 'none'))
+          .join(' | '))
+      push('the three columns fill the page instead of leaving it blank',
+        [sideRect, mainRect, metaRect].every((r) => r && r.height > 240),
+        [sideRect, mainRect, metaRect]
+          .map((r) => (r ? Math.round(r.height) + 'px' : 'none'))
+          .join(' x '))
+      const bodyEl = field('s3-preview-body')
+      const bodyRect = bodyEl ? bodyEl.getBoundingClientRect() : null
+      push('an open object gets the tall middle column, not a two-line box',
+        !!bodyRect && bodyRect.height >= 300, bodyRect ? Math.round(bodyRect.height) + 'px' : 'none')
+      push('the metadata column names the open object',
+        metaBox ? (metaBox.textContent || '').indexOf('dir/b.txt') >= 0 : false,
+        metaBox ? (metaBox.textContent || '').slice(0, 80) : 'none')
+
+      // ---- 10. the visit history ---------------------------------------------
+      /*
+       * Every folder the page really listed must be findable again without the
+       * secret: the saved history is a set of places, and this asserts the
+       * store holds them (old code wrote nothing — there was no history) and
+       * that going back through them really moves the tree.
+       */
+      step = 'history'
+      const savedState = await window.termdeck.loadS3State()
+      const visits = savedState.history || []
+      push('walking into folders leaves traces in the saved history, newest first',
+        visits.length >= 2 && visits[0].bucket === 'alpha' && visits[0].prefix === 'dir/' && visits[1].prefix === '',
+        JSON.stringify(visits.map((v) => v.bucket + '/' + v.prefix)))
+      push('the history carries no secret — not the field, not the value',
+        JSON.stringify(visits).indexOf('secret') < 0 && JSON.stringify(visits).indexOf('wJalrXUtnFEMI') < 0,
+        'keys=' + (visits[0] ? Object.keys(visits[0]).join(',') : 'none'))
+      push('the page offers the history to go back through',
+        rows('s3-history-row').length >= 2, rows('s3-history-row').length + ' row(s)')
+
+      const rootRow = rows('s3-history-row').find((r) => r.dataset.prefix === '')
+      if (!rootRow) {
+        push('the root visit is in the history', false)
+        return out
+      }
+      rootRow.querySelector('button').click()
+      push('going back to an earlier visit really moves the tree',
+        await waitFor(() => rows('s3-prefix').length === 2 && rows('s3-object').length === 1, 15000),
+        'prefixes=' + rows('s3-prefix').length + ' objects=' + rows('s3-object').length)
+
+      step = 'revisit another connection'
+      setValue(field('s3-endpoint'), 'http://wrecked.invalid')
+      setValue(field('s3-access-key'), 'WRECKED')
+      setValue(field('s3-secret-key'), '')
+      const dirRow = rows('s3-history-row').find((r) => r.dataset.prefix === 'dir/')
+      if (!dirRow) {
+        push('the folder visit is in the history', false)
+        return out
+      }
+      dirRow.querySelector('button').click()
+      await wait(400)
+      push('a visit from another connection fills the form and waits',
+        valueOf('s3-endpoint') === endpoint && valueOf('s3-access-key') === 'AKIDEXAMPLE' &&
+        valueOf('s3-secret-key') === '',
+        'endpoint=' + valueOf('s3-endpoint') + ' key=' + valueOf('s3-access-key'))
+      setValue(field('s3-secret-key'), 'wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY')
+      field('s3-connect').click()
+      push('connecting then lands straight in the visited folder',
+        await waitFor(() => rows('s3-object').length === 2 && (text('s3-breadcrumb') || '').indexOf('dir') >= 0, 15000),
+        'objects=' + rows('s3-object').length + ' crumb=' + text('s3-breadcrumb'))
 
       return out
       } catch (err) {
