@@ -137,30 +137,42 @@ S3 与端口转发两页还在补）。所有主题都通过对比度审计。
 
 ## 快捷键
 
-修饰键按平台给默认值：**Windows / Linux 是 `Ctrl`，macOS 是 `Cmd`**（下表的 `Ctrl`/`Cmd` 就是这个意思）。
-`Alt` 在两个平台上都是 `Alt`。
+**两个平台各有自己的习惯，不是把 `Ctrl` 换成 `Cmd` 那么简单。** 比如复制粘贴：Windows/Linux 上是
+`Ctrl+Shift+C/V`（`Ctrl+C` 要留给 shell 发 SIGINT），macOS 上就是每个 Mac 用户肌肉记忆里的
+`Cmd+C/V`；全屏在 Windows 上是 `F11`，在 macOS 上是全系统统一的 `Ctrl+Cmd+F`。
 
-| 键 | 作用 |
-| --- | --- |
-| `Ctrl`/`Cmd` + `T` | 新建连接 |
-| `Cmd` + `W` | 关闭当前窗格（**仅 macOS**） |
-| `Ctrl`/`Cmd` + `D` | 会话已结束时关闭窗格（活着的 shell 里仍是 EOF） |
-| `Ctrl`/`Cmd` + `R` | **重连**（会话结束、或从上次布局恢复出来的窗格） |
-| `Ctrl`/`Cmd` + `Shift` + `B` | 广播输入 |
-| `Ctrl`/`Cmd` + `Shift` + `J` | 传输窗口 |
-| `Ctrl`/`Cmd` + `Shift` + `S` | 片段条开关 |
-| `Ctrl`/`Cmd` + `Shift` + `T` | 一键排列窗格 |
-| `Ctrl`/`Cmd` + `=` / `-` | 只改终端字号 |
-| `Ctrl`/`Cmd` + `Shift` + `=` / `-` | 界面缩放 |
-| `F11` | 专注模式 |
-| `Ctrl`/`Cmd` + `Alt` + `L` | 锁屏 |
-| `Alt` + 数字 / `Alt` + `[` `]` | 切换会话（跨分组，首尾循环） |
+| 作用 | Windows / Linux | macOS |
+| --- | --- | --- |
+| 新建连接 | `Ctrl`+`T` | `Cmd`+`T` |
+| **关闭当前窗格** | 默认不绑定（见下） | `Cmd`+`W` |
+| 关闭已结束的窗格 | `Ctrl`+`D` | 不需要（`Cmd`+`W` 关任何窗格） |
+| 重连（会话已结束） | `Ctrl`+`R` | `Cmd`+`R` |
+| **复制 / 粘贴** | `Ctrl`+`Shift`+`C` / `V` | `Cmd`+`C` / `V` |
+| 下一个 / 上一个标签 | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | `Cmd`+`Shift`+`]` / `[` |
+| 下一个 / 上一个会话 | `Alt`+`]` / `[` | `Cmd`+`Alt`+`→` / `←` |
+| 跳到第 N 个会话 | `Alt`+数字 | `Cmd`+数字 |
+| 广播输入 | `Ctrl`+`Shift`+`B` | `Cmd`+`Shift`+`B` |
+| 传输窗口 | `Ctrl`+`Shift`+`J` | `Cmd`+`Shift`+`J` |
+| 片段条开关 | `Ctrl`+`Shift`+`S` | `Cmd`+`Shift`+`S` |
+| 一键排列窗格 | `Ctrl`+`Shift`+`T` | `Cmd`+`Shift`+`T` |
+| 只改终端字号 | `Ctrl`+`=` / `-` | `Cmd`+`=` / `-` |
+| 界面缩放 | `Ctrl`+`Shift`+`=` / `-` | `Cmd`+`Shift`+`=` / `-` |
+| 专注模式（全屏） | `F11` | `Ctrl`+`Cmd`+`F` |
+| 锁屏 | `Ctrl`+`Alt`+`L` | `Ctrl`+`Cmd`+`L` |
+| 打开设置 | `Ctrl`+`,` | 菜单「TermDeck → 设置…」（`Cmd`+`,`） |
+| 退出 | `Ctrl`+`Shift`+`Q` | 菜单「TermDeck → 退出」（`Cmd`+`Q`） |
+| 关闭窗口 | 窗口的 × 按钮 | `Cmd`+`Shift`+`W` |
 
-`Ctrl` + `W` **默认不绑定**：它在 readline（bash / zsh / Python / Node REPL）里是"删掉前一个词"，
-应用不该抢。mac 上的 `Cmd` + `W` 是另一回事 —— `Ctrl` 归 shell、`Cmd` 归应用，所以那一版默认绑了
-"关闭当前窗格"，系统的关窗挪到了 `Cmd` + `Shift` + `W`。
+几点说明：
 
-全部快捷键都能在 **设置 → 快捷键** 里改，冲突会标出来。
+- **`Ctrl`+`W` 在 Windows / Linux 上默认不绑定**：它在 readline（bash / zsh / Python / Node REPL）里是
+  "删掉前一个词"，应用不该抢。macOS 上 `Ctrl` 和 `Cmd` 是两个世界 —— `Ctrl` 归 shell、`Cmd` 归应用
+  —— 所以那里 `Cmd`+`W` 就是"关闭当前窗格"，系统的关窗挪到了 `Cmd`+`Shift`+`W`。
+- **macOS 上复制粘贴走的是 `Cmd`+`C` / `V`**：焦点在终端里就复制终端选区、粘贴到当前会话；焦点在设置
+  或对话框的输入框里，则交给系统自己处理（两套不抢同一个键）。
+- **macOS 上不会"选中即复制"**：Mac 的终端习惯是选中后按 `Cmd`+`C`（Windows 上的"选中即复制"保持原样）。
+  右键粘贴两个平台都保留。
+- 全部快捷键都能在 **设置 → 快捷键** 里改，冲突会标出来；macOS 上显示的修饰键是 `Cmd`。
 
 ## 从源码构建
 

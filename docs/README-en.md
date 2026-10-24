@@ -1126,27 +1126,37 @@ before hashing — otherwise every connection would look like a key change.
 
 ## Keyboard shortcuts
 
-Defaults; all are re-bindable in Settings → Shortcuts. The modifier is per platform:
-`Ctrl` on Windows and Linux, `Cmd` (`Meta` in a binding string) on macOS. A stored
-binding is migrated to the platform default only when it is *exactly* the old
-default — a chord someone chose is never rewritten.
+The two platforms get their own chords rather than one table with the modifier
+swapped: a Mac is not "Ctrl with a different modifier". Copy/paste is the clearest
+case — `Ctrl+Shift+C/V` on Windows/Linux (which leaves `Ctrl+C` to the shell as
+SIGINT) versus the `Cmd+C/V` every Mac user already has in their fingers. The
+defaults live in `MAC_BINDING_DEFAULTS` in `src/shared/platform.ts`, one line per
+binding, chosen against iTerm2 and Terminal.app.
 
-| Shortcut | Action |
+| Action | Windows / Linux | macOS |
+| --- | --- | --- |
+| New connection | `Ctrl`+`T` | `Cmd`+`T` |
+| **Close the active pane** | not bound (see below) | `Cmd`+`W` |
+| Close a pane whose session ended | `Ctrl`+`D` | not needed — `Cmd`+`W` closes any pane |
+| Reconnect an ended session | `Ctrl`+`R` | `Cmd`+`R` |
+| **Copy / paste** | `Ctrl`+`Shift`+`C` / `V` | `Cmd`+`C` / `V` |
+| Next / previous tab | `Ctrl`+`Tab` / `Ctrl`+`Shift`+`Tab` | `Cmd`+`Shift`+`]` / `[` |
+| Next / previous session | `Alt`+`]` / `[` | `Cmd`+`Alt`+`→` / `←` |
+| Jump to session N | `Alt`+digit | `Cmd`+digit |
+| Broadcast input | `Ctrl`+`Shift`+`B` | `Cmd`+`Shift`+`B` |
+| Transfers window | `Ctrl`+`Shift`+`J` | `Cmd`+`Shift`+`J` |
+| Snippet bar | `Ctrl`+`Shift`+`S` | `Cmd`+`Shift`+`S` |
+| Arrange panes | `Ctrl`+`Shift`+`T` | `Cmd`+`Shift`+`T` |
+| Terminal font size | `Ctrl`+`=` / `-` | `Cmd`+`=` / `-` |
+| Interface scale | `Ctrl`+`Shift`+`=` / `-` | `Cmd`+`Shift`+`=` / `-` |
+| Focus mode (full screen) | `F11` | `Ctrl`+`Cmd`+`F` |
+| Lock | `Ctrl`+`Alt`+`L` | `Ctrl`+`Cmd`+`L` |
+| Settings | `Ctrl`+`,` | the app menu (`Cmd`+`,`) |
+| Quit | `Ctrl`+`Shift`+`Q` | the app menu (`Cmd`+`Q`) |
+| Close the window | the × button | `Cmd`+`Shift`+`W` |
+
+| Context | Action |
 | --- | --- |
-| `Ctrl`/`Cmd` + `T` | New connection |
-| `Ctrl`/`Cmd` + `=` / `-` | Larger / smaller terminal font |
-| `Ctrl`/`Cmd` + `Shift` + `=` / `-` | Larger / smaller interface |
-| `Ctrl`/`Cmd` + `D` | Close a pane whose session has **already ended** |
-| `Ctrl`/`Cmd` + `,` | Open settings (drawer) |
-| `Ctrl`/`Cmd` + `B` | Toggle the sidebar |
-| `Ctrl`/`Cmd` + `Shift` + `E` | Open the connections drawer |
-| `Ctrl`/`Cmd` + `Shift` + `S` | Toggle the snippet bar |
-| `Ctrl`/`Cmd` + `Shift` + `B` | Broadcast input to every pane |
-| `Ctrl`/`Cmd` + `Shift` + `T` | Arrange panes (tile / columns / rows) |
-| `Ctrl`/`Cmd` + `Shift` + `C` / `V` | Copy / paste |
-| `Ctrl`/`Cmd` + `Tab` / `Ctrl`/`Cmd` + `Shift` + `Tab` | Next / previous tab |
-| `Cmd` + `W` | Close the active pane — **macOS only** |
-| `Cmd` + `Shift` + `W` | Close the window (the system Window-menu item, kept off `Cmd`+`W`) |
 | `Esc` | Close an open drawer |
 | Double-click a session | Connect |
 | Single-click a session | Select |
@@ -1159,9 +1169,22 @@ default — a chord someone chose is never rewritten.
 
 **`Ctrl`+`W` is deliberately not bound on Windows and Linux.** It is
 delete-previous-word in every readline line editor, so an app that closes a pane on
-it eats a key the shell reads. On macOS the two modifiers are separate worlds —
-`Ctrl` belongs to the shell, `Cmd` to the app — so `Cmd`+`W` *is* bound to closing
-the active pane, and the system's window close moved to `Cmd`+`Shift`+`W`.
+it eats a key the shell reads. On macOS `Ctrl` and `Cmd` are separate worlds — `Ctrl`
+belongs to the shell, `Cmd` to the app — so `Cmd`+`W` *is* bound to closing the pane,
+and the system's window close moved to `Cmd`+`Shift`+`W`. `Cmd+Q` and `Cmd+,` are
+provided by the application menu (as on every Mac app), which is why the shortcut
+table lists them as unbound on that platform.
+
+A stored binding is migrated to the platform default only when it is *exactly* one of
+the defaults this app has shipped — a chord someone chose is never rewritten. Moving
+between versions therefore fixes the old transposed Mac defaults (`Cmd+Shift+C`,
+`F11`, …) without touching anything the user set.
+
+Terminal copy/paste is `Cmd`+`C` / `Cmd`+`V` on macOS, and the handlers step aside
+when the focus is in a real text field (`isNativeEditTarget` in
+`src/shared/platform.ts`), so a settings input keeps the system's own `Cmd`+`C`.
+On macOS the terminal also does **not** copy on selection: pressing `Cmd`+`C` is the
+habit there. Right-click paste stays on both platforms.
 
 `Ctrl+D` is the interesting one, because in a live shell it means EOF. A handler may
 return `false` to **decline** the key, and this binding does exactly that while the
