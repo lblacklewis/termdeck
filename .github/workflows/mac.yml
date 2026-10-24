@@ -1,0 +1,90 @@
+name: mac
+
+# macOS builds are produced here rather than on the Windows development machine:
+# a `.dmg` needs `hdiutil` (macOS only), and the native modules this app depends on
+# — node-pty for local shells, serialport for the serial page — ship one prebuilt
+# binary per architecture. `npmRebuild` is false in the packaging config, so
+# electron-builder does not compile them for another target; a job can therefore
+# only produce the architecture it installed its dependencies for. That is why the
+# two architectures build on two runners instead of one.
+#
+# Nothing here is signed: there is no Apple developer account behind this project,
+# so the artifacts are the "right-click → Open" kind. See
+# `docs/交接-macOS适配.md` for what that means for the user.
+on:
+  push:
+    branches: [master, 'release/**']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon. `macos-latest` is arm64 now, but pinned: the label has
+          # moved before, and the architecture is the whole point of the matrix.
+          - runner: macos-15
+            arch: arm64
+          # Intel, which needs its own label: `macos-13` was retired in December
+          # 2025 and `macos-15-intel` is the standard-runner replacement.
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Native modules load on this architecture
+        # A warning rather than a failure: without node-pty the app still runs and
+        # SSH works, it just cannot open a local shell. The annotation makes that
+        # state visible instead of letting it pass silently.
+        run: |
+          node -e "try { require('@lydell/node-pty'); console.log('pty ok') } catch (e) { console.log('::warning title=node-pty::' + e.message) }"
+          node -e "try { require('serialport'); console.log('serial ok') } catch (e) { console.log('::warning title=serialport::' + e.message) }"
+
+      - name: Gates
+        run: |
+          npm run check:probes
+          npm run check:i18n
+          npm run check:s3
+          npm run typecheck
+
+      - name: Platform probe on the real platform
+        # The suites that need a Mac: the darwin branches (local shell, fonts,
+        # keybindings, menu) are asserted with an injected platform on Windows, and
+        # here they run against the real one.
+        run: npm run smoke:mac
+
+      - name: Package (unsigned)
+        run: npm run dist:mac -- --${{ matrix.arch }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Checksums
+        # Shipped next to the artefacts: the Windows build machine cannot hash files
+        # that only exist on a macOS runner, so each architecture carries its own list
+        # and the release page gets both.
+        run: |
+          version=$(node -p "require('./package.json').version")
+          cd release
+          shasum -a 256 *.dmg *.zip > "SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt"
+          cat "SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TermDeck-mac-${{ matrix.arch }}
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/SHA256SUMS-*.txt
+          if-no-files-found: error

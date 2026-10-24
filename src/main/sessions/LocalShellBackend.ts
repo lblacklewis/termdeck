@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { SessionBackend } from './SessionManager'
+import { chooseShell, shellArgs } from './shellChoice'
 
 export interface LocalShellOptions {
   shell?: string
@@ -42,13 +43,6 @@ export function isLocalShellAvailable(): boolean {
   return loadPty() !== null
 }
 
-function defaultShell(): string {
-  if (process.platform === 'win32') {
-    return process.env['COMSPEC'] || 'powershell.exe'
-  }
-  return process.env['SHELL'] || '/bin/bash'
-}
-
 /**
  * Local shell backed by a real PTY (ConPTY on Windows), so interactive
  * programs, colours and resize behave the same as over SSH.
@@ -67,16 +61,19 @@ export class LocalShellBackend extends EventEmitter implements SessionBackend {
       )
     }
 
-    const shell = opts.shell || defaultShell()
-    const args =
-      opts.args ?? (process.platform === 'win32' && /powershell|pwsh/i.test(shell) ? ['-NoLogo'] : [])
+    const choice = chooseShell(process.platform, process.env)
+    const shell = opts.shell || choice.shell
+    // Recomputed from the shell that was actually chosen, so an explicitly
+    // configured PowerShell still gets `-NoLogo` and a Mac shell never does.
+    const args = opts.args ?? shellArgs(process.platform, shell)
 
     this.proc = pty.spawn(shell, args, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd: opts.cwd || process.cwd(),
-      env: { ...process.env, ...(opts.env ?? {}) }
+      // The platform's fill-in-the-gaps environment first, the caller's overrides last.
+      env: { ...process.env, ...choice.env, ...(opts.env ?? {}) }
     })
 
     this.proc.onData((data) => this.emit('data', data))

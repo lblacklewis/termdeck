@@ -14,7 +14,8 @@ import type {
   SidebarSectionState,
   TerminalSettings
 } from '@shared/types'
-import { DEFAULT_KEYBINDINGS, SIDEBAR_SECTION_LABELS, UI_SCALES } from '@shared/types'
+import { SIDEBAR_SECTION_LABELS, UI_SCALES } from '@shared/types'
+import { defaultBindings } from '@shared/platform'
 import { THEMES, findTheme } from '@shared/themes'
 import {
   HIGHLIGHT_RULES,
@@ -95,6 +96,17 @@ export function SettingsDialog({
       alive = false
     }
   }, [])
+
+  /**
+   * What "Reset to default" means on this machine.
+   *
+   * The defaults are not the same everywhere — macOS ships `Cmd+…` where Windows
+   * ships `Ctrl+…`, and the two differ on `Cmd+W` as well — so the comparison has to
+   * be against this platform's list. Until `app:info` lands (milliseconds) the
+   * Windows/Linux list is used, which is the same fallback the main process applies
+   * for an unknown platform.
+   */
+  const platformDefaults = useMemo(() => defaultBindings(appInfo?.platform ?? ''), [appInfo])
 
   // Shortcut list interaction state.
   const [menu, setMenu] = useState<{ x: number; y: number; id: string } | null>(null)
@@ -304,7 +316,7 @@ export function SettingsDialog({
     })
   }
 
-  const shortcutMenuItems = (binding: Keybinding): MenuItem[] => {    const original = DEFAULT_KEYBINDINGS.find((b) => b.id === binding.id)
+  const shortcutMenuItems = (binding: Keybinding): MenuItem[] => {    const original = platformDefaults.find((b) => b.id === binding.id)
     return [
       { id: 'rebind', label: t('settingsdialog.change_shortcut', 'Change shortcut...') },
       { id: 'clear', label: t('settingsdialog.remove_shortcut', 'Remove shortcut'), disabled: !binding.keys },
@@ -323,7 +335,7 @@ export function SettingsDialog({
     if (actionId === 'rebind') setRecording(binding.id)
     else if (actionId === 'clear') setBindingKeys(binding.id, '')
     else if (actionId === 'reset') {
-      const original = DEFAULT_KEYBINDINGS.find((b) => b.id === binding.id)
+      const original = platformDefaults.find((b) => b.id === binding.id)
       if (original) setBindingKeys(binding.id, original.keys)
     } else if (actionId === 'moveUp' || actionId === 'moveDown') {
       setDraft((d) => {

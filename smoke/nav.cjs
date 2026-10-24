@@ -37,8 +37,12 @@ async function main() {
   mod.storeAccess().layout.clear()
 
   // The app entry does this before creating its window; the probes build their own
-  // window, so they have to ask for the same thing.
-  mod.removeApplicationMenu()
+  // window, so they have to ask for the same thing. On Windows and Linux this is the
+  // same "no application menu" it has always been.
+  mod.installApplicationMenu({
+    appName: 'TermDeck',
+    askQuit: function () {}
+  })
 
   const win = new BrowserWindow({
     width: 1500,

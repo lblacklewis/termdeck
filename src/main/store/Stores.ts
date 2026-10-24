@@ -18,6 +18,7 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { isHighlightRuleId, isHighlightSchemeId } from '../../shared/highlight'
+import { defaultSettings, migrateBindingKeys } from '../../shared/platform'
 import {
   DEFAULT_BREAK_SETTINGS,
   DEFAULT_RECONNECT_SETTINGS,
@@ -91,12 +92,13 @@ export function defaultScaleForWidth(logicalWidth: number): number {
 /** Merge stored settings with defaults so new options appear for old files. */
 function mergeSettings(stored: Partial<AppSettings> | null): AppSettings {
   if (!stored) {
-    const fresh = structuredClone(DEFAULT_SETTINGS)
+    // A fresh install gets the defaults of the platform it is running on.
+    const fresh = structuredClone(defaultSettings(process.platform))
     if (screenDefaultScale > 0) fresh.uiScale = screenDefaultScale
     return fresh
   }
 
-  const defaults = DEFAULT_SETTINGS
+  const defaults = defaultSettings(process.platform)
 
   return {
     terminal: mergeTerminal(stored.terminal, defaults.terminal),
@@ -282,14 +284,12 @@ export function clampScale(value: unknown): number {
  * A stored file is the user's word, so a value is only rewritten when it is exactly
  * the old default: anything else means they chose it themselves, and that stays.
  *
- * `closeSession` moved off `Ctrl+W`, which is delete-previous-word in every readline
- * line editor — bash, zsh, and the Python and Node REPLs. The app was eating a key
- * the terminal reads, and every install that has ever run has the old value on disk,
- * so changing the default alone would have fixed it for nobody.
+ * The retired values live in `shared/platform.ts` because they are not the same on
+ * every platform: `closeSession` moved off `Ctrl+W` (delete-previous-word in every
+ * readline line editor) on Windows and Linux, while on macOS that same stored value
+ * becomes `Meta+W` — `Cmd+W` is not a key the shell reads. Only the exact old
+ * default is ever touched, so a chord the user chose is never rewritten.
  */
-const RETIRED_BINDING_DEFAULTS: Record<string, { from: string; to: string }> = {
-  closeSession: { from: 'Ctrl+W', to: '' }
-}
 
 /**
  * Reconcile stored keybindings with the built-in list.
@@ -300,7 +300,7 @@ const RETIRED_BINDING_DEFAULTS: Record<string, { from: string; to: string }> = {
  * stay deleted; genuinely new built-ins are appended at the end.
  */
 function mergeKeybindings(stored: unknown): Keybinding[] {
-  const defaults = DEFAULT_SETTINGS.keybindings
+  const defaults = defaultSettings(process.platform).keybindings
 
   if (!Array.isArray(stored)) return defaults.map((b) => ({ ...b }))
 
@@ -313,12 +313,11 @@ function mergeKeybindings(stored: unknown): Keybinding[] {
 
   const merged: Keybinding[] = valid.map((entry) => {
     const def = canonical.get(entry.id)
-    const retired = RETIRED_BINDING_DEFAULTS[entry.id]
     return {
       id: entry.id,
       // A built-in keeps its canonical label; a custom binding keeps its own.
       label: def ? def.label : entry.label || entry.id,
-      keys: retired && entry.keys === retired.from ? retired.to : entry.keys,
+      keys: migrateBindingKeys(process.platform, entry.id, entry.keys),
       builtin: !!def
     }
   })

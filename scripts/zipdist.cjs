@@ -8,18 +8,31 @@
  * attach to a GitHub release. Node's zlib is used rather than a dependency, and
  * the archive stores forward-slash paths with the executable bit set for Unix
  * tools that unpack it elsewhere.
+ *
+ * **Windows only, on purpose.** The targets are resolved through
+ * `portableZipTarget`, which answers `null` for macOS and Linux. A macOS bundle is
+ * a directory full of symlinks and code-signing metadata, and this writer only
+ * stores regular files: zipping it here would produce an app that looks unpacked
+ * and cannot start. electron-builder's own `zip` target builds the macOS archive
+ * (`npm run dist:mac`), and Linux ships as an AppImage.
  */
 const fs = require('node:fs')
 const path = require('node:path')
 const zlib = require('node:zlib')
 
 const ROOT = path.join(__dirname, '..')
-const SRC = path.join(ROOT, 'release', 'win-unpacked')
 const OUT_DIR = path.join(ROOT, 'release')
 
-if (!fs.existsSync(SRC)) {
-  console.error(`No unpacked build at ${SRC}\nRun: npm run pack:win`)
-  process.exit(1)
+/**
+ * Where the portable archive is built for a platform, or `null` when this script
+ * is the wrong tool for it.
+ */
+function portableZipTarget(platform, arch, version) {
+  if (platform !== 'win32') return null
+  return {
+    dir: 'win-unpacked',
+    file: `TermDeck-${version}-win-${arch}-portable.zip`
+  }
 }
 
 // ---- CRC32, needed by the zip format -------------------------------------
@@ -58,11 +71,32 @@ function dosDateTime(date) {
 }
 
 function main() {
-  const version = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')).version
-  const out = path.join(OUT_DIR, `TermDeck-${version}-win-x64-portable.zip`)
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'))
+  /*
+   * The arch of the *build*, not of this Node process: `build.win` targets x64, and
+   * an arm64 Windows machine running an arm64 Node would otherwise name the archive
+   * after itself while packaging an x64 app.
+   */
+  const target = portableZipTarget(process.platform, 'x64', pkg.version)
+
+  if (!target) {
+    console.error(
+      'pack:zip builds the Windows portable archive only (this is ' + process.platform + ').\n' +
+        'On macOS run: npm run dist:mac — electron-builder writes the .zip itself.'
+    )
+    process.exit(1)
+  }
+
+  const SRC = path.join(OUT_DIR, target.dir)
+  const out = path.join(OUT_DIR, target.file)
+
+  if (!fs.existsSync(SRC)) {
+    console.error(`No unpacked build at ${SRC}\nRun: npm run pack:win`)
+    process.exit(1)
+  }
 
   const files = walk(SRC)
-  console.log(`zipping ${files.length} files from win-unpacked …`)
+  console.log(`zipping ${files.length} files from ${target.dir} …`)
 
   const chunks = []
   const central = []
@@ -139,4 +173,8 @@ function main() {
   console.log('Unzip it and run TermDeck.exe — no installation needed.')
 }
 
-main()
+// Exported so a suite can check the platform mapping without writing a 120 MB zip;
+// the CLI path above still runs when this file is the entry point.
+module.exports = { portableZipTarget }
+
+if (require.main === module) main()

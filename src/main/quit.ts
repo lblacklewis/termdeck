@@ -36,6 +36,36 @@ export function registerQuitIpc(): void {
 }
 
 /**
+ * Ask this window's renderer to put the confirmation in front of the user.
+ *
+ * Two paths arrive here: the window's `close` event, and macOS's Quit menu item
+ * (which must not call `app.quit()` itself — that would tear the sessions down
+ * before the user had been asked).
+ */
+export function askForQuit(win: BrowserWindow): void {
+  if (win.webContents.isDestroyed()) {
+    requestQuit()
+    return
+  }
+  win.webContents.send('app:quit-requested', { sessions: sessionManager.list().length })
+}
+
+/**
+ * Ask the window in front, or quit outright when there is none.
+ *
+ * With no windows there are no sessions left to warn about, which is also the state
+ * macOS leaves the app in after the last window is closed.
+ */
+export function requestQuitConfirmation(): void {
+  const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+  if (!win) {
+    requestQuit()
+    return
+  }
+  askForQuit(win)
+}
+
+/**
  * Hold this window's close until the renderer confirms.
  *
  * A renderer that is already gone cannot be asked, so in that case the close is
@@ -49,6 +79,6 @@ export function attachQuitConfirmation(win: BrowserWindow): void {
       return
     }
     event.preventDefault()
-    win.webContents.send('app:quit-requested', { sessions: sessionManager.list().length })
+    askForQuit(win)
   })
 }

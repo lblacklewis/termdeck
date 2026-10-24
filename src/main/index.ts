@@ -2,12 +2,16 @@ import { app, BrowserWindow, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { registerIpc, loadSettingsForStartup, stopAllTunnels } from './ipc'
 import { attachFocusMode, registerFocusIpc } from './focus'
-import { attachQuitConfirmation, registerQuitIpc } from './quit'
-import { attachDevShortcuts, removeApplicationMenu } from './shortcuts'
+import { attachQuitConfirmation, registerQuitIpc, requestQuitConfirmation, isQuitting } from './quit'
+import { attachDevShortcuts } from './shortcuts'
+import { installApplicationMenu } from './menu'
 import { sessionManager } from './sessions/SessionManager'
 import { defaultScaleForWidth, setScreenDefaultScale } from './store/Stores'
 
 const isDev = !app.isPackaged
+
+/** Used as the macOS menu title and in its "Quit …" item. */
+const APP_NAME = 'TermDeck'
 
 /**
  * A starting size that suits the display it opens on.
@@ -107,14 +111,11 @@ if (!gotLock) {
     registerFocusIpc()
 
     /*
-     * No application menu.
-     *
-     * The default one is invisible until Alt is pressed, and every Alt-based
-     * shortcut in the app would also reveal the menu bar — which shifts the whole
-     * layout down for as long as the modifier is held. The app has its own UI for
-     * everything the default menu offered.
+     * The application menu: none on Windows and Linux, a minimal App/Edit/Window
+     * menu on macOS, where Edit's roles are what provide Cmd+C / Cmd+V / Cmd+A at
+     * all. See `menu.ts` for why the Quit item is ours rather than the `quit` role.
      */
-    removeApplicationMenu()
+    installApplicationMenu({ appName: APP_NAME, askQuit: requestQuitConfirmation })
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -130,6 +131,17 @@ if (!gotLock) {
   })
 
   app.on('before-quit', () => {
+    /*
+     * Only once the quit is already confirmed.
+     *
+     * On macOS the Dock's own "Quit" calls `app.quit()` directly, before the
+     * renderer has been asked anything — and the window's `close` then cancels
+     * that quit if the user chooses to stay. Teardown here would have ended every
+     * session behind the confirmation dialog, and cancelling would have left an
+     * app with nothing in it. The confirmed path (`requestQuit`) sets the flag, and
+     * `window-all-closed` disposes as well, so nothing is skipped.
+     */
+    if (!isQuitting()) return
     sessionManager.disposeAll()
     stopAllTunnels()
   })

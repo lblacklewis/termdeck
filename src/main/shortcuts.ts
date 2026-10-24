@@ -1,24 +1,14 @@
-import { app, Menu, type BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 
 /**
- * Window-level keyboard plumbing that has to happen in the main process.
+ * Development-only keyboard plumbing.
  *
- * Two separate things live here, both about not fighting the page:
- *
- *  - the application menu is removed outright. The default one is invisible until
- *    `Alt` is pressed, and every `Alt`-based shortcut in the app (`Alt`+digit to
- *    switch rail sections, `Alt+[` / `Alt+]`) would also reveal the menu bar,
- *    which shifts the whole layout down for as long as the modifier is held. The
- *    app has its own UI for everything the default menu offered.
- *
- *  - development gets back the two accelerators that were doing real work
- *    (devtools and reload), and only in a development build: a keystroke that
- *    reloads the app is not something to ship by accident.
+ * The application menu itself lives in `menu.ts` — it has to exist on macOS and be
+ * removed everywhere else, and that decision belongs with the roles that make it
+ * necessary. What is left here is the pair of accelerators a development build wants
+ * back (devtools and reload), and only in a development build: a keystroke that
+ * reloads the app is not something to ship by accident.
  */
-
-export function removeApplicationMenu(): void {
-  Menu.setApplicationMenu(null)
-}
 
 export function attachDevShortcuts(win: BrowserWindow): void {
   if (app.isPackaged) return

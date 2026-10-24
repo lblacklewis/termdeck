@@ -11,50 +11,67 @@
  */
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { BUNDLED_MONOSPACE_FONTS, fallbackMonospaceFonts } from '../shared/platform'
 import type { FontChoices } from '../shared/types'
 
 const run = promisify(execFile)
 
-/**
- * Terminal faces that ship inside the app.
- *
- * These are the ones people expect to be able to choose for a terminal and which
- * a machine very often does not have. The @font-face rules in `global.css` carry
- * the same two names, so picking one of these always renders — whereas the rest of
- * the fallback list below only ever produced a silent fallback.
- */
-export const BUNDLED_MONOSPACE_FONTS = ['Roboto Mono', 'JetBrains Mono']
-
-/** Fonts every desktop is likely to have, used as autocomplete suggestions. */
-export const FALLBACK_MONOSPACE_FONTS = [
-  'Cascadia Mono',
-  'Cascadia Code',
-  'Consolas',
-  'Courier New',
-  'DejaVu Sans Mono',
-  'Fira Code',
-  'Hack',
-  'IBM Plex Mono',
-  'Inconsolata',
-  'JetBrains Mono',
-  'Lucida Console',
-  'Menlo',
-  'Monaco',
-  'Noto Sans Mono',
-  'Roboto Mono',
-  'Source Code Pro',
-  'Ubuntu Mono'
-]
+export { BUNDLED_MONOSPACE_FONTS }
 
 /** Heuristic: fonts whose name suggests fixed width. */
 const MONO_HINT = /mono|consol|courier|terminal|fixed|code|hack|inconsolata|menlo/i
 
 /**
+ * Family names out of `system_profiler SPFontsDataType -json`.
+ *
+ * macOS has no `fc-list`, so the enumeration goes through `system_profiler`,
+ * which prints one dictionary per font: `_name` is the registered family name
+ * (what a CSS `font-family` and xterm's `fontFamily` match on), while `path` is
+ * a file name that would make a nonsense picker. The nesting of this report has
+ * changed between macOS releases, so every `_name` in the document is collected
+ * rather than one level guessed at.
+ *
+ * Kept separate from the process call so it can be tested with a fixture: the
+ * shape of this output is the only thing that can be checked off a Mac.
+ */
+export function parseMacFontFamilies(stdout: string): string[] {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stdout)
+  } catch {
+    return []
+  }
+
+  const names = new Set<string>()
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const item of node) visit(item)
+      return
+    }
+    if (!node || typeof node !== 'object') return
+    const record = node as Record<string, unknown>
+    if (typeof record['_name'] === 'string') {
+      const name = record['_name'].trim()
+      if (name && name.length < 64) names.add(name)
+    }
+    // Every nested value, not just `_items`: the report shape has changed between
+    // macOS releases, and the one thing that must not happen is parsing it into an
+    // empty list while the data was right there under another key.
+    for (const value of Object.values(record)) {
+      if (value && typeof value === 'object') visit(value)
+    }
+  }
+  visit(parsed)
+
+  return [...names]
+}
+
+/**
  * Enumerate installed font families.
  *
- * Windows reads the registry through PowerShell, Linux uses `fc-list`. macOS
- * would need a different route and simply falls back, which is honest: the
- * picker still works, it just offers the shortlist.
+ * Windows reads the registry through PowerShell, Linux uses `fc-list`, macOS
+ * goes through `system_profiler` (which is slow, hence the timeout and the
+ * caller's cache). Any failure at all returns an empty list.
  */
 export async function listInstalledFonts(): Promise<string[]> {
   try {
@@ -94,6 +111,16 @@ export async function listInstalledFonts(): Promise<string[]> {
       }
       return [...names]
     }
+
+    if (process.platform === 'darwin') {
+      // The whole font catalogue is a few MB of JSON and takes seconds on a cold
+      // cache; the caller keeps the result for the life of the process.
+      const { stdout } = await run('system_profiler', ['SPFontsDataType', '-json'], {
+        timeout: 20000,
+        maxBuffer: 32 * 1024 * 1024
+      })
+      return parseMacFontFamilies(stdout)
+    }
   } catch {
     // Enumeration is best-effort by design.
     return []
@@ -126,7 +153,7 @@ export async function listFontChoices(): Promise<FontChoices> {
   // font, and excluding them would be a silent, unexplainable omission.
   const others = installed.filter((name) => !offered.has(name.toLowerCase())).sort((a, b) => a.localeCompare(b))
 
-  const suggested = FALLBACK_MONOSPACE_FONTS.filter(
+  const suggested = fallbackMonospaceFonts(process.platform).filter(
     (name) => !offered.has(name.toLowerCase()) && !installedLower.has(name.toLowerCase())
   )
 
