@@ -6,8 +6,8 @@
 
 多窗格分屏 · 内置 SFTP · 片段库 · REST / S3 / 端口转发
 
-![版本](https://img.shields.io/badge/版本-2.0.0-4c8dff)
-![平台](https://img.shields.io/badge/平台-Windows-4c8dff)
+![版本](https://img.shields.io/badge/版本-2.1.0-4c8dff)
+![平台](https://img.shields.io/badge/平台-Windows%20%7C%20macOS-4c8dff)
 ![许可](https://img.shields.io/badge/许可-MIT-4c8dff)
 
 [功能](#功能) · [截图](#截图) · [安装](#安装) · [快捷键](#快捷键) · [从源码构建](#从源码构建) · **English** → [docs/README-en.md](docs/README-en.md)
@@ -105,34 +105,60 @@ S3 与端口转发两页还在补）。所有主题都通过对比度审计。
 
 从 [Releases](https://github.com/lblacklewis/termdeck/releases) 下载：
 
+**Windows（x64）**
+
 | 文件 | 说明 |
 | --- | --- |
 | `TermDeck-Setup-<版本>.exe` | 安装版（可选安装目录、建快捷方式） |
 | `TermDeck-<版本>-x64.exe` | 单文件便携版（每次启动解包，启动稍慢） |
 | `TermDeck-<版本>-win-x64-portable.zip` | 解压即用，**推荐给别人的时候发这个** |
-| `SHA256SUMS-<版本>.txt` | 校验值 |
 
-**首次运行会被 SmartScreen 拦一下**：安装包没有代码签名证书，Windows 无法确认发布者，点「更多信息 → 仍要运行」即可。
-也可以用 Mark-of-the-Web 的方式避免：右键文件 → 属性 → 勾选**解除锁定**；先解除 zip 再解压最干净。
-细节（包括证书要多少钱、怎么验签名）见 [docs/安装与信任.md](docs/安装与信任.md)。
+**macOS（arm64 / x64 两个包，不做 universal）**
+
+| 文件 | 说明 |
+| --- | --- |
+| `TermDeck-<版本>-arm64.dmg` | Apple Silicon（M 系列） |
+| `TermDeck-<版本>-x64.dmg` | Intel Mac |
+| `TermDeck-<版本>-<架构>.zip` | 同一个 app 的压缩包 |
+
+`SHA256SUMS-<版本>.txt` 里是 Windows 三个产物的校验值；mac 的 dmg / zip 由 CI 构建，
+各带一份 `SHA256SUMS-<版本>-mac-<架构>.txt`。
+
+**Windows 首次运行会被 SmartScreen 拦一下**：安装包没有代码签名证书，Windows 无法确认发布者，
+点「更多信息 → 仍要运行」即可。也可以用 Mark-of-the-Web 的方式避免：右键文件 → 属性 →
+勾选**解除锁定**；先解除 zip 再解压最干净。细节（包括证书要多少钱、怎么验签名）见
+[docs/安装与信任.md](docs/安装与信任.md)。
+
+**macOS 版没有签名、也没有公证**，第一次打开同样会被拦：
+
+1. 在「访达」里 **右键（或按住 Control 点击）TermDeck.app → 打开**，再点一次「打开」；
+2. 或者 `xattr -dr com.apple.quarantine /Applications/TermDeck.app`，之后就能正常双击；
+3. 应用**换过位置**之后，之前存下的密码可能取不回来（mac 上加密走钥匙串），需要重新输一次。
 
 ## 快捷键
 
+修饰键按平台给默认值：**Windows / Linux 是 `Ctrl`，macOS 是 `Cmd`**（下表的 `Ctrl`/`Cmd` 就是这个意思）。
+`Alt` 在两个平台上都是 `Alt`。
+
 | 键 | 作用 |
 | --- | --- |
-| `Ctrl` + `T` | 新建连接 |
-| `Ctrl` + `W` | 关闭当前窗格 |
-| `Ctrl` + `D` | 会话已结束时关闭窗格（活着的 shell 里仍是 EOF） |
-| `Ctrl` + `R` | **重连**（会话结束、或从上次布局恢复出来的窗格） |
-| `Ctrl` + `Shift` + `B` | 广播输入 |
-| `Ctrl` + `Shift` + `J` | 传输窗口 |
-| `Ctrl` + `Shift` + `S` | 片段条开关 |
-| `Ctrl` + `Shift` + `T` | 一键排列窗格 |
-| `Ctrl` + `=` / `Ctrl` + `-` | 只改终端字号 |
-| `Ctrl` + `Shift` + `=` / `-` | 界面缩放 |
+| `Ctrl`/`Cmd` + `T` | 新建连接 |
+| `Cmd` + `W` | 关闭当前窗格（**仅 macOS**） |
+| `Ctrl`/`Cmd` + `D` | 会话已结束时关闭窗格（活着的 shell 里仍是 EOF） |
+| `Ctrl`/`Cmd` + `R` | **重连**（会话结束、或从上次布局恢复出来的窗格） |
+| `Ctrl`/`Cmd` + `Shift` + `B` | 广播输入 |
+| `Ctrl`/`Cmd` + `Shift` + `J` | 传输窗口 |
+| `Ctrl`/`Cmd` + `Shift` + `S` | 片段条开关 |
+| `Ctrl`/`Cmd` + `Shift` + `T` | 一键排列窗格 |
+| `Ctrl`/`Cmd` + `=` / `-` | 只改终端字号 |
+| `Ctrl`/`Cmd` + `Shift` + `=` / `-` | 界面缩放 |
 | `F11` | 专注模式 |
-| `Ctrl` + `Alt` + `L` | 锁屏 |
+| `Ctrl`/`Cmd` + `Alt` + `L` | 锁屏 |
 | `Alt` + 数字 / `Alt` + `[` `]` | 切换会话（跨分组，首尾循环） |
+
+`Ctrl` + `W` **默认不绑定**：它在 readline（bash / zsh / Python / Node REPL）里是"删掉前一个词"，
+应用不该抢。mac 上的 `Cmd` + `W` 是另一回事 —— `Ctrl` 归 shell、`Cmd` 归应用，所以那一版默认绑了
+"关闭当前窗格"，系统的关窗挪到了 `Cmd` + `Shift` + `W`。
 
 全部快捷键都能在 **设置 → 快捷键** 里改，冲突会标出来。
 
@@ -141,12 +167,16 @@ S3 与端口转发两页还在补）。所有主题都通过对比度审计。
 ```bash
 npm install
 npm run dev          # 开发模式
-npm run verify       # 全部检查：类型、i18n、54 个探针套件
-npm run dist:win     # 安装包 + 便携版
-npm run pack:zip     # 解压即用的 zip
+npm run verify       # 全部检查：类型、i18n、55 个探针
+npm run dist:win     # Windows：安装包 + 便携版
+npm run pack:zip     # Windows：解压即用的 zip
+npm run dist:mac     # macOS：dmg + zip（arm64 与 x64）
 ```
 
-需要 Node 20+ 与 Windows（本地 shell 依赖 ConPTY）。架构说明、发布流程与各处"为什么这么写"的决定，
+需要 Node 20+；Windows 上本地 shell 依赖 ConPTY，macOS 上起的是 `$SHELL`（默认 zsh）。
+**mac 的 dmg 只能在 Mac 上打**（要 `hdiutil`），仓库里的
+[.github/workflows/mac.yml](.github/workflows/mac.yml) 会用两个 macOS runner 分别出 arm64 与 x64 包。
+架构说明、发布流程与各处"为什么这么写"的决定，
 见 [docs/README-en.md](docs/README-en.md) 与 [docs/交接-下一批需求.md](docs/交接-下一批需求.md)。
 
 ## 许可

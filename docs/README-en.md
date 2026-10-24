@@ -704,6 +704,27 @@ about 273 MB — mostly the Electron runtime, which is normal.
 to download the NSIS toolchain on first run, so they need network access;
 `pack:zip` does not.
 
+### Building for macOS
+
+The same packaging has to run on a Mac: a `.dmg` is made with `hdiutil`.
+
+```bash
+npm run dist:mac               # dmg + zip, arm64 and x64
+npm run dist:mac -- --arm64    # just one architecture
+```
+
+`.github/workflows/mac.yml` runs that on **two** runners — `macos-15` (arm64) and
+`macos-15-intel` (x64) — rather than building both architectures in one job.
+`npmRebuild` is `false`, so electron-builder never recompiles a native module for
+another target, and `@lydell/node-pty` / `serialport` ship one prebuilt binary per
+architecture (`@lydell/node-pty-darwin-arm64`, `-darwin-x64`, …): a job can only
+package the architecture its dependencies were installed for. (`macos-13`, the old
+Intel label, was retired in December 2025; `macos-15-intel` is its replacement.)
+
+Each runner also writes `SHA256SUMS-<version>-mac-<arch>.txt` next to what it built:
+the Windows machine cannot hash a file that only exists on a macOS runner, so the
+two platforms carry separate lists.
+
 The app icon is currently Electron's default. To set one, add a 256×256
 `build/icon.ico` — electron-builder picks it up automatically.
 
@@ -782,6 +803,13 @@ the zip or the installer when handing a build to someone. The whole picture,
 including what a certificate costs and how to verify a signature, is in
 `docs/安装与信任.md`. Each release also ships a `SHA256SUMS-<version>.txt`.
 
+**macOS is the same story, one level stricter.** The builds are unsigned *and*
+un-notarized, so Gatekeeper refuses the first launch outright: right-click →
+**Open** (or `xattr -dr com.apple.quarantine /Applications/TermDeck.app`). There is
+one consequence beyond the prompt: `safeStorage` on macOS is backed by the
+Keychain, so moving the app — or giving it a different signature — can make
+previously stored passwords unreadable, and they have to be typed again.
+
 ### If the installer step fails
 
 `electron-builder` may report `Can't open output file` and leave a ~0.2 MB
@@ -833,7 +861,9 @@ npm run smoke:snippet   # snippets send verbatim; a line break is what runs them
 npm run smoke:layout    # layout persists across a real restart, panes reconnect after it
 npm run smoke:repeat    # 6 alternating pane-geometry passes, incl. a scale change
 npm run smoke:contrast  # WCAG contrast audit across every theme and page
-npm run smoke:screen    # what display geometry and scaling the app is running undernpm run verify          # all of the above
+npm run smoke:mac       # the macOS branches with an injected platform: shell, Cmd bindings, menu, fonts
+npm run smoke:screen    # what display geometry and scaling the app is running under
+npm run verify          # all of the above
 ```
 
 A note on the UI probes: several of them run the window with `show: true`. That is
@@ -1096,23 +1126,27 @@ before hashing — otherwise every connection would look like a key change.
 
 ## Keyboard shortcuts
 
-Defaults; all are re-bindable in Settings → Shortcuts.
+Defaults; all are re-bindable in Settings → Shortcuts. The modifier is per platform:
+`Ctrl` on Windows and Linux, `Cmd` (`Meta` in a binding string) on macOS. A stored
+binding is migrated to the platform default only when it is *exactly* the old
+default — a chord someone chose is never rewritten.
 
 | Shortcut | Action |
 | --- | --- |
 | `Ctrl`/`Cmd` + `T` | New connection |
-| `Ctrl`/`Cmd` + `W` | Close the active session |
-| `Ctrl`+`=` / `-` | Larger / smaller terminal font |
-| `Ctrl`+`Shift`+`=` / `-` | Larger / smaller interface |
+| `Ctrl`/`Cmd` + `=` / `-` | Larger / smaller terminal font |
+| `Ctrl`/`Cmd` + `Shift` + `=` / `-` | Larger / smaller interface |
 | `Ctrl`/`Cmd` + `D` | Close a pane whose session has **already ended** |
 | `Ctrl`/`Cmd` + `,` | Open settings (drawer) |
 | `Ctrl`/`Cmd` + `B` | Toggle the sidebar |
-| `Ctrl` + `Shift` + `E` | Open the connections drawer |
-| `Ctrl` + `Shift` + `S` | Toggle the snippet bar |
-| `Ctrl` + `Shift` + `B` | Broadcast input to every pane |
-| `Ctrl` + `Shift` + `T` | Arrange panes (tile / columns / rows) |
-| `Ctrl` + `Shift` + `C` / `V` | Copy / paste |
-| `Ctrl` + `Tab` / `Ctrl` + `Shift` + `Tab` | Next / previous tab |
+| `Ctrl`/`Cmd` + `Shift` + `E` | Open the connections drawer |
+| `Ctrl`/`Cmd` + `Shift` + `S` | Toggle the snippet bar |
+| `Ctrl`/`Cmd` + `Shift` + `B` | Broadcast input to every pane |
+| `Ctrl`/`Cmd` + `Shift` + `T` | Arrange panes (tile / columns / rows) |
+| `Ctrl`/`Cmd` + `Shift` + `C` / `V` | Copy / paste |
+| `Ctrl`/`Cmd` + `Tab` / `Ctrl`/`Cmd` + `Shift` + `Tab` | Next / previous tab |
+| `Cmd` + `W` | Close the active pane — **macOS only** |
+| `Cmd` + `Shift` + `W` | Close the window (the system Window-menu item, kept off `Cmd`+`W`) |
 | `Esc` | Close an open drawer |
 | Double-click a session | Connect |
 | Single-click a session | Select |
@@ -1122,6 +1156,12 @@ Defaults; all are re-bindable in Settings → Shortcuts.
 | Drag a session onto a folder | Move it into that folder |
 | Drag a session onto empty tree space | Move it back to the top level |
 | Right-click a pane | Paste the clipboard |
+
+**`Ctrl`+`W` is deliberately not bound on Windows and Linux.** It is
+delete-previous-word in every readline line editor, so an app that closes a pane on
+it eats a key the shell reads. On macOS the two modifiers are separate worlds —
+`Ctrl` belongs to the shell, `Cmd` to the app — so `Cmd`+`W` *is* bound to closing
+the active pane, and the system's window close moved to `Cmd`+`Shift`+`W`.
 
 `Ctrl+D` is the interesting one, because in a live shell it means EOF. A handler may
 return `false` to **decline** the key, and this binding does exactly that while the
