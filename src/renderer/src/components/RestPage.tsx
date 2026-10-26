@@ -9,6 +9,7 @@ import {
   type SavedRestRequest
 } from '@shared/types'
 import { REST_TEMPLATES } from '@shared/restTemplates'
+import { headersJsonOf, parseHeadersJson, type HeaderJsonProblem } from '@shared/restHeaders'
 import { t } from '../i18n'
 
 const METHODS: RestRequest['method'][] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
@@ -22,88 +23,6 @@ const EMPTY: RestRequest = {
 
 /** Bodies longer than this are folded to the first screenful. */
 const FOLD_AFTER = 400
-
-/** Why headers typed as JSON could not be used, as a code the page can translate. */
-type HeaderJsonProblem =
-  | { code: 'not-json' }
-  | { code: 'not-object' }
-  | { code: 'bad-value'; detail: string }
-  | { code: 'bad-line'; detail: string }
-
-/**
- * Read headers out of one text box.
- *
- * Forgiving about the two shapes people actually paste — a JSON object, or the lines of a
- * `curl -H` block — and strict about everything else: a typo must not quietly turn into a
- * request that is missing the header somebody meant to authenticate with.
- *
- * Values are coerced, not rejected: `{"X-Count": 3}` and `{"Accept": ["a", "b"]}` are
- * things people write, and both have an obvious wire form.
- */
-function parseHeadersJson(
-  text: string
-): { ok: true; headers: RestHeader[] } | { ok: false; problem: HeaderJsonProblem } {
-  const trimmed = text.trim()
-  if (!trimmed) return { ok: true, headers: [] }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(trimmed)
-  } catch {
-    /*
-     * A `curl -H` block is line-based, so it is not JSON at all: try it before refusing —
-     * but only for text that is not clearly an attempt at JSON. Otherwise a typo like
-     * `{ "X-Broken": }` would be read as a header named `{ "X-Broken"`, which is exactly
-     * the silent misreading this function exists to prevent.
-     */
-    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
-      return { ok: false, problem: { code: 'not-json' } }
-    }
-    const lines = trimmed.split('\n').map((line) => line.trim()).filter(Boolean)
-    const headers: RestHeader[] = []
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index].replace(/,$/, '').replace(/^['"]|['"]$/g, '')
-      const at = line.indexOf(':')
-      // A header name is a token: no spaces, no braces, no quotes.
-      if (at <= 0 || !/^[A-Za-z0-9!#$%&'*+.^_|~-]+$/.test(line.slice(0, at).trim())) {
-        return { ok: false, problem: { code: 'bad-line', detail: line } }
-      }
-      headers.push({ name: line.slice(0, at).trim(), value: line.slice(at + 1).trim() })
-    }
-    return { ok: true, headers }
-  }
-
-  if (Array.isArray(parsed)) {
-    const headers: RestHeader[] = []
-    for (const entry of parsed) {
-      if (typeof entry !== 'string') return { ok: false, problem: { code: 'not-object' } }
-      const at = entry.indexOf(':')
-      if (at <= 0) return { ok: false, problem: { code: 'bad-line', detail: entry } }
-      headers.push({ name: entry.slice(0, at).trim(), value: entry.slice(at + 1).trim() })
-    }
-    return { ok: true, headers }
-  }
-
-  if (!parsed || typeof parsed !== 'object') return { ok: false, problem: { code: 'not-object' } }
-
-  const headers: RestHeader[] = []
-  for (const [name, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (value === null || value === undefined) {
-      headers.push({ name, value: '' })
-      continue
-    }
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      headers.push({ name, value: String(value) })
-      continue
-    }
-    if (Array.isArray(value) && value.every((item) => typeof item !== 'object')) {
-      headers.push({ name, value: value.map((item) => String(item)).join(', ') })
-      continue
-    }
-    return { ok: false, problem: { code: 'bad-value', detail: name } }
-  }
-  return { ok: true, headers }
-}
 
 /** How old the entry is, in the shortest form that is still unambiguous. */
 function ago(at: number): string {
@@ -154,6 +73,15 @@ export function RestPage(): JSX.Element {
   const [headerMode, setHeaderMode] = useState<'rows' | 'json'>('rows')
   const [headersJson, setHeadersJson] = useState('{}')
   const [headersProblem, setHeadersProblem] = useState<HeaderJsonProblem | null>(null)
+  /**
+   * What `request.headers` looked like when the JSON box last agreed with it.
+   *
+   * The two editors are one list, so switching between them has to carry the
+   * data — but not by rewriting the box every time: text that does not parse yet
+   * (a half-typed object, a paste with something wrong in it) exists nowhere
+   * else, so it is kept until the rows are actually edited behind its back.
+   */
+  const headersJsonForRef = useRef(headersJsonOf([]))
   /** Inline rename in the kept-requests list; the id being renamed, not a boolean. */
   const [renamingId, setRenamingId] = useState('')
   const [renameDraft, setRenameDraft] = useState('')
@@ -828,19 +756,22 @@ export function RestPage(): JSX.Element {
                   type="button"
                   data-testid="rest-headers-json"
                   onClick={() => {
-                    // Seeded from what is already there, so switching does not lose it.
-                    setHeadersJson(
-                      JSON.stringify(
-                        Object.fromEntries(
-                          request.headers
-                            .filter((header) => header.name.trim())
-                            .map((header) => [header.name, header.value])
-                        ),
-                        null,
-                        2
-                      )
-                    )
-                    setHeadersProblem(null)
+                    /*
+                     * Carrying the data across, both ways.
+                     *
+                     * The box is filled from the rows only when the rows have
+                     * actually moved since the box was last read or written — a
+                     * template was picked, a row was edited. Otherwise the text is
+                     * left exactly as it was typed, which is what keeps a
+                     * half-finished JSON object from being overwritten: it is the
+                     * only copy of that edit.
+                     */
+                    const current = headersJsonOf(request.headers)
+                    if (current !== headersJsonForRef.current) {
+                      setHeadersJson(current)
+                      headersJsonForRef.current = current
+                      setHeadersProblem(null)
+                    }
                     setHeaderMode('json')
                   }}
                 >
@@ -865,6 +796,9 @@ export function RestPage(): JSX.Element {
                       return
                     }
                     setHeadersProblem(null)
+                    // The box and the rows now agree on this content, whatever
+                    // quoting the user typed it in.
+                    headersJsonForRef.current = headersJsonOf(parsed.headers)
                     update({ ...request, headers: parsed.headers })
                   }}
                 />

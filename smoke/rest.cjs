@@ -85,6 +85,105 @@ async function main() {
   const base = 'http://127.0.0.1:' + port
   console.log('test HTTP server on ' + base)
 
+  /*
+   * ---- 0. 请求头的解析规则（纯函数） --------------------------------------
+   * 用户报的是两件事，其中一件在这里：从控制台 / Python 复制出来的对象字面量是
+   * 单引号的（{'Content-Type': 'application/json'}），它不是 JSON —— 但它是人们
+   * 真正粘进来的形状。规则放宽到读得懂它，同时真正的笔误必须继续报错（变成一条
+   * 少了的认证头是最危险的失败方式）。用注入的文本逐条断言，不靠点界面。
+   */
+  try {
+    const { buildSync } = require('esbuild')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-rest-headers-'))
+    const entry = path.join(dir, 'entry.ts')
+    const modulePath = path.join(ROOT, 'src', 'shared', 'restHeaders.ts').split(path.sep).join('/')
+    fs.writeFileSync(entry, 'export * from ' + JSON.stringify(modulePath), 'utf8')
+    buildSync({
+      entryPoints: [entry],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: path.join(dir, 'restHeaders.cjs'),
+      logLevel: 'silent'
+    })
+    const rules = require(path.join(dir, 'restHeaders.cjs'))
+    const NL = String.fromCharCode(10)
+    const shape = (result) =>
+      result.ok
+        ? result.headers.map((h) => h.name + '=' + h.value).join(',')
+        : 'ERR:' + result.problem.code
+    const single = rules.parseHeadersJson("{'Content-Type': 'application/json'}")
+    const mixed = rules.parseHeadersJson("{\"Accept\": 'application/json'}")
+    const apostrophe = rules.parseHeadersJson("{\"note\": \"it's fine\"}")
+    const escaped = rules.parseHeadersJson("{'note': 'it\\'s'}")
+    const innerDouble = rules.parseHeadersJson("{'X-Q': 'say \"hi\"'}")
+    const singleArray = rules.parseHeadersJson("['A: 1', 'B: 2']")
+    const typo = rules.parseHeadersJson("{ 'X-Broken': }")
+    const lines = rules.parseHeadersJson('X-A: 1' + NL + 'X-B: 2')
+    const untouched = rules.requoteSingleQuoted('{"a": 1}')
+    const jsonOf = rules.headersJsonOf([
+      { name: 'A', value: '1' },
+      { name: '', value: 'ignored' }
+    ])
+    report([
+      {
+        name: 'a single-quoted object literal is read as headers',
+        ok: single.ok && single.headers.length === 1 &&
+          single.headers[0].name === 'Content-Type' &&
+          single.headers[0].value === 'application/json',
+        detail: shape(single)
+      },
+      {
+        name: 'one quote style on each side is fine too',
+        ok: mixed.ok && mixed.headers[0].name === 'Accept',
+        detail: shape(mixed)
+      },
+      {
+        name: 'an apostrophe inside a double-quoted value is left alone',
+        ok: apostrophe.ok && apostrophe.headers[0].value === "it's fine",
+        detail: shape(apostrophe)
+      },
+      {
+        name: 'an escaped single quote inside a single-quoted value survives',
+        ok: escaped.ok && escaped.headers[0].value === "it's",
+        detail: shape(escaped)
+      },
+      {
+        name: 'a double quote inside a single-quoted value is carried, not truncated',
+        ok: innerDouble.ok && innerDouble.headers[0].value === 'say "hi"',
+        detail: shape(innerDouble)
+      },
+      {
+        name: 'a single-quoted array of lines reads like the double-quoted one',
+        ok: singleArray.ok && singleArray.headers.length === 2,
+        detail: shape(singleArray)
+      },
+      {
+        name: 'a real typo is still refused, not read as a header name',
+        ok: !typo.ok && typo.problem.code === 'not-json',
+        detail: shape(typo)
+      },
+      {
+        name: 'the line-based shape still works',
+        ok: lines.ok && lines.headers.length === 2,
+        detail: shape(lines)
+      },
+      {
+        name: 'text that is already JSON is not rewritten',
+        ok: untouched === '{"a": 1}',
+        detail: untouched
+      },
+      {
+        name: 'the JSON box form drops nameless rows and is stable',
+        ok: jsonOf === '{' + NL + '  "A": "1"' + NL + '}',
+        detail: JSON.stringify(jsonOf)
+      }
+    ])
+    fs.rmSync(dir, { recursive: true, force: true })
+  } catch (err) {
+    report([{ name: '请求头规则模块没能打包', ok: false, detail: String((err && err.message) || err) }])
+  }
+
   require(path.join(__dirname, 'clearstore.cjs')).wipeProfile()
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
@@ -382,6 +481,59 @@ async function main() {
           setValue(field('rest-url'), base + '/hello')
           field('rest-send').click()
           await waitFor(() => (text('rest-response-body') || '').indexOf('hello') >= 0, 15000)
+
+          /*
+           * ---- 6d. 两个页签之间带着数据切换 --------------------------------
+           * 用户原话："逐条 或者 json 页签切换的时候 带着数据切换，现在是切换之后之前
+           * 写的就没有了"。这里三件事：单引号粘进来的能被读懂；行里改的切到 JSON 能看
+           * 见；还没解析成功的文本（唯一的一份）切走再切回来必须还在。
+           */
+          step = 'header tabs'
+          jsonButton.click()
+          await wait(350)
+          setValue(field('rest-headers-json-input'), "{'X-Single': 'quoted'}")
+          await wait(400)
+          const singleRead = !!field('rest-headers-json-ok') && !field('rest-headers-json-error')
+          push('a single-quoted paste is read, not refused as "not JSON"', singleRead,
+            singleRead ? text('rest-headers-json-ok') : text('rest-headers-json-error'))
+
+          rowsButton.click()
+          await wait(300)
+          const rowsAfterSingle = [...document.querySelectorAll('[data-testid="rest-header-name"]')]
+          push('and it becomes a real header row',
+            rowsAfterSingle.map((input) => input.value).indexOf('X-Single') >= 0,
+            'names=' + JSON.stringify(rowsAfterSingle.map((input) => input.value)))
+
+          // An edit made in the rows has to be visible from the JSON side.
+          const nameBoxes = [...document.querySelectorAll('[data-testid="rest-header-name"]')]
+          const valueBoxes = [...document.querySelectorAll('[data-testid="rest-header-value"]')]
+          const atSingle = nameBoxes.findIndex((input) => input.value === 'X-Single')
+          if (atSingle >= 0) {
+            setValue(nameBoxes[atSingle], 'X-Carried')
+            setValue(valueBoxes[atSingle], 'yes')
+          }
+          await wait(300)
+          jsonButton.click()
+          await wait(350)
+          const carriedBox = field('rest-headers-json-input')
+          push('an edit made in the rows shows up in the JSON box',
+            !!carriedBox && carriedBox.value.indexOf('X-Carried') >= 0,
+            carriedBox ? JSON.stringify(carriedBox.value.slice(0, 60)) : 'no box')
+
+          // Text that does not parse yet is the only copy of that edit: switching
+          // tabs must not overwrite it with the rows.
+          setValue(field('rest-headers-json-input'), '{"X-Half": ')
+          await wait(350)
+          push('text that is not JSON yet is still reported', !!field('rest-headers-json-error'),
+            text('rest-headers-json-error'))
+          rowsButton.click()
+          await wait(300)
+          jsonButton.click()
+          await wait(350)
+          const keptBox = field('rest-headers-json-input')
+          push('switching away and back keeps the text that was being typed',
+            !!keptBox && keptBox.value === '{"X-Half": ',
+            keptBox ? JSON.stringify(keptBox.value) : 'no box')
         }
       }
 
