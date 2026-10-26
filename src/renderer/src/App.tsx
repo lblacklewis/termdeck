@@ -81,6 +81,7 @@ import { NavRail, type PageId } from './components/NavRail'
 import { useTabMenu } from './components/useTabMenu'
 import type { LogEntry } from './components/LogsPage'
 import { getTerminal, readScrollback, selectionTextFor, setFitsPaused } from './components/terminalRegistry'
+import { focusHomeOf, shouldPaneTakeFocus } from './components/focusPolicy'
 import {
   broadcastSummary,
   isBroadcasting,
@@ -745,6 +746,28 @@ export function App(): JSX.Element {
     liveSessionRef.current.delete(panelId)
   }
 
+  /**
+   * Give a pane's live terminal the keyboard.
+   *
+   * The pane behind an id is not always the session behind it — a restored pane
+   * keeps its old id — so the terminal is looked up by the live session, not by
+   * the panel.
+   *
+   * A ref because the dock's activation listener is registered once, while the
+   * pane-to-session mapping changes as sessions come and go.
+   *
+   * `force` is for the explicit "open this one" gestures — picking a session from
+   * a list or a connection from the connections window — where the click itself
+   * says the terminal is where typing should go next. Without it the rule in
+   * `focusPolicy.ts` decides, which is what keeps a settings field (or an open
+   * dialog) from having the caret pulled out from under it.
+   */
+  const handKeyboardRef = useRef<(panelId: string, force?: boolean) => void>(() => {})
+  handKeyboardRef.current = (panelId: string, force = false) => {
+    if (!force && !shouldPaneTakeFocus(focusHomeOf(document.activeElement))) return
+    getTerminal(liveIdFor(panelId))?.focus()
+  }
+
   // ---- dockview bootstrap -------------------------------------------------
 
   useEffect(() => {
@@ -889,6 +912,14 @@ export function App(): JSX.Element {
      */
     const activeChanged = dock.api.onDidActivePanelChange((event) => {
       setActivePanelId(event.panel?.id ?? null)
+      /*
+       * Switching panes is a keyboard gesture as often as a mouse one — a tab
+       * click, a session row, a shortcut — and the pane that comes forward has to
+       * be able to take the next keystroke. Without this the click stayed on the
+       * tab or the row, and the terminal had to be clicked once more before it
+       * would accept input.
+       */
+      if (event.panel) handKeyboardRef.current(event.panel.id)
     })
     setActivePanelId(dock.api.activePanel?.id ?? null)
 
@@ -2817,23 +2848,25 @@ export function App(): JSX.Element {
   )
 
   /**
-   * Bring a pane to the front, keeping the keyboard where it was working.
+   * Bring a pane to the front, keeping the keyboard with it.
    *
    * dockview hides the pane that was active, and a hidden element cannot hold
    * focus — the browser drops it on `body`. Switching by keyboard is a keyboard
    * gesture, so the next keystroke would land nowhere at all: the session would
    * change and then nothing you typed would reach it.
    *
-   * Only when the keyboard was already in a terminal, though. `Alt`+`[` while a
-   * settings field has focus must not yank the caret into a pane behind it.
+   * The activation listener hands the keyboard over on its own; this call covers
+   * the pane that was *already* in front, where `setActive()` changes nothing and
+   * therefore fires nothing.
+   *
+   * The rule that decides — and that keeps `Alt`+`[` from yanking the caret out of
+   * a settings field — lives in `focusPolicy.ts`.
    */
   const activatePanel = useCallback((id: string) => {
     const panel = dockApiRef.current?.getPanel(id)
     if (!panel) return
-    const fromTerminal = document.activeElement instanceof HTMLElement &&
-      document.activeElement.classList.contains('xterm-helper-textarea')
     panel.api.setActive()
-    if (fromTerminal) getTerminal(id)?.focus()
+    handKeyboardRef.current(id)
   }, [])
 
   const cycleTab = useCallback(
@@ -3360,9 +3393,17 @@ export function App(): JSX.Element {
                     <li key={s.id} className="td-session-item">
                       <button
                         className="td-session-open"
-                        onClick={() =>
-                          dockApiRef.current?.getPanel(resolvePanelId(s.id))?.api.setActive()
-                        }
+                        onClick={() => {
+                          /*
+                           * Picking a session is also "and let me type in it": the
+                           * click itself is the gesture, so the keyboard follows
+                           * even when the pane was already the active one and no
+                           * activation event is fired.
+                           */
+                          const panelId = resolvePanelId(s.id)
+                          dockApiRef.current?.getPanel(panelId)?.api.setActive()
+                          handKeyboardRef.current(panelId)
+                        }}
                       >
                         <span className={`td-dot td-dot-${s.kind}`} />
                         <span className="td-session-title" title={s.title}>
@@ -3739,6 +3780,10 @@ export function App(): JSX.Element {
             activeSessionId={dockApiRef.current?.activePanel?.id ?? null}
             onFocus={(id) => {
               dockApiRef.current?.getPanel(id)?.api.setActive()
+              // The drawer is still mounted at this instant, so the focus rule
+              // would (rightly) refuse to move the keyboard out of it. Picking a
+              // connection here is the explicit "I want this terminal" gesture.
+              handKeyboardRef.current(id, true)
               setConnectionsOpen(false)
             }}
             onCloseSession={(id) => closeSession(id)}

@@ -48,7 +48,7 @@ async function main() {
   const guard = setTimeout(() => {
     console.error('keys probe watchdog')
     app.exit(1)
-  }, 150000)
+  }, 220000)
 
   require(path.join(ROOT, 'smoke', 'clearstore.cjs')).wipeProfile()
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
@@ -174,7 +174,153 @@ async function main() {
     push('nor does it take the pane away', after.panels === 1, 'panels=' + after.panels)
   }
 
-  // ---- 3. migration, for installs that already have the old value ---------
+  // ---- 3. 切换窗格后键盘自己跟着走 -----------------------------------------
+  /*
+   * 用户原话："窗口切换之后默认需要点击一下才能输入；做到切换 session 后直接可以
+   * 编辑输入，不操作鼠标"。
+   *
+   * 之前只有"键盘已经在终端里"这一条路会回焦（activatePanel），鼠标点标签 / 点侧栏
+   * 会话行之后焦点停在按钮或 body 上，于是必须再点一下终端。
+   *
+   * 断言分三层，各自都会在旧代码上失败：
+   *   (a) 规则表是纯函数（focusPolicy.ts），按注入的输入逐行断言；
+   *   (b) 真窗口里把焦点丢到 body（就是点标签之后的样子），激活另一个窗格，
+   *       键盘必须自己落到那个终端的 xterm-helper-textarea 上；
+   *   (c) 硬证据：此后不做任何鼠标操作，直接按键，字节必须进**那个**会话的数据通道。
+   * 另有一条回归护栏：正在输入的输入框不被抢（旧代码也满足，但改了规则必须守住）。
+   */
+  try {
+    const { buildSync } = require('esbuild')
+    const os = require('node:os')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'td-focus-'))
+    const entry = path.join(dir, 'entry.ts')
+    const policyPath = path
+      .join(ROOT, 'src', 'renderer', 'src', 'components', 'focusPolicy.ts')
+      .split(path.sep)
+      .join('/')
+    fs.writeFileSync(entry, 'export * from ' + JSON.stringify(policyPath), 'utf8')
+    buildSync({
+      entryPoints: [entry],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: path.join(dir, 'focusPolicy.cjs'),
+      logLevel: 'silent'
+    })
+    const policy = require(path.join(dir, 'focusPolicy.cjs'))
+    const home = (terminal, editable, modal) => ({ terminal: terminal, editable: editable, modal: modal })
+    push('nothing focused at all: the pane takes the keyboard',
+      policy.shouldPaneTakeFocus(null) === true)
+    push('typing in a shell: switching panes follows the keyboard',
+      policy.shouldPaneTakeFocus(home(true, true, false)) === true,
+      'the terminal own textarea is a textarea too, so it must be recognised first')
+    push('typing in a field: the caret stays where it is',
+      policy.shouldPaneTakeFocus(home(false, true, false)) === false)
+    push('a modal is open: it keeps the keyboard',
+      policy.shouldPaneTakeFocus(home(false, false, true)) === false)
+    push('a plain button or the page body: the pane takes it',
+      policy.shouldPaneTakeFocus(home(false, false, false)) === true)
+    fs.rmSync(dir, { recursive: true, force: true })
+  } catch (err) {
+    push('the focus rule could not be bundled', false,
+      String((err && err.message) || err))
+  }
+
+  const opened = await win.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const api = window.termdeck
+    const button = document.querySelector('[data-testid="local-shell"]')
+    if (!button) return { error: 'no local-shell button' }
+    const before = (await api.listSessions()).length
+    button.click()
+    const end = Date.now() + 25000
+    while (Date.now() < end) {
+      const panes = window.__tdDockApi ? window.__tdDockApi.panels.length : 0
+      if ((await api.listSessions()).length > before && panes >= 2) break
+      await wait(300)
+    }
+    for (let i = 0; i < 60; i += 1) {
+      const terms = window.__tdTerminals ? Object.keys(window.__tdTerminals).length : 0
+      if (terms >= 2) break
+      await wait(250)
+    }
+    return {
+      sessions: (await api.listSessions()).length,
+      panes: window.__tdDockApi ? window.__tdDockApi.panels.length : -1,
+      terminals: window.__tdTerminals ? Object.keys(window.__tdTerminals).length : 0
+    }
+  })()`)
+  push('a second pane is open to switch to',
+    opened.panes >= 2 && opened.terminals >= 2, JSON.stringify(opened))
+
+  const switched = await win.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const dock = window.__tdDockApi
+    const ids = dock.panels.map((p) => p.id).filter((id) => id !== 'welcome')
+    const active = dock.activePanel ? dock.activePanel.id : null
+    const other = ids.find((id) => id !== active)
+    if (!other) return { error: 'no other pane to switch to' }
+    // What a click on a tab leaves behind: the tab is a div, so focus falls to body.
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur()
+    const before = document.activeElement
+      ? document.activeElement.tagName + '.' + document.activeElement.className
+      : 'none'
+    dock.getPanel(other).api.setActive()
+    await wait(600)
+    const element = document.activeElement
+    // Watch that pane's own data channel: a keystroke reaching this shell must
+    // show up here, which is stronger than reading who owns the focus.
+    window.__tdSwitchBytes = ''
+    const holder = window.__tdTerminals[other]
+    if (holder) holder.term.onData((data) => { window.__tdSwitchBytes += data })
+    return {
+      other: other,
+      before: before,
+      after: element ? element.tagName + '.' + element.className : 'none',
+      inTerminal: !!(element && element.classList &&
+        element.classList.contains('xterm-helper-textarea')),
+      hasTerminal: !!holder
+    }
+  })()`)
+  push('switching panes gives the keyboard to the new pane by itself',
+    switched.inTerminal === true && switched.hasTerminal === true,
+    switched.error || ('focus was ' + switched.before + ' -> ' + switched.after))
+
+  win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'X' })
+  win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'X' })
+  await sleep(500)
+  const typed = await win.webContents.executeJavaScript(
+    '({ bytes: window.__tdSwitchBytes || "" })'
+  )
+  push('and the next keystroke reaches that session without touching the mouse',
+    typed.bytes.indexOf('x') >= 0 || typed.bytes.indexOf('X') >= 0,
+    'bytes=' + JSON.stringify(typed.bytes))
+
+  const guarded = await win.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const dock = window.__tdDockApi
+    const ids = dock.panels.map((p) => p.id).filter((id) => id !== 'welcome')
+    const active = dock.activePanel ? dock.activePanel.id : null
+    const other = ids.find((id) => id !== active)
+    const field = document.querySelector('[data-testid="tree-search"]')
+    if (!other) return { error: 'no other pane to switch to' }
+    if (!field) return { error: 'no session search field' }
+    field.focus()
+    const wasThere = document.activeElement === field
+    dock.getPanel(other).api.setActive()
+    await wait(400)
+    return {
+      wasThere: wasThere,
+      stillThere: document.activeElement === field,
+      after: document.activeElement ? document.activeElement.tagName : 'none'
+    }
+  })()`)
+  push('a field being typed in keeps the caret when panes switch behind it',
+    guarded.wasThere === true && guarded.stillThere === true,
+    guarded.error || ('before=' + guarded.wasThere + ' after=' + guarded.stillThere +
+      ' focus=' + guarded.after))
+
+  // ---- 4. migration, for installs that already have the old value ---------
   const migrated = await win.webContents.executeJavaScript(`(async () => {
     const api = window.termdeck
     const settings = await api.loadSettings()
