@@ -721,6 +721,104 @@ async function main() {
         }
       }
 
+      /*
+       * ---- 10. 保存条目要带着请求头与 body（第二十九批） --------------------------
+       * 用户原话："保存条目的请求头 和 body 也都保存"。这条往返（存一条带请求头和 body 的
+       * 条目 -> 落盘 -> 选回来）之前从没被断言过：第 7 节种的条目是 headers: []、body: ''，
+       * 而且只断言过"选回来 URL 对"。这里分四步：用界面存一条带请求头和 body 的条目并读
+       * 落盘的文件；选回来断言编辑器里两样都在；改过之后用条目上的 Save 回写；重载后从
+       * 文件里选回来（第 7 节的种子条目这次带着请求头和 body）。
+       */
+      step = 'kept round-trip'
+      // 6e 里离开又回来过一次，页面重挂载了：6c 抓到的两个模式按钮已是从文档上
+      // 摘下来的死节点，点死节点不会触发 React —— 按现状重新查。
+      const rowsNow = field('rest-headers-rows')
+      const jsonNow = field('rest-headers-json')
+      const withUrl = 'http://kept.example/api/with-headers'
+      setValue(field('rest-method'), 'POST')
+      setValue(field('rest-url'), withUrl)
+      // 请求头按单引号粘进来的形状设进去，顺带再走一遍第二十八批的解析规则。
+      jsonNow.click()
+      await wait(300)
+      setValue(field('rest-headers-json-input'), "{'X-Kept-Header': 'v1'}")
+      const headerRead = await waitFor(() => !!field('rest-headers-json-ok'), 3000)
+      push('the header about to be kept is parsed and counted', headerRead,
+        headerRead ? text('rest-headers-json-ok') : text('rest-headers-json-error'))
+      setValue(field('rest-body'), '{"kept":"body"}')
+      field('rest-save-saved').click()
+      await wait(700)
+      const keptFile = await window.termdeck.loadRestState()
+      const keptEntry = (keptFile.saved || []).find((e) => e.request.url === withUrl)
+      push('keeping an entry writes its headers into the file',
+        !!keptEntry && keptEntry.request.headers.length === 1 &&
+          keptEntry.request.headers[0].name === 'X-Kept-Header' &&
+          keptEntry.request.headers[0].value === 'v1',
+        JSON.stringify(keptEntry ? keptEntry.request.headers : 'no entry'))
+      push('and its body too',
+        !!keptEntry && keptEntry.request.body === '{"kept":"body"}',
+        JSON.stringify(keptEntry ? keptEntry.request.body : 'no entry'))
+
+      // 选回来：行编辑器（真正在用的那份列表）里要有这个请求头，body 要回到框里。
+      const savedSelect = field('rest-saved')
+      const keptOption = savedSelect
+        ? [...savedSelect.options].find((o) => o.textContent === withUrl)
+        : null
+      push('the kept entry is in the saved list', !!keptOption,
+        savedSelect ? [...savedSelect.options].map((o) => o.textContent).join(',') : 'no select')
+      if (keptOption) {
+        const pickSetter = Object.getOwnPropertyDescriptor(
+          window.HTMLSelectElement.prototype,
+          'value'
+        ).set
+        pickSetter.call(savedSelect, keptOption.value)
+        savedSelect.dispatchEvent(new Event('change', { bubbles: true }))
+        await wait(400)
+        rowsNow.click()
+        await wait(300)
+        const pickedNames = [...document.querySelectorAll('[data-testid="rest-header-name"]')]
+          .map((input) => input.value)
+        push('picking it restores the headers into the rows',
+          pickedNames.indexOf('X-Kept-Header') >= 0, 'names=' + JSON.stringify(pickedNames))
+        push('and the body back into the box', valueOf('rest-body') === '{"kept":"body"}',
+          JSON.stringify(valueOf('rest-body')))
+
+        // 保存后再编辑：条目上的 Save 要把编辑器回写进条目，请求头不能因此丢掉。
+        setValue(field('rest-body'), '{"kept":"edited"}')
+        await wait(200)
+        const entrySave = document.querySelector('[data-testid="rest-kept-update"]')
+        if (entrySave) entrySave.click()
+        await wait(700)
+        const editedFile = await window.termdeck.loadRestState()
+        const editedEntry = (editedFile.saved || []).find((e) => e.request.url === withUrl)
+        push('saving the editor over the entry keeps the edited body',
+          !!editedEntry && editedEntry.request.body === '{"kept":"edited"}',
+          JSON.stringify(editedEntry ? editedEntry.request.body : 'no entry'))
+        push('and does not drop the headers the entry had',
+          !!editedEntry && editedEntry.request.headers.length === 1 &&
+            editedEntry.request.headers[0].name === 'X-Kept-Header',
+          JSON.stringify(editedEntry ? editedEntry.request.headers : 'no entry'))
+      }
+
+      // 还没解析成功的文本不是请求头：保存时既不能把它当头存进去，也不能把在用的头弄丢。
+      jsonNow.click()
+      await wait(300)
+      setValue(field('rest-headers-json-input'), '{"X-Unparsed": ')
+      const unparsedSeen = await waitFor(() => !!field('rest-headers-json-error'), 3000)
+      push('the half-typed header text is still reported before saving', unparsedSeen,
+        unparsedSeen ? text('rest-headers-json-error') : 'no error shown')
+      field('rest-save-saved').click()
+      await wait(700)
+      const unparsedFile = await window.termdeck.loadRestState()
+      const unparsedEntry = (unparsedFile.saved || []).find((e) => e.request.url === withUrl)
+      push('saving with unparsed header text keeps exactly the headers in use',
+        !!unparsedEntry && unparsedEntry.request.headers.length === 1 &&
+          unparsedEntry.request.headers[0].name === 'X-Kept-Header' &&
+          unparsedEntry.request.headers[0].value === 'v1',
+        JSON.stringify(unparsedEntry ? unparsedEntry.request.headers : 'no entry'))
+      push('and the half-typed text itself is not stored as a header',
+        !!unparsedEntry && JSON.stringify(unparsedEntry.request.headers).indexOf('Unparsed') < 0,
+        JSON.stringify(unparsedEntry ? unparsedEntry.request.headers : 'no entry'))
+
       return out
       } catch (err) {
         out.push({
@@ -794,11 +892,12 @@ async function main() {
           {
             id: 's1',
             name: 'kept health',
+            // 第二十九批起带着请求头与 body 种：落盘 -> 重载 -> 选回，两样都要回来。
             request: {
-              method: 'GET',
+              method: 'POST',
               url: 'http://kept.example/health',
-              headers: [],
-              body: ''
+              headers: [{ name: 'X-Seeded', value: 'from-file' }],
+              body: '{"seed":"body"}'
             }
           }
         ],
@@ -853,6 +952,14 @@ async function main() {
             push('picking it fills the request in',
               (field('rest-url') || {}).value === 'http://kept.example/health',
               'url=' + ((field('rest-url') || {}).value || ''))
+            // 从文件里回来的条目，请求头与 body 也都得回来（第二十九批）。
+            const seededNames = [...document.querySelectorAll('[data-testid="rest-header-name"]')]
+              .map((input) => input.value)
+            push('picking it restores the headers that were in the file',
+              seededNames.indexOf('X-Seeded') >= 0, 'names=' + JSON.stringify(seededNames))
+            push('and the body that was in the file',
+              (field('rest-body') || {}).value === '{"seed":"body"}',
+              'body=' + JSON.stringify((field('rest-body') || {}).value || ''))
           }
         }
 
