@@ -18,6 +18,7 @@ import {
   type RestState,
   type SavedRestRequest
 } from '@shared/types'
+import { clampRestBodyHeight } from '@shared/restLayout'
 
 const METHODS: RestRequest['method'][] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
 
@@ -109,7 +110,14 @@ function sanitise(input: unknown): RestState {
         })
         .filter((entry): entry is SavedRestRequest => entry !== null)
     : []
-  return { draft: sanitiseRequest(raw.draft), saved, history: sanitiseHistory(raw.history) }
+  return {
+    draft: sanitiseRequest(raw.draft),
+    saved,
+    history: sanitiseHistory(raw.history),
+    // A hard whitelist, like the rest of this file: a field that is not listed here
+    // never reaches the page. `undefined` means "never resized".
+    bodyHeight: clampRestBodyHeight(raw.bodyHeight)
+  }
 }
 
 export class RestStore {

@@ -167,11 +167,17 @@ export interface RestHistoryEntry {
  * middle of editing an endpoint does not lose it; `saved` is the list the user
  * deliberately kept; `history` is what was sent, newest first, capped. All three are
  * one file because they are one page's state.
+ *
+ * `bodyHeight` is here for the same reason: the request-body box is resized by
+ * dragging its own grip, and that size is page furniture rather than a preference —
+ * losing it on every trip to another tool page is the bug it fixes.
  */
 export interface RestState {
   draft: RestRequest | null
   saved: SavedRestRequest[]
   history: RestHistoryEntry[]
+  /** Pixels the user dragged the request-body box to, if they ever did. */
+  bodyHeight?: number
 }
 
 /**

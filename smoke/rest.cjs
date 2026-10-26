@@ -179,6 +179,54 @@ async function main() {
         detail: JSON.stringify(jsonOf)
       }
     ])
+    const layoutPath = path.join(ROOT, 'src', 'shared', 'restLayout.ts').split(path.sep).join('/')
+    const layoutEntry = path.join(dir, 'layout.ts')
+    fs.writeFileSync(layoutEntry, 'export * from ' + JSON.stringify(layoutPath), 'utf8')
+    buildSync({
+      entryPoints: [layoutEntry],
+      bundle: true,
+      platform: 'node',
+      format: 'cjs',
+      outfile: path.join(dir, 'restLayout.cjs'),
+      logLevel: 'silent'
+    })
+    const sized = require(path.join(dir, 'restLayout.cjs'))
+    report([
+      {
+        name: 'a dragged height is kept as it is',
+        ok: sized.clampRestBodyHeight(320) === 320,
+        detail: String(sized.clampRestBodyHeight(320))
+      },
+      {
+        name: 'a drag that went nowhere is clamped up to a usable box',
+        ok: sized.clampRestBodyHeight(10) === 80,
+        detail: String(sized.clampRestBodyHeight(10))
+      },
+      {
+        name: 'a height that would eat the answer pane is clamped down',
+        ok: sized.clampRestBodyHeight(5000) === 900,
+        detail: String(sized.clampRestBodyHeight(5000))
+      },
+      {
+        name: 'a number written as text by a hand-edited file still reads',
+        ok: sized.clampRestBodyHeight('420') === 420,
+        detail: String(sized.clampRestBodyHeight('420'))
+      },
+      {
+        name: 'nonsense reads as "never resized" rather than as a size',
+        ok: sized.clampRestBodyHeight('abc') === undefined &&
+          sized.clampRestBodyHeight(0) === undefined &&
+          sized.clampRestBodyHeight(-5) === undefined &&
+          sized.clampRestBodyHeight(null) === undefined,
+        detail: 'abc / 0 / -5 / null'
+      },
+      {
+        name: 'the bounds can be injected',
+        ok: sized.clampRestBodyHeight(50, { min: 100, max: 200 }) === 100 &&
+          sized.clampRestBodyHeight(500, { min: 100, max: 200 }) === 200,
+        detail: '50 -> 100, 500 -> 200'
+      }
+    ])
     fs.rmSync(dir, { recursive: true, force: true })
   } catch (err) {
     report([{ name: '请求头规则模块没能打包', ok: false, detail: String((err && err.message) || err) }])
@@ -537,6 +585,42 @@ async function main() {
         }
       }
 
+      /*
+       * ---- 6e. 请求体窗口的大小要固定住 ------------------------------------
+       * 用户原话："请求体 窗口 调整过大小以后 切个页面回来 又变了，不固定，希望固定一下"。
+       * 原生 resize 手柄做的事就是把高度写进元素的**内联样式**，而工具页离开即卸载，
+       * 内联样式随之消失 —— 所以这里模拟一次拖拽（浏览器做的就是这一步），再验证三件事：
+       * 写进了页内状态、切页回来还在、重载之后还在。
+       */
+      step = 'body height'
+      const bodyBox = field('rest-body')
+      push('the request body box is there to resize', !!bodyBox)
+      if (bodyBox) {
+        bodyBox.style.height = '420px'
+        await waitFor(() => Math.round(bodyBox.getBoundingClientRect().height) === 420, 4000)
+        // The write is debounced like the draft (400ms).
+        await wait(900)
+        const stored = await window.termdeck.loadRestState()
+        push('a dragged height is written into the page state', stored.bodyHeight === 420,
+          'bodyHeight=' + JSON.stringify(stored.bodyHeight))
+
+        // Away to another tool page and back: the page unmounts, which is the bug.
+        const awayTab = [...document.querySelectorAll('button')]
+          .find((b) => (b.getAttribute('data-testid') || '') === 'rail-s3')
+        if (awayTab) awayTab.click()
+        await waitFor(() => !field('rest-body'), 8000)
+        const restTab = [...document.querySelectorAll('button')]
+          .find((b) => (b.getAttribute('data-testid') || '') === 'rail-rest')
+        if (restTab) restTab.click()
+        const keptSize = await waitFor(() => {
+          const box = field('rest-body')
+          return !!box && Math.round(box.getBoundingClientRect().height) === 420
+        }, 10000)
+        const backBox = field('rest-body')
+        push('and coming back from another page keeps the size', keptSize,
+          'height=' + (backBox ? Math.round(backBox.getBoundingClientRect().height) : -1))
+      }
+
       // ---- 7. a timeout is reported as a timeout --------------------------
       step = 'timeout'
       setValue(field('rest-method'), 'GET')
@@ -703,6 +787,9 @@ async function main() {
     'window.termdeck.saveRestState(' +
       JSON.stringify({
         draft: { method: 'GET', url: 'http://kept.example/draft', headers: [], body: '' },
+        // Seeded, so the reload also shows that a dragged height is really in the file
+        // and not just in this window's React state.
+        bodyHeight: 300,
         saved: [
           {
             id: 's1',
@@ -781,6 +868,15 @@ async function main() {
         push('and it is the newest calls that survive', urls[0] === 'http://kept.example/call/0' &&
           urls.indexOf('http://kept.example/call/69') < 0,
           'first=' + urls[0] + ' oldest-shown=' + urls[urls.length - 1])
+
+        // The height that was in the file, applied to a page that has just started.
+        const sizedBack = await waitFor(() => {
+          const box = field('rest-body')
+          return !!box && Math.round(box.getBoundingClientRect().height) === 300
+        }, 8000)
+        const sizedBox = field('rest-body')
+        push('the size a saved file carries is applied after a real reload', sizedBack,
+          'height=' + (sizedBox ? Math.round(sizedBox.getBoundingClientRect().height) : -1))
         return out
       } catch (err) {
         push('state probe failed', false, String((err && err.message) || err))

@@ -10,6 +10,7 @@ import {
 } from '@shared/types'
 import { REST_TEMPLATES } from '@shared/restTemplates'
 import { headersJsonOf, parseHeadersJson, type HeaderJsonProblem } from '@shared/restHeaders'
+import { clampRestBodyHeight } from '@shared/restLayout'
 import { t } from '../i18n'
 
 const METHODS: RestRequest['method'][] = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']
@@ -82,6 +83,18 @@ export function RestPage(): JSX.Element {
    * else, so it is kept until the rows are actually edited behind its back.
    */
   const headersJsonForRef = useRef(headersJsonOf([]))
+  /**
+   * The request-body box, and the height the user dragged it to.
+   *
+   * The grip is the browser's own (`resize: vertical`), and it records the drag as an
+   * inline height on the element — DOM state that dies when the page unmounts, which is
+   * exactly why the size used to snap back after a trip to another tool page. The height
+   * is read back into the file this page's state already lives in, and applied again on
+   * the way in.
+   */
+  const bodyRef = useRef<HTMLTextAreaElement | null>(null)
+  const bodyHeightRef = useRef<number | undefined>(undefined)
+  const [bodyHeight, setBodyHeight] = useState<number | undefined>(undefined)
   /** Inline rename in the kept-requests list; the id being renamed, not a boolean. */
   const [renamingId, setRenamingId] = useState('')
   const [renameDraft, setRenameDraft] = useState('')
@@ -102,6 +115,11 @@ export function RestPage(): JSX.Element {
       setSaved(state.saved)
       setHistory(state.history)
       if (state.draft) setRequest(state.draft)
+      // A height the user dragged once, coming back with the rest of the page's state.
+      if (state.bodyHeight) {
+        bodyHeightRef.current = state.bodyHeight
+        setBodyHeight(state.bodyHeight)
+      }
     })
     return window.termdeck.onRestStateChanged((state) => {
       setSaved(state.saved)
@@ -116,10 +134,35 @@ export function RestPage(): JSX.Element {
       void window.termdeck.saveRestState({
         draft: draftRef.current,
         saved: savedRef.current,
-        history: historyRef.current
+        history: historyRef.current,
+        bodyHeight: bodyHeightRef.current
       })
     }, 400)
   }, [])
+
+  /**
+   * Notice the request-body box being resized, and keep that size.
+   *
+   * The browser's own grip changes the element's *inline* height and nothing else, which
+   * is what makes it separable from the height the layout hands the box: only a drag (or
+   * our own re-application of a stored one) leaves inline style behind. Without that test
+   * the observer would persist whatever height the window happened to give the box and
+   * silently overwrite the size the user chose.
+   */
+  useEffect(() => {
+    const box = bodyRef.current
+    if (!box) return
+    const observer = new ResizeObserver(() => {
+      if (!box.style.height) return
+      const size = clampRestBodyHeight(Math.round(box.getBoundingClientRect().height))
+      if (!size || size === bodyHeightRef.current) return
+      bodyHeightRef.current = size
+      setBodyHeight(size)
+      rememberDraft()
+    })
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [rememberDraft])
 
   /**
    * The page's one write path.
@@ -146,7 +189,8 @@ export function RestPage(): JSX.Element {
       await window.termdeck.saveRestState({
         draft: draftRef.current,
         saved: next.saved ?? savedRef.current,
-        history: next.history ?? historyRef.current
+        history: next.history ?? historyRef.current,
+        bodyHeight: bodyHeightRef.current
       })
     },
     []
@@ -250,7 +294,8 @@ export function RestPage(): JSX.Element {
       void window.termdeck.saveRestState({
         draft: draftRef.current,
         saved: savedRef.current,
-        history: next
+        history: next,
+        bodyHeight: bodyHeightRef.current
       })
     },
     []
@@ -899,6 +944,13 @@ export function RestPage(): JSX.Element {
             <textarea
               className="td-textarea"
               data-testid="rest-body"
+              ref={bodyRef}
+              /*
+               * The dragged height, once there is one. Left off entirely before that, so
+               * the box keeps its CSS height instead of being pinned to a number the user
+               * never chose.
+               */
+              style={bodyHeight ? { height: bodyHeight } : undefined}
               value={request.body ?? ''}
               spellCheck={false}
               placeholder={t('restpage.body_placeholder', 'Only sent with POST, PUT and PATCH')}
