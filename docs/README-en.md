@@ -864,7 +864,18 @@ npm run smoke:contrast  # WCAG contrast audit across every theme and page
 npm run smoke:mac       # the macOS branches with an injected platform: shell, Cmd bindings, menu, fonts
 npm run smoke:screen    # what display geometry and scaling the app is running under
 npm run verify          # all of the above
+npm run verify:fast     # same gate, one shared build: summary on screen, details in node_modules/.verify/
 ```
+
+`verify:fast` runs the same steps in the same order (the plan is read from the
+`verify` script itself) but builds once instead of once per suite — that was
+most of an hour of waiting. Useful flags: `--only rest,s3` runs a subset after
+an unrelated fix (the four checks still run), `--jobs N` runs suites in
+parallel (opt-in: suites that share the test SSH box, have no isolated
+`--user-data-dir`, or are load-sensitive are tagged serial from their source
+and run alone), `--list` prints the plan with the serial tags. The floor is
+fixed regardless: a full `verify:fast` before pushing to origin, the original
+`npm run verify` before a release or a tag.
 
 A note on the UI probes: several of them run the window with `show: true`. That is
 deliberate — Chromium suppresses rendering, and with it computed-style
