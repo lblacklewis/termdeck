@@ -62,6 +62,7 @@ interface PagesLayerProps {
   onMoveHosts: (ids: string[], parentId: string | null) => void
   onExportShare: () => void
   onImportShare: () => void
+  onImportSshConfig: () => void
   canSendSnippet: boolean
   onSendSnippet: (snippet: Snippet) => void
   onEditSnippet: (snippet: Snippet, group: string) => void
@@ -106,6 +107,7 @@ export function PagesLayer({
   onMoveHosts,
   onExportShare,
   onImportShare,
+  onImportSshConfig,
   canSendSnippet,
   onSendSnippet,
   onEditSnippet,
@@ -199,6 +201,7 @@ export function PagesLayer({
             onMoveHosts={onMoveHosts}
             onExportShare={onExportShare}
             onImportShare={onImportShare}
+            onImportSshConfig={onImportSshConfig}
           />
         </Suspense>
       )}

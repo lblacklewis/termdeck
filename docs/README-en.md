@@ -42,7 +42,7 @@ rendering, and drag-to-split / drag-to-group docking.
 | SFTP | ✅ browse, upload/download with several chunks in flight, drag a file onto the panel to upload |
 | File transfers | ✅ a strip above the snippet bar while anything moves: progress, speed, ETA, cancel, history |
 | Port forwarding | ✅ local tunnels, managed from the rail |
-| `~/.ssh/config` import | ⬜ not yet |
+| `~/.ssh/config` import | ✅ read on this machine, dialog picks hosts, `Include` + pattern blocks inherited, `IdentityFile` → key auth, duplicates unticked |
 
 ## How credentials are stored
 

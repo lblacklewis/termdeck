@@ -1585,6 +1585,40 @@ kbd {
   font-weight: 600;
 }
 
+/*
+ * The ~/.ssh/config import list: one row per host the config offers, scrolling
+ * so a fifty-machine config does not push the buttons off the dialog.
+ */
+.td-sshconfig-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  background: var(--td-surface);
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius-md, 10px);
+}
+
+.td-sshconfig-row {
+  align-items: center;
+  padding: 3px 0;
+  flex-wrap: wrap;
+}
+
+.td-sshconfig-name {
+  font-weight: 600;
+}
+
+.td-sshconfig-target {
+  flex: 1 1 auto;
+}
+
+.td-sshconfig-auth {
+  flex: 0 0 auto;
+}
+
 .td-check {
   display: flex;
   gap: 9px;

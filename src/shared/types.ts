@@ -456,6 +456,56 @@ export type ShareImportResult =
   | { ok: true; tree: SessionTree; summary: ShareImportSummary }
   | { ok: false; cancelled?: boolean; message?: string }
 
+// ---- importing from ~/.ssh/config -----------------------------------------
+
+/**
+ * One machine read out of an OpenSSH `config` file.
+ *
+ * `username` is null when the config (including its `Host *` defaults) did not
+ * set a `User`: importing must not invent one, and the session then falls back
+ * to the app's own default at creation time. `proxy` quotes the `ProxyJump` /
+ * `ProxyCommand` the entry would use — TermDeck does not chain connections, so
+ * it is kept as a note rather than silently dropped.
+ */
+export interface SshConfigHost {
+  /** The literal name on the Host line; also the session name on import. */
+  alias: string
+  /** `HostName` when set, otherwise the alias itself. */
+  host: string
+  /** `User` when set, otherwise null. */
+  username: string | null
+  /** `Port` when set, otherwise 22. */
+  port: number
+  /** First `IdentityFile`, with `~`/`%d` expanded; null when there is none. */
+  privateKeyPath: string | null
+  /** `ProxyJump` or `ProxyCommand` verbatim, for the session notes. */
+  proxy: string | null
+  /** Line of the Host directive, for pointing at the source. */
+  line: number
+}
+
+/** What the config on this machine would import, before anything is written. */
+export type SshConfigPeekResult =
+  | {
+      ok: true
+      /** The file that was read (or would have been), for showing the user. */
+      path: string
+      /** Importable hosts, in file order; `duplicate` marks ones already saved. */
+      hosts: Array<SshConfigHost & { duplicate: boolean }>
+    }
+  | { ok: false; message: string }
+
+export interface SshConfigImportRequest {
+  /** The chosen subset of a peek's hosts, verbatim. */
+  hosts: SshConfigHost[]
+  /** Hang the imported sessions in this group instead of the root. */
+  folderId?: string | null
+}
+
+export type SshConfigImportResult =
+  | { ok: true; tree: SessionTree; summary: { added: number; skipped: number } }
+  | { ok: false; message: string }
+
 /** One entry in `known_hosts`, as shown by the Known Hosts page. */
 export interface KnownHostEntry {
   /**
@@ -1248,6 +1298,11 @@ export interface TermDeckApi extends S3Api {
   pickShareFile(): Promise<SharePickResult>
   peekShare(filePath: string, passphrase: string): Promise<SharePeekResult>
   importShare(request: ShareImportRequest): Promise<ShareImportResult>
+
+  // importing hosts from this machine's ~/.ssh/config; the file lives in the
+  // main process, the renderer only ever sees the parsed, secret-free result
+  peekSshConfig(): Promise<SshConfigPeekResult>
+  importSshConfig(request: SshConfigImportRequest): Promise<SshConfigImportResult>
 
   // where the app keeps its data (settings, sessions, credentials)
   dataDirectory(): Promise<DataDirectoryStatus>

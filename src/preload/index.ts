@@ -35,6 +35,9 @@ import type {
   SftpTransferResult,
   TransferInfo,
   Snippet,
+  SshConfigImportRequest,
+  SshConfigImportResult,
+  SshConfigPeekResult,
   SshConnectPayload,
   RestRequest,
   RestResponse,
@@ -162,6 +165,11 @@ const api = {
     ipcRenderer.invoke('share:peek', { filePath, passphrase }),
   importShare: (request: ShareImportRequest): Promise<ShareImportResult> =>
     ipcRenderer.invoke('share:import', request),
+
+  // ---- ~/.ssh/config import ----------------------------------------------
+  peekSshConfig: (): Promise<SshConfigPeekResult> => ipcRenderer.invoke('sshconfig:peek'),
+  importSshConfig: (request: SshConfigImportRequest): Promise<SshConfigImportResult> =>
+    ipcRenderer.invoke('sshconfig:import', request),
 
   dataDirectory: (): Promise<DataDirectoryStatus> => ipcRenderer.invoke('data:directory'),
   pickDataDirectory: (): Promise<string | null> => ipcRenderer.invoke('data:pickDirectory'),

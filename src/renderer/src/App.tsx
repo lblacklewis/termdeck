@@ -77,6 +77,7 @@ import { TileDialog } from './components/TileDialog'
 import { WelcomeScreen } from './components/WelcomeScreen'
 import { PagesLayer } from './components/PagesLayer'
 import { ShareDialog } from './components/ShareDialog'
+import { SshConfigImportDialog } from './components/SshConfigImportDialog'
 import { NavRail, type PageId } from './components/NavRail'
 import { useTabMenu } from './components/useTabMenu'
 import type { LogEntry } from './components/LogsPage'
@@ -367,6 +368,8 @@ export function App(): JSX.Element {
   const [hostKeyRequest, setHostKeyRequest] = useState<HostKeyRequest | null>(null)
   /** Which side of the share dialog is open, if either. */
   const [shareMode, setShareMode] = useState<'export' | 'import' | null>(null)
+  /** The ~/.ssh/config import dialog, which reads its own file and needs no passphrase. */
+  const [sshConfigImportOpen, setSshConfigImportOpen] = useState(false)
   /**
    * A destructive action waiting for a yes.
    *
@@ -3218,6 +3221,7 @@ export function App(): JSX.Element {
         onMoveHosts={(ids, parentId) => void moveHostsTo(ids, parentId)}
         onExportShare={() => setShareMode('export')}
         onImportShare={() => setShareMode('import')}
+        onImportSshConfig={() => setSshConfigImportOpen(true)}
         canSendSnippet={activeTerminalId() !== null}
         onSendSnippet={sendSnippet}
         onEditSnippet={(snippet) => setSnippetEditor({ snippet, group: snippet.group })}
@@ -3873,6 +3877,14 @@ export function App(): JSX.Element {
         <ShareDialog
           mode={shareMode}
           onClose={() => setShareMode(null)}
+          onMessage={(message) => setToast(message)}
+        />
+      )}
+
+      {sshConfigImportOpen && (
+        <SshConfigImportDialog
+          folders={tree.folders}
+          onClose={() => setSshConfigImportOpen(false)}
           onMessage={(message) => setToast(message)}
         />
       )}

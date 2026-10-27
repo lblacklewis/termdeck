@@ -44,6 +44,8 @@ interface HostsPageProps {
   /** Share the whole list with someone else, or read theirs in. */
   onExportShare: () => void
   onImportShare: () => void
+  /** Read this machine's ~/.ssh/config in as hosts. */
+  onImportSshConfig: () => void
 }
 
 const UNFILED = 'Unfiled'
@@ -96,7 +98,8 @@ export function HostsPage({
   folded,
   onFoldedChange,
   onExportShare,
-  onImportShare
+  onImportShare,
+  onImportSshConfig
 }: HostsPageProps): JSX.Element {
   const [filter, setFilter] = useState('')
   /**
@@ -722,6 +725,19 @@ export function HostsPage({
             */}
             <button className="td-btn" data-testid="hosts-import" onClick={onImportShare}>
               {t('hostspage.import', 'Import')}
+            </button>
+            {/*
+              The OpenSSH config is the second import source, and it gets its own
+              button rather than a menu behind "Import": they read from completely
+              different places (an encrypted share file vs. the local ~/.ssh/config),
+              and the difference is the first thing a user needs to see.
+            */}
+            <button
+              className="td-btn"
+              data-testid="hosts-import-config"
+              onClick={onImportSshConfig}
+            >
+              {t('hostspage.import_ssh_config', 'SSH config…')}
             </button>
             <button className="td-btn" data-testid="hosts-export" onClick={onExportShare}>
               {t('hostspage.export', 'Export')}

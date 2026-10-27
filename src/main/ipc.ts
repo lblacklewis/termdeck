@@ -12,10 +12,12 @@ import {
   buildShareDocument,
   packShare,
   planImport,
+  sessionKey,
   ShareError,
   summariseImport,
   unpackShare
 } from './share'
+import { readSshConfig } from './ssh/SshConfigFile'
 import { copyData, resolveDataDir, writePointer } from './dataDir'
 import {
   SshShellBackend,
@@ -78,6 +80,8 @@ import type {
   SftpListResult,
   SftpTransferResult,
   Snippet,
+  SshConfigHost,
+  SshConfigImportRequest,
   SshConnectPayload,
   TelnetConnectPayload,
   TrustHostKeyRequest
@@ -1524,6 +1528,94 @@ export function registerIpc(): void {
       }
     }
   )
+
+  // ---- ~/.ssh/config import ------------------------------------------------
+
+  /*
+   * Reading the local OpenSSH config is a peek: nothing is written, and the
+   * duplicate judgement uses the same "host + username + port" key a share
+   * import does, so the dialog can pre-untick what is already here. The
+   * effective username is the session's own default when the config set none,
+   * because that is what the imported session would connect as.
+   */
+  ipcMain.handle('sshconfig:peek', () => {
+    const read = readSshConfig()
+    if (!read.ok) return { ok: false as const, message: read.message }
+    const taken = new Set(getSessionStore().load().sessions.map((s) => sessionKey(s)))
+    return {
+      ok: true as const,
+      path: read.path,
+      hosts: read.result.hosts.map((host) => ({
+        ...host,
+        duplicate: taken.has(sessionKey({ host: host.host, username: host.username ?? 'root', port: host.port }))
+      }))
+    }
+  })
+
+  /**
+   * Import the chosen hosts as saved sessions, in one write.
+   *
+   * The duplicates are filtered again here, not trusted from the dialog: the
+   * tree may have changed since the peek, and a second login to the same
+   * machine imported on purpose (the dialog allows re-ticking) is still the
+   * user's call — so "skip" means "already here when this import ran", the same
+   * rule the share import applies. An IdentityFile becomes key auth; a host
+   * without one asks for its password at connect time, exactly like a host
+   * created by hand without a secret.
+   */
+  ipcMain.handle('sshconfig:import', (_e, request: SshConfigImportRequest) => {
+    const chosen = Array.isArray(request?.hosts) ? request.hosts : []
+    if (chosen.length === 0) {
+      return { ok: false as const, message: 'No hosts were selected to import.' }
+    }
+    const folderId = request.folderId ?? null
+    if (folderId && !getSessionStore().load().folders.some((f) => f.id === folderId)) {
+      return { ok: false as const, message: 'That group no longer exists.' }
+    }
+
+    const taken = new Set(getSessionStore().load().sessions.map((s) => sessionKey(s)))
+    const fresh: SshConfigHost[] = []
+    let skipped = 0
+    for (const host of chosen) {
+      if (!host || typeof host.host !== 'string' || host.host.trim() === '') {
+        skipped += 1
+        continue
+      }
+      const key = sessionKey({ host: host.host, username: host.username ?? 'root', port: host.port })
+      if (taken.has(key)) {
+        skipped += 1
+        continue
+      }
+      taken.add(key)
+      fresh.push(host)
+    }
+
+    const { tree, sessions } = getSessionStore().addSessions(
+      fresh.map((host) => ({
+        name: host.alias,
+        host: host.host,
+        port: host.port,
+        username: host.username ?? 'root',
+        authMethod: host.privateKeyPath ? ('key' as const) : ('password' as const),
+        privateKeyPath: host.privateKeyPath ?? undefined,
+        /*
+         * A jump or command proxy is quoted, not applied: TermDeck does not chain
+         * connections, and an import that silently dropped it would produce a
+         * session that cannot reach its host, with nothing on screen saying why.
+         */
+        notes: host.proxy
+          ? '~/.ssh/config proxy (not applied by TermDeck): ' + host.proxy
+          : undefined,
+        parentId: folderId
+      }))
+    )
+
+    return {
+      ok: true as const,
+      tree: commitTree(tree),
+      summary: { added: sessions.length, skipped }
+    }
+  })
 
   // ---- data directory ----------------------------------------------------
 
