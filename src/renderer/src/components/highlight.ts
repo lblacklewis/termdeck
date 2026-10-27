@@ -14,7 +14,7 @@
  * decoration covers whole cells, so a rule must be a pattern that matches text in the
  * row rather than something spanning rows.
  */
-import type { IDecoration, IMarker, Terminal } from '@xterm/xterm'
+import type { IBufferCell, IBufferLine, IDecoration, IMarker, Terminal } from '@xterm/xterm'
 import type { TerminalSettings } from '@shared/types'
 import { HIGHLIGHT_RULES, stylesFor } from '@shared/highlight'
 
@@ -70,6 +70,9 @@ export function attachHighlighter(
     const cursorLine = buffer.baseY + buffer.cursorY
     const first = buffer.viewportY
     const last = Math.min(buffer.length, first + term.rows)
+    // One reusable cell for the already-coloured check below; xterm refills it
+    // on every `getCell` and a scan can look at hundreds of cells.
+    const scratch = buffer.getNullCell()
 
     for (let y = first; y < last; y += 1) {
       const line = buffer.getLine(y)
@@ -95,7 +98,20 @@ export function attachHighlighter(
             if (width === 0) {
               // A pattern that can match nothing would spin here forever.
               pattern.lastIndex += 1
-            } else if (!overlaps(claimed, start, width)) {
+            } else if (
+              !overlaps(claimed, start, width) &&
+              /*
+               * The remote already coloured this span — `ls --color`, a red
+               * error line, a prompt. Repainting over it destroys information
+               * the other side sent on purpose, and the result reads as noise.
+               * A highlight is for text that arrived undecorated; cells that
+               * carry their own foreground, background or inversion are left
+               * exactly as they are. Skipped matches are not claimed, so a
+               * shorter rule further down can still paint the uncoloured part
+               * of the row (a plain IP after a coloured `Error:` keeps its box).
+               */
+              !spanHasColour(line, start, width, scratch)
+            ) {
               claim(claimed, start, width)
               paint(term, markers, decorations, y - cursorLine, start, width, style.fg, style.bg)
             }
@@ -180,4 +196,22 @@ function overlaps(claimed: boolean[], start: number, width: number): boolean {
 
 function claim(claimed: boolean[], start: number, width: number): void {
   for (let i = start; i < start + width; i += 1) claimed[i] = true
+}
+
+/**
+ * Does any cell in this span arrive with colour of its own?
+ *
+ * "Colour" is the cell's own attributes, not the theme: default-attribute cells
+ * render with the theme's foreground and background, which is exactly the blank
+ * slate a highlight is allowed to repaint. A cell carrying an explicit
+ * foreground, an explicit background or inversion is text the other side
+ * decorated — leave it alone.
+ */
+function spanHasColour(line: IBufferLine, start: number, width: number, scratch: IBufferCell): boolean {
+  for (let i = 0; i < width; i += 1) {
+    const cell = line.getCell(start + i, scratch)
+    if (!cell) continue
+    if (!cell.isFgDefault() || !cell.isBgDefault() || cell.isInverse() !== 0) return true
+  }
+  return false
 }

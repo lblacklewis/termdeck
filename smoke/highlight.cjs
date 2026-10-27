@@ -328,6 +328,65 @@ async function main() {
         'newlines inside=' + (between.split(String.fromCharCode(10)).length - 1) +
           ' chars=' + between.length)
 
+      // ---- 5b. IPv6 addresses are boxed as a whole address ----------------
+      /*
+       * The "只高亮了半截" report: an IPv6 with an embedded IPv4 tail used to be
+       * painted only on its tail (the IPv4 pattern got there first), and a plain
+       * IPv6 was not painted at all. Each address gets its own line so no wrap can
+       * split a match across rows; the box must be exactly the address's length in
+       * cells, and every character of it must carry the ip colour.
+       */
+      const v6cases = [
+        ['::ffff:192.168.1.1', 18],
+        ['fe80::a00:27ff:fe98:1a5b', 24],
+        ['2408:8207:18cc:8a00:1111:2222:3333:4444', 39]
+      ]
+      for (const [address, length] of v6cases) {
+        await write('echo ' + address)
+        await wait(700)
+        const widths6 = decorations().map((d) => d.cells)
+        const runs6 = styledRuns(address)
+        const painted6 = runCount(runs6, 'rgba(0,0,0,0)', 'rgb(77,171,247)')
+        push('the IPv6 address ' + address + ' is boxed as one whole (' + length + ' cells)',
+          widths6.indexOf(length) >= 0 && painted6 === length,
+          'widths=' + JSON.stringify(widths6) + ' painted cells=' + painted6)
+      }
+      // A MAC address is not the ip rule's business — it must stay unpainted here
+      // (the mac rule is off in this probe), not swallowed by the IPv6 grammar.
+      await write('echo a1:b2:c3:d4:e5:f6')
+      await wait(700)
+      const macRuns = styledRuns('a1:b2:c3:d4:e5:f6')
+      push('a MAC address is not painted by the ip rule',
+        runCount(macRuns, 'rgba(0,0,0,0)', 'rgb(77,171,247)') === 0,
+        'ip-coloured cells=' + runCount(macRuns, 'rgba(0,0,0,0)', 'rgb(77,171,247)'))
+
+      // ---- 5c. output that is already coloured is left alone --------------
+      /*
+       * "本身有颜色就不要再覆盖" — the remote's own colours are information. A red
+       * IP (written straight into the buffer, the way a coloured build log or
+       * 'ls --color' arrives) must keep its own red and gain no highlight; the
+       * plain IP after it still gets its box. With the old code both addresses
+       * were boxed, so this row shows exactly one width-8 decoration, not two.
+       */
+      const ESC = String.fromCharCode(27)
+      const CRLF = String.fromCharCode(13, 10)
+      term.write(CRLF + ESC + '[31merror at 10.0.0.1' + ESC + '[0m' + CRLF)
+      await wait(500)
+      term.write('plain 10.0.0.2' + CRLF)
+      await wait(900)
+      const redRuns = styledRuns('10.0.0.1')
+      const plainRuns = styledRuns('10.0.0.2')
+      const width8 = decorations().filter((d) => d.cells === 8).length
+      push('a coloured span is not repainted by the highlight',
+        runCount(redRuns, 'rgba(0,0,0,0)', 'rgb(77,171,247)') === 0,
+        'ip-coloured cells inside the red span=' +
+          runCount(redRuns, 'rgba(0,0,0,0)', 'rgb(77,171,247)'))
+      push('and the uncoloured span right after it still gets its box',
+        runCount(plainRuns, 'rgba(0,0,0,0)', 'rgb(77,171,247)') === 8 && width8 === 1,
+        'plain IP cells painted=' +
+          runCount(plainRuns, 'rgba(0,0,0,0)', 'rgb(77,171,247)') +
+          ' width-8 decorations=' + width8 + ' (the red IP must not be one of them)')
+
       // ---- 6. the master switch wins -------------------------------------
       await apply({ highlightEnabled: false })
       push('switching it off clears every box', decorations().length === 0,

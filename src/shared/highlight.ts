@@ -78,7 +78,32 @@ export const HIGHLIGHT_RULES: HighlightRule[] = [
   {
     id: 'ip',
     english: 'IP addresses',
-    patterns: [/\b(?:\d{1,3}\.){3}\d{1,3}\b/g]
+    /*
+     * IPv6 comes before IPv4 on purpose: an embedded-IPv4 address like
+     * `::ffff:192.168.1.1` contains a plain IPv4 tail, and if the IPv4 pattern
+     * claimed those cells first the address would paint as a few characters in the
+     * middle with both ends left bare — exactly the "只高亮了半截" report. With the
+     * IPv6 patterns first, the whole address is one match and the IPv4 tail inside
+     * it is already claimed when the IPv4 pattern gets there.
+     *
+     * Two IPv6 patterns, split by where the dotted quad sits, because one grammar
+     * for both is unreadable:
+     *   - hex forms (full, compressed, `%zone` suffix) — `2001:db8::1`,
+     *     `fe80::1%en0`;
+     *   - embedded dotted quad — `::ffff:1.2.3.4`, `64:ff9b::192.0.2.33`,
+     *     `2001:db8::1.2.3.4`, `::127.0.0.1`.
+     *
+     * Neither is a validator: this paints terminals, it does not parse addresses.
+     * What they must not do is swallow a MAC address (`a1:b2:c3:d4:e5:f6` — six
+     * 2-digit groups, no `::`, no 3+ digit group — stays with the MAC rule) or
+     * light up inside a longer run of hex or a clock (`12:34:56`, the `ef::1`
+     * tail of `deadbeef::1`) — which is what the two look-around guards are for.
+     */
+    patterns: [
+      /(?<![\w:.])(?:(?:[0-9a-f]{1,4}:){7}[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,7}:|(?:[0-9a-f]{1,4}:){1,6}:[0-9a-f]{1,4}|(?:[0-9a-f]{1,4}:){1,5}(?::[0-9a-f]{1,4}){1,2}|(?:[0-9a-f]{1,4}:){1,4}(?::[0-9a-f]{1,4}){1,3}|(?:[0-9a-f]{1,4}:){1,3}(?::[0-9a-f]{1,4}){1,4}|(?:[0-9a-f]{1,4}:){1,2}(?::[0-9a-f]{1,4}){1,5}|[0-9a-f]{1,4}:(?::[0-9a-f]{1,4}){1,6}|:(?::[0-9a-f]{1,4}){1,7})(?:%[0-9a-z]+)?(?![\w:.])/gi,
+      /(?<![\w:.])(?:::(?:[0-9a-f]{1,4}:)?|(?:[0-9a-f]{1,4}:){1,5}:)(?:\d{1,3}\.){3}\d{1,3}(?![\w:.])/gi,
+      /\b(?:\d{1,3}\.){3}\d{1,3}\b/g
+    ]
   },
   {
     id: 'path',
