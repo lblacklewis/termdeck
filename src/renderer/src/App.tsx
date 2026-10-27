@@ -81,7 +81,7 @@ import { SshConfigImportDialog } from './components/SshConfigImportDialog'
 import { NavRail, type PageId } from './components/NavRail'
 import { useTabMenu } from './components/useTabMenu'
 import type { LogEntry } from './components/LogsPage'
-import { getTerminal, readScrollback, selectionTextFor, setFitsPaused } from './components/terminalRegistry'
+import { getTerminal, onTerminalActivity, readScrollback, selectionTextFor, setFitsPaused } from './components/terminalRegistry'
 import { focusHomeOf, shouldPaneTakeFocus } from './components/focusPolicy'
 import {
   broadcastSummary,
@@ -525,6 +525,18 @@ export function App(): JSX.Element {
    * re-render.
    */
   const [activePanelId, setActivePanelId] = useState<string | null>(null)
+  /** Mirror of `activePanelId` for listeners that must not re-subscribe. */
+  const activePanelIdRef = useRef<string | null>(null)
+  /**
+   * Panes with output nobody has looked at yet.
+   *
+   * A pane the user is not in that starts printing gets a dot on its tab and on
+   * its sidebar row — the same hint a browser tab gives for a background page.
+   * Keyed by *session* id (what the output events carry and what the sidebar
+   * rows know); the tab lookup resolves the session to its pane. The set clears
+   * the moment the pane comes to the front and is pruned when the session ends.
+   */
+  const [paneActivity, setPaneActivity] = useState<ReadonlySet<string>>(() => new Set())
   /** Which rail section is showing. */
   const [page, setPage] = useState<PageId>('terminal')
   /** Mirrors the broadcast module, which owns the mode. */
@@ -914,7 +926,23 @@ export function App(): JSX.Element {
      * while another host's terminal has focus.
      */
     const activeChanged = dock.api.onDidActivePanelChange((event) => {
-      setActivePanelId(event.panel?.id ?? null)
+      const nowActive = event.panel?.id ?? null
+      activePanelIdRef.current = nowActive
+      setActivePanelId(nowActive)
+      /*
+       * Coming to the front is "someone is reading now": drop the pane's
+       * unseen-output mark. The set is keyed by session id and the pane may have
+       * been re-bound to a newer session, so clear the live session behind it.
+       */
+      if (nowActive) {
+        const liveId = liveSessionRef.current.get(nowActive) ?? nowActive
+        setPaneActivity((prev) => {
+          if (!prev.has(liveId)) return prev
+          const next = new Set(prev)
+          next.delete(liveId)
+          return next
+        })
+      }
       /*
        * Switching panes is a keyboard gesture as often as a mouse one — a tab
        * click, a session row, a shortcut — and the pane that comes forward has to
@@ -924,6 +952,7 @@ export function App(): JSX.Element {
        */
       if (event.panel) handKeyboardRef.current(event.panel.id)
     })
+    activePanelIdRef.current = dock.api.activePanel?.id ?? null
     setActivePanelId(dock.api.activePanel?.id ?? null)
 
     // Persist on every layout change, debounced: dragging a divider fires many.
@@ -2054,6 +2083,69 @@ export function App(): JSX.Element {
 
   /** Sessions' output, as the signal for "the terminals are busy". */
   useEffect(() => api.onSessionData(() => (lastActivityRef.current = Date.now())), [])
+
+  /*
+   * Which panes have printed that nobody has looked at.
+   *
+   * The report is live backend data — the backlog a pane replays for itself on
+   * mount is not activity, and TermDeck's own exit/error lines are not either;
+   * `useTerminal` owns that distinction. The guard compares *panes*: after a
+   * reconnect the pane keeps its id while the session behind it got a new one,
+   * so the session id is resolved through `resolvePanelId` first. Marking is
+   * transition-only — chunks after the first find the session already in the
+   * set and change nothing, so a churning `make` costs one re-render.
+   */
+  useEffect(
+    () =>
+      onTerminalActivity((sessionId) => {
+        if (resolvePanelId(sessionId) === activePanelIdRef.current) return
+        setPaneActivity((prev) => {
+          if (prev.has(sessionId)) return prev
+          const next = new Set(prev)
+          next.add(sessionId)
+          return next
+        })
+      }),
+    [resolvePanelId]
+  )
+
+  /*
+   * A flag outliving its session is a lie — an ended session (or one a reconnect
+   * replaced) cannot print any more. Prune on every sessions change; when nothing
+   * changed, hand back the same set so nothing re-renders.
+   */
+  useEffect(() => {
+    setPaneActivity((prev) => {
+      let changed = false
+      const next = new Set<string>()
+      for (const id of prev) {
+        if (sessions.some((s) => s.id === id)) next.add(id)
+        else changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [sessions])
+
+  /*
+   * Paint the hint where dockview draws. Every tab element carries its panel id
+   * (`data-tab-panel-id`, set by dockview-core itself), so the class lands on
+   * the tab the user actually sees — no custom tab renderer needed. Re-applied
+   * when the set changes and whenever the pane list does, because a newly
+   * opened pane's tab element did not exist for the previous pass.
+   */
+  const paneActivityRef = useRef(paneActivity)
+  paneActivityRef.current = paneActivity
+  const syncPaneActivityDom = useCallback(() => {
+    const active = paneActivityRef.current
+    const tabs = document.querySelectorAll<HTMLElement>('.dv-tab[data-tab-panel-id]')
+    for (const tab of tabs) {
+      const id = tab.getAttribute('data-tab-panel-id') ?? ''
+      tab.classList.toggle('has-activity', active.has(id))
+    }
+  }, [])
+  useEffect(() => {
+    syncPaneActivityDom()
+  }, [paneActivity, sessions, activePanelId, syncPaneActivityDom])
 
   /**
    * A break happened: record it, then start counting again.
@@ -3410,6 +3502,14 @@ export function App(): JSX.Element {
                         }}
                       >
                         <span className={`td-dot td-dot-${s.kind}`} />
+                        {paneActivity.has(s.id) && (
+                          <span
+                            className="td-activity-dot"
+                            data-testid="session-activity"
+                            data-session-id={s.id}
+                            title={t('app.pane_activity', 'New output in the background')}
+                          />
+                        )}
                         <span className="td-session-title" title={s.title}>
                           {s.title}
                         </span>

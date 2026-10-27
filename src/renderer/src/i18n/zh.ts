@@ -19,6 +19,7 @@ export const zh: Catalog = {
   'app.connection_failed': '连接失败',
   'app.connections': '连接',
   'app.connections_window': '连接窗口',
+  'app.pane_activity': '后台有新输出',
   'app.copy_all_output': '复制全部输出',
   'app.copy_host': '复制主机',
   'app.copy_tab_name': '复制标签页名称',

@@ -418,6 +418,33 @@ kbd {
 }
 
 /*
+ * 后台窗格有新输出的活动标识。
+ *
+ * 侧栏打开会话行上的小圆点，与 dockview 标签头上的那颗（.dv-tab.has-activity）
+ * 是同一颗：窗格不在前台却开始打印时出现，窗格到前台的那一刻消失。
+ * 用 --td-accent 而不是会话种类色 —— 种类色（绿/橙）说明"这是什么连接"，
+ * 活动色说明"这里有新东西"，两种提示不互相覆盖。
+ */
+.td-activity-dot {
+  flex: 0 0 auto;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--td-accent);
+}
+
+.dv-tab.has-activity .dv-default-tab-content::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--td-accent);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+/*
  * The quick-script row, shown under the footer while broadcast is on.
  *
  * It sits above the icon row rather than in it: this is a text field, and a text

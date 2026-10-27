@@ -314,3 +314,29 @@ export function onTerminalRender(sessionId: string, listener: () => void): () =>
   const sub = term.onRender(() => listener())
   return () => sub.dispose()
 }
+
+/*
+ * Background-output activity.
+ *
+ * A pane the user is not looking at that starts printing is worth a hint — a dot
+ * on its tab, a dot on its sidebar row. The report happens here rather than in
+ * App state because the writer is `useTerminal`, which sits inside a pane and has
+ * no path back to the app except through panel params it must not churn on every
+ * chunk. Live backend data only: the replayed backlog a pane prints while it is
+ * still the pane being watched, and TermDeck's own exit/error lines, are not
+ * "activity somewhere else".
+ */
+const activityListeners = new Set<(sessionId: string) => void>()
+
+/** Subscribe to live-output reports. Returns the unsubscribe function. */
+export function onTerminalActivity(listener: (sessionId: string) => void): () => void {
+  activityListeners.add(listener)
+  return () => {
+    activityListeners.delete(listener)
+  }
+}
+
+/** Report that the session printed live output. Fired per chunk; cheap to ignore. */
+export function reportTerminalActivity(sessionId: string): void {
+  for (const listener of activityListeners) listener(sessionId)
+}

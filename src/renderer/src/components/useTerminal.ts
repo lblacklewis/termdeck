@@ -17,6 +17,7 @@ import {
   registerRefit,
   registerStamps,
   registerTerminal,
+  reportTerminalActivity,
   selectionTextFor,
   unregisterRefit,
   unregisterStamps,
@@ -465,6 +466,13 @@ export function useTerminal(
       if (seq <= seenSeq) return
       seenSeq = seq
       term.write(chunk)
+      /*
+       * Live output from the backend — the replay above and TermDeck's own
+       * error/exit lines stay out of it. Whether this counts as *background*
+       * activity is decided by whoever listens; this only says "this pane
+       * printed something just now".
+       */
+      reportTerminalActivity(sessionId)
     })
 
     void api
