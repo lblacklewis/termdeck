@@ -446,6 +446,35 @@ async function main() {
       'panels ' + beforeBackspace.panels + '->' + afterBackspace.panels +
         ' sessions ' + beforeBackspace.sessions + '->' + afterBackspace.sessions +
         ' clicked pane alive=' + afterBackspace.targetAlive)
+
+    /*
+     * 还有一条独立的路：键盘自己走到标签上（方向键在 tablist 里游走）。dockview 把
+     * Delete/Backspace 绑成"关这个面板"，而这条绑定在终端场景里是危险的 —— 应用在
+     * 捕获阶段就把它拦下，并把键盘交回该窗格的终端。这一条不依赖"点击之后焦点恰好
+     * 在终端里"，所以它真的走到了那段拦截代码。
+     */
+    await win.webContents.executeJavaScript(`(() => {
+      const tab = document.querySelector('.dv-tab[data-tab-panel-id="' + window.__tdClickTarget + '"]')
+      if (tab) tab.focus()
+      return true
+    })()`)
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' })
+    await sleep(800)
+    const tabGuarded = await win.webContents.executeJavaScript(`(() => {
+      const el = document.activeElement
+      const dock = window.__tdDockApi
+      return {
+        alive: !!dock.getPanel(window.__tdClickTarget),
+        panels: dock.panels.length,
+        inTerminal: !!(el && el.classList && el.classList.contains('xterm-helper-textarea'))
+      }
+    })()`)
+    push('Backspace on a tab that has the keyboard does not close the pane',
+      tabGuarded.alive === true && tabGuarded.panels === beforeBackspace.panels,
+      'clicked pane alive=' + tabGuarded.alive + ' panels=' + tabGuarded.panels)
+    push('and that press hands the keyboard back to the pane terminal',
+      tabGuarded.inTerminal === true, 'focus after the press is the terminal=' + tabGuarded.inTerminal)
     if (attachedHere) win.webContents.debugger.detach()
   } else {
     push('a tab to click on is findable', false,
