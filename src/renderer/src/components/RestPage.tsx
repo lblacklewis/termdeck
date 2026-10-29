@@ -6,6 +6,7 @@ import {
   type RestHistoryEntry,
   type RestRequest,
   type RestResponse,
+  type RestState,
   type SavedRestRequest
 } from '@shared/types'
 import { REST_TEMPLATES } from '@shared/restTemplates'
@@ -105,6 +106,18 @@ export function RestPage(): JSX.Element {
   const draftRef = useRef<RestRequest>(EMPTY)
   const savedRef = useRef<SavedRestRequest[]>([])
   const historyRef = useRef<RestHistoryEntry[]>([])
+  /**
+   * The parts of the state this version does not edit, carried through every save.
+   *
+   * The collection tree and the environments belong to the storage format and to the
+   * workbench that is being built on top of it; a save from this editor must not be the
+   * thing that deletes them.
+   */
+  const carryRef = useRef<Pick<RestState, 'folders' | 'environments' | 'activeEnvironmentId'>>({
+    folders: [],
+    environments: [],
+    activeEnvironmentId: null
+  })
 
   draftRef.current = request
   savedRef.current = saved
@@ -114,6 +127,11 @@ export function RestPage(): JSX.Element {
     void window.termdeck.loadRestState().then((state) => {
       setSaved(state.saved)
       setHistory(state.history)
+      carryRef.current = {
+        folders: state.folders,
+        environments: state.environments,
+        activeEnvironmentId: state.activeEnvironmentId
+      }
       if (state.draft) setRequest(state.draft)
       // A height the user dragged once, coming back with the rest of the page's state.
       if (state.bodyHeight) {
@@ -124,6 +142,11 @@ export function RestPage(): JSX.Element {
     return window.termdeck.onRestStateChanged((state) => {
       setSaved(state.saved)
       setHistory(state.history)
+      carryRef.current = {
+        folders: state.folders,
+        environments: state.environments,
+        activeEnvironmentId: state.activeEnvironmentId
+      }
     })
   }, [])
 
@@ -132,6 +155,7 @@ export function RestPage(): JSX.Element {
     if (draftTimer.current) clearTimeout(draftTimer.current)
     draftTimer.current = setTimeout(() => {
       void window.termdeck.saveRestState({
+        ...carryRef.current,
         draft: draftRef.current,
         saved: savedRef.current,
         history: historyRef.current,
@@ -187,6 +211,7 @@ export function RestPage(): JSX.Element {
         setHistory(next.history)
       }
       await window.termdeck.saveRestState({
+        ...carryRef.current,
         draft: draftRef.current,
         saved: next.saved ?? savedRef.current,
         history: next.history ?? historyRef.current,
@@ -292,6 +317,7 @@ export function RestPage(): JSX.Element {
       historyRef.current = next
       setHistory(next)
       void window.termdeck.saveRestState({
+        ...carryRef.current,
         draft: draftRef.current,
         saved: savedRef.current,
         history: next,

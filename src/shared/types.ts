@@ -112,11 +112,60 @@ export interface RestHeader {
   value: string
 }
 
+/** One query parameter, kept beside the URL rather than inside it. */
+export interface RestParam {
+  name: string
+  value: string
+  enabled: boolean
+}
+
+/** One `application/x-www-form-urlencoded` field. */
+export interface RestFormField {
+  name: string
+  value: string
+  enabled: boolean
+}
+
+/**
+ * How the body is meant.
+ *
+ * `none`/`json`/`raw` share the text box — `json` is the same text with a Content-Type
+ * and a formatter — while `form` has its own key/value table. A request stored before
+ * this existed has a body and no mode: the store infers `json` when it parses and
+ * `raw` otherwise, so an old saved request keeps behaving the way it did.
+ */
+export type RestBodyMode = 'none' | 'json' | 'form' | 'raw'
+
+export type RestAuthType = 'none' | 'bearer' | 'basic' | 'apikey'
+
+/**
+ * What to send on the way out, as data rather than as a header the user has to know
+ * how to write. It becomes a header at send time (see `restAuthHeaders`) — never a
+ * second place a header can live.
+ */
+export interface RestAuth {
+  type: RestAuthType
+  /** bearer */
+  token?: string
+  /** basic */
+  username?: string
+  password?: string
+  /** apikey: the header it goes in, and its value. */
+  key?: string
+  value?: string
+}
+
 export interface RestRequest {
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD'
   url: string
+  /** Query parameters, kept in sync with the URL's own query string. */
+  params?: RestParam[]
   headers: RestHeader[]
+  bodyMode?: RestBodyMode
   body?: string
+  /** The `form` body, when `bodyMode` is `form`. */
+  form?: RestFormField[]
+  auth?: RestAuth
   /** Give up after this long. Absent uses the default (15s). */
   timeoutMs?: number
   /**
@@ -127,11 +176,41 @@ export interface RestRequest {
   insecure?: boolean
 }
 
-/** A request the user named and kept. */
+/** A folder in the API collection tree. `parentId` null means the top level. */
+export interface RestFolder {
+  id: string
+  name: string
+  parentId: string | null
+  expanded?: boolean
+}
+
+/** A request the user named and kept, now filed in the tree. */
 export interface SavedRestRequest {
   id: string
   name: string
+  /** The folder it lives in, or null for the top level. */
+  folderId?: string | null
   request: RestRequest
+}
+
+/** One `{{name}}` environment variable. */
+export interface RestVariable {
+  name: string
+  value: string
+  enabled: boolean
+}
+
+/**
+ * An environment: a named set of variables the request text can refer to.
+ *
+ * One is active at a time, and switching it changes what `{{name}}` resolves to —
+ * which is the whole point: the same request runs against local, staging and
+ * production without editing it.
+ */
+export interface RestEnvironment {
+  id: string
+  name: string
+  variables: RestVariable[]
 }
 
 /**
@@ -164,9 +243,10 @@ export interface RestHistoryEntry {
  * What the REST page restores on open.
  *
  * `draft` is the request that was on screen last, so closing the window in the
- * middle of editing an endpoint does not lose it; `saved` is the list the user
- * deliberately kept; `history` is what was sent, newest first, capped. All three are
- * one file because they are one page's state.
+ * middle of editing an endpoint does not lose it; `folders` + `saved` are the API
+ * collection tree the user built; `environments` + `activeEnvironmentId` are the
+ * variable sets `{{name}}` resolves against; `history` is what was sent, newest
+ * first, capped. All of it is one file because it is one page's state.
  *
  * `bodyHeight` is here for the same reason: the request-body box is resized by
  * dragging its own grip, and that size is page furniture rather than a preference —
@@ -174,7 +254,12 @@ export interface RestHistoryEntry {
  */
 export interface RestState {
   draft: RestRequest | null
+  /** The collection tree's folders. Requests with no `folderId` sit at the top. */
+  folders: RestFolder[]
   saved: SavedRestRequest[]
+  environments: RestEnvironment[]
+  /** Which environment `{{name}}` resolves against; null means none is chosen. */
+  activeEnvironmentId: string | null
   history: RestHistoryEntry[]
   /** Pixels the user dragged the request-body box to, if they ever did. */
   bodyHeight?: number

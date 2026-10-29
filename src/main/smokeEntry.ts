@@ -26,6 +26,7 @@ import {
   defaultScaleForWidth
 } from './store/Stores'
 import { LayoutStore } from './store/LayoutStore'
+import { RestStore } from './store/RestStore'
 import { KnownHosts, fingerprint } from './ssh/KnownHosts'
 import { parseBatchHosts, BATCH_HOST_LIMIT } from '../shared/batchHosts'
 import { DEFAULT_CLIPBOARD_SETTINGS, DEFAULT_KEYBINDINGS, DEFAULT_TERMINAL_SETTINGS } from '../shared/types'
@@ -116,6 +117,7 @@ export {
   SettingsStore,
   SessionStore,
   LayoutStore,
+  RestStore,
   clampBreakMinutes,
   clampScale,
   defaultScaleForWidth,
