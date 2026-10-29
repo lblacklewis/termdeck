@@ -608,7 +608,7 @@ export const zh: Catalog = {
   'highlight.rule.ip': 'IP 地址',
   'highlight.rule.url': '链接',
   'highlight.rule.email': '邮箱',
-  'highlight.rule.mac': 'MAC 地址',
+  'highlight.rule.mac': 'MAC / 硬件地址',
   'highlight.rule.path': '文件路径',
   'highlight.rule.error': '错误关键字',
   'highlight.rule.warn': '警告关键字',

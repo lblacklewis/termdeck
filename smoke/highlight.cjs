@@ -387,6 +387,33 @@ async function main() {
           runCount(plainRuns, 'rgba(0,0,0,0)', 'rgb(77,171,247)') +
           ' width-8 decorations=' + width8 + ' (the red IP must not be one of them)')
 
+      // ---- 5d. long hardware addresses are boxed whole --------------------
+      /*
+       * ip addr 的 InfiniBand 口打印的是二十来组冒号分隔的十六进制硬件地址
+       * （用户截图里那条是 21 组、62 字符）：
+       *   00:00:10:47:fe:80:00:00:00:00:00:00:a0:88:c2:03:00:00:7d:46:6a
+       * MAC 规则以前写死"正好六组"，而这条正则以单词边界收尾 —— 第六组后面是冒号，
+       * 正好构成边界，于是只框住前六组（17 格），后面十几组是白的。用户看到的就是这个：
+       * 一条长地址只亮了一小截。规则改成"六组及以上"后整段一次框住；EUI-64 的八组同理。
+       * 普通六组 MAC 的行为不许变（回归护栏）。
+       */
+      await apply({ highlightScheme: 'classic', highlightRules: ['mac'] })
+      const hw = [
+        ['00:00:10:47:fe:80:00:00:00:00:00:00:a0:88:c2:03:00:00:7d:46:6a', 62],
+        ['00:1b:44:11:3a:b7:00:01', 23],
+        ['a1:b2:c3:d4:e5:f6', 17]
+      ]
+      for (const [address, length] of hw) {
+        await write('echo ' + address)
+        await wait(700)
+        const widthsHw = decorations().map((d) => d.cells)
+        const paintedHw = runCount(styledRuns(address), 'rgba(0,0,0,0)', 'rgb(255,212,59)')
+        push('the hardware address ' + address.slice(0, 17) + '... is boxed whole (' +
+          length + ' cells)',
+          widthsHw.indexOf(length) >= 0 && paintedHw === length,
+          'widths=' + JSON.stringify(widthsHw) + ' painted cells=' + paintedHw)
+      }
+
       // ---- 6. the master switch wins -------------------------------------
       await apply({ highlightEnabled: false })
       push('switching it off clears every box', decorations().length === 0,

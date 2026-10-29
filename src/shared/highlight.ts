@@ -72,8 +72,18 @@ export const HIGHLIGHT_RULES: HighlightRule[] = [
   },
   {
     id: 'mac',
-    english: 'MAC addresses',
-    patterns: [/\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b/gi]
+    english: 'MAC / hardware addresses',
+    /*
+     * Six groups **or more**, not exactly six.
+     *
+     * A hardware address is not always 6 bytes: `ip addr` prints an InfiniBand
+     * port as twenty colon-separated groups, and EUI-64 as eight. With "exactly
+     * six" the trailing `\b` was satisfied by the colon after the sixth group, so
+     * a long address painted its first six groups and left the rest bare — the
+     * "只亮了一小截" report. Greedy groups paint the whole run; a six-group MAC is
+     * unchanged.
+     */
+    patterns: [/\b(?:[0-9a-f]{2}[:-]){5,}[0-9a-f]{2}\b/gi]
   },
   {
     id: 'ip',
