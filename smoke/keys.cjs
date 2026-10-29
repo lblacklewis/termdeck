@@ -320,6 +320,138 @@ async function main() {
     guarded.error || ('before=' + guarded.wasThere + ' after=' + guarded.stillThere +
       ' focus=' + guarded.after))
 
+  // ---- 3b. 真鼠标点标签：键盘必须直接落到那个窗格的终端里 -----------------
+  /*
+   * 这一节用**真鼠标事件**（CDP 的 Input.dispatchMouseEvent，命中测试与默认动作齐全），
+   * 而不是 setActive()。差别就是用户报的那条：上面那节走的是键盘/API 那条路，一直是绿的；
+   * 而点标签走的是另一条 —— dockview 在 pointerdown 激活面板（终端先拿到焦点），紧接着
+   * 浏览器 mousedown 的**默认动作**把焦点交给标签元素本身（div + tabindex=-1 可以被点击
+   * 聚焦）。结果：要再点一下才能打字，而 Backspace 落在标签上会被 dockview 当成
+   * "关闭这个面板"（dockview-core 对聚焦的标签绑了 Delete/Backspace = 关标签）。
+   *
+   * 三条断言，旧代码上都会失败：
+   *   (a) 点完焦点在**被点那个窗格**的 xterm-helper-textarea 上；
+   *   (b) 此后不做任何鼠标操作直接敲键，字节进的是那个会话的数据通道；
+   *   (c) 点完按 Backspace，会话与窗格一个都不许少（Backspace 是 shell 里最常用的键）。
+   */
+  const clicked = await win.webContents.executeJavaScript(`(async () => {
+    const dock = window.__tdDockApi
+    const ids = dock.panels.map((p) => p.id).filter((id) => id !== 'welcome')
+    const active = dock.activePanel ? dock.activePanel.id : null
+    const target = ids.find((id) => id !== active)
+    if (!target) return { error: 'no other pane to switch to' }
+    const tab = document.querySelector('.dv-tab[data-tab-panel-id="' + target + '"]')
+    if (!tab) return { error: 'no tab element for ' + target }
+    const rect = tab.getBoundingClientRect()
+    window.__tdClickTarget = target
+    window.__tdClickBytes = ''
+    const holder = window.__tdTerminals[target]
+    if (holder) holder.term.onData((data) => { window.__tdClickBytes += data })
+    return {
+      target: target,
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top + rect.height / 2)
+    }
+  })()`)
+
+  if (clicked && clicked.target) {
+    let attachedHere = false
+    let pointed = false
+    try {
+      if (!win.webContents.debugger.isAttached()) {
+        win.webContents.debugger.attach('1.3')
+        attachedHere = true
+      }
+      const point = { x: clicked.x, y: clicked.y }
+      await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',
+        Object.assign({ type: 'mouseMoved', button: 'none' }, point))
+      await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',
+        Object.assign({ type: 'mousePressed', button: 'left', clickCount: 1 }, point))
+      pointed = true
+    } catch (err) {
+      push('the real click on the tab could be delivered', false,
+        String((err && err.message) || err))
+    }
+
+    /*
+     * 真浏览器在 mousedown 上还有一个**默认动作**：把焦点交给被按的那个元素。
+     * 标签是 `div[tabindex="-1"]`，属于"可以点着聚焦"的元素，所以真实点击之后焦点
+     * 就停在标签上 —— 这正是用户经历的（要再点一下才能打字、Backspace 被 dockview
+     * 当成关面板）。但 CDP 注入的鼠标事件**不执行这个默认动作**（试过：只按不聚焦），
+     * 所以这里在同一时刻手动补上 `tab.focus()`，把真实顺序还原出来：
+     * 按下 -> 标签拿到焦点 -> 松开 -> 应用该把键盘接回终端。
+     */
+    if (pointed) {
+      const emulated = await win.webContents.executeJavaScript(`(() => {
+        const tab = document.querySelector('.dv-tab[data-tab-panel-id="' + window.__tdClickTarget + '"]')
+        if (tab) tab.focus()
+        const el = document.activeElement
+        return {
+          onTab: !!(el && el.classList && el.classList.contains('dv-tab')),
+          active: el ? el.tagName + '.' + String(el.className) : 'none'
+        }
+      })()`)
+      push('the press leaves the keyboard on the tab, as a real click does',
+        emulated.onTab === true,
+        'focus after the press=' + emulated.active)
+      try {
+        await win.webContents.debugger.sendCommand('Input.dispatchMouseEvent',
+          Object.assign({ type: 'mouseReleased', button: 'left', clickCount: 1 },
+            { x: clicked.x, y: clicked.y }))
+      } catch {
+        // The release is best-effort; the assertions below do not depend on it.
+      }
+    }
+    await sleep(700)
+
+    const afterClick = await win.webContents.executeJavaScript(`(() => {
+      const el = document.activeElement
+      const target = window.__tdClickTarget
+      const pane = document.querySelector('[data-terminal-id="' + target + '"]')
+      const dock = window.__tdDockApi
+      return {
+        active: el ? el.tagName + '.' + String(el.className) : 'none',
+        inTerminal: !!(el && el.classList && el.classList.contains('xterm-helper-textarea')),
+        inThisPane: !!(el && pane && pane.contains(el)),
+        activeIsTab: !!(el && el.classList && el.classList.contains('dv-tab')),
+        isActivePanel: !!(dock.activePanel && dock.activePanel.id === target)
+      }
+    })()`)
+    push('a real click on a tab makes that pane active',
+      afterClick.isActivePanel === true, 'active panel is the clicked one=' + afterClick.isActivePanel)
+    push('and the keyboard is in that pane terminal, not left on the tab',
+      afterClick.inTerminal === true && afterClick.inThisPane === true,
+      'focus after the click=' + afterClick.active + ' leftOnTab=' + afterClick.activeIsTab)
+
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'X' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'X' })
+    await sleep(500)
+    const clickTyped = await win.webContents.executeJavaScript(
+      '({ bytes: window.__tdClickBytes || "" })')
+    push('typing right after the click reaches that session without touching the mouse',
+      clickTyped.bytes.indexOf('x') >= 0 || clickTyped.bytes.indexOf('X') >= 0,
+      'bytes=' + JSON.stringify(clickTyped.bytes))
+
+    const beforeBackspace = await win.webContents.executeJavaScript(
+      '(async () => ({ sessions: (await window.termdeck.listSessions()).length, panels: window.__tdDockApi.panels.length }))()')
+    win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' })
+    win.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' })
+    await sleep(800)
+    const afterBackspace = await win.webContents.executeJavaScript(
+      '(async () => ({ sessions: (await window.termdeck.listSessions()).length, panels: window.__tdDockApi.panels.length, targetAlive: !!window.__tdDockApi.getPanel(window.__tdClickTarget) }))()')
+    push('Backspace right after a tab click does not close the session',
+      afterBackspace.targetAlive === true &&
+        afterBackspace.sessions === beforeBackspace.sessions &&
+        afterBackspace.panels === beforeBackspace.panels,
+      'panels ' + beforeBackspace.panels + '->' + afterBackspace.panels +
+        ' sessions ' + beforeBackspace.sessions + '->' + afterBackspace.sessions +
+        ' clicked pane alive=' + afterBackspace.targetAlive)
+    if (attachedHere) win.webContents.debugger.detach()
+  } else {
+    push('a tab to click on is findable', false,
+      (clicked && clicked.error) || 'no tab element')
+  }
+
   // ---- 4. migration, for installs that already have the old value ---------
   const migrated = await win.webContents.executeJavaScript(`(async () => {
     const api = window.termdeck

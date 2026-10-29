@@ -955,6 +955,58 @@ export function App(): JSX.Element {
     activePanelIdRef.current = dock.api.activePanel?.id ?? null
     setActivePanelId(dock.api.activePanel?.id ?? null)
 
+    /*
+     * A real click on a tab leaves the keyboard on the tab, not in the pane.
+     *
+     * dockview activates the pane on the way down, so the pane's own terminal is
+     * focused first — and then the browser's default action for that same press
+     * moves the focus to the tab element (`div[tabindex="-1"]` is focusable by a
+     * click). What the user gets is a pane that looks active but swallows typing
+     * until it is clicked a second time. The same stolen focus is what let
+     * Backspace — a key no shell can do without — reach the tablist, which closes
+     * the panel.
+     *
+     * So the press is remembered on the way down and acted on after the click has
+     * finished: `mouseup` runs after the default action, which leaves the terminal
+     * holding the keyboard. The release is watched on the window rather than the
+     * dock because a tab drag can be let go outside it. The rule in
+     * `focusPolicy.ts` still has the last word, so a field or a modal keeps the
+     * caret (the click itself never reaches them).
+     */
+    let pressedTab: string | null = null
+    const onTabPress = (event: MouseEvent): void => {
+      const target = event.target as Element | null
+      const tab = target && target.closest ? target.closest('.dv-tab[data-tab-panel-id]') : null
+      pressedTab = tab ? tab.getAttribute('data-tab-panel-id') : null
+    }
+    const onTabRelease = (): void => {
+      if (!pressedTab) return
+      const panelId = pressedTab
+      pressedTab = null
+      // Next tick: the click's own handlers (and any focus they do) go first.
+      window.setTimeout(() => handKeyboardRef.current(panelId), 0)
+    }
+    host.addEventListener('mousedown', onTabPress, true)
+    window.addEventListener('mouseup', onTabRelease, true)
+
+    /*
+     * Backspace and Delete on a focused tab close that pane — dockview's own
+     * binding for a tablist. In a terminal Backspace is a typing key, and a
+     * session lost to one is not recoverable, so on a tab those two keys do
+     * nothing: the press is stopped before the tablist sees it, and the keyboard
+     * goes back to that pane's terminal instead.
+     */
+    const onTabKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== 'Backspace' && event.key !== 'Delete') return
+      const target = event.target as Element | null
+      const tab = target && target.closest ? target.closest('.dv-tab[data-tab-panel-id]') : null
+      if (!tab) return
+      event.preventDefault()
+      event.stopPropagation()
+      handKeyboardRef.current(tab.getAttribute('data-tab-panel-id') ?? '')
+    }
+    host.addEventListener('keydown', onTabKeyDown, true)
+
     // Persist on every layout change, debounced: dragging a divider fires many.
     let saveTimer: number | undefined
     let dirty = false
@@ -1246,6 +1298,9 @@ export function App(): JSX.Element {
       if (settleFrame) window.cancelAnimationFrame(settleFrame)
       window.clearInterval(layoutWatchdog)
       dockObserver.disconnect()
+      host.removeEventListener('mousedown', onTabPress, true)
+      window.removeEventListener('mouseup', onTabRelease, true)
+      host.removeEventListener('keydown', onTabKeyDown, true)
       // Flush on teardown: the debounce window is wider than the gap between the
       // last change and app quit, so a pending save would otherwise be lost.
       if (dirty) persist()
