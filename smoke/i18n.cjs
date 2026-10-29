@@ -142,9 +142,10 @@ async function main() {
   )
   await sleep(1500)
 
-  const rest = await win.webContents.executeJavaScript(`(() => {
+  const rest = await win.webContents.executeJavaScript(`(async () => {
     const page = document.querySelector('[data-testid="rest-page"]')
     if (!page) return { missing: true }
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
     const field = (id) => document.querySelector('[data-testid="' + id + '"]')
     const text = (id) => (field(id) ? field(id).textContent || '' : '')
     const attr = (id, name) => (field(id) ? field(id).getAttribute(name) || '' : '')
@@ -152,21 +153,45 @@ async function main() {
       const el = field(id)
       return el ? [...el.options].map((o) => o.textContent || '') : []
     }
+    const click = async (id) => {
+      const el = field(id)
+      if (!el) return false
+      el.click()
+      await wait(250)
+      return true
+    }
     const templateOptions = options('rest-template')
-    const savedOptions = options('rest-saved')
+    const envOptions = options('rest-env-select')
+    const tabs = ['params', 'headers', 'body', 'auth'].map((id) => text('rest-tab-' + id))
+    /*
+     * The header and body controls live inside their tabs now, so the tabs are opened to
+     * read them — and the JSON body mode is picked because "Format JSON" is a JSON-only
+     * affordance. Everything is put back on the parameters tab afterwards.
+     */
+    await click('rest-tab-headers')
+    const addHeader = text('rest-header-add')
+    await click('rest-tab-body')
+    await click('rest-body-mode-json')
+    const format = text('rest-format')
+    const bodyModes = ['none', 'json', 'form', 'raw'].map((id) => text('rest-body-mode-' + id))
+    await click('rest-tab-params')
     return {
       missing: false,
       body: page.textContent || '',
       send: text('rest-send'),
       copy: text('rest-copy-curl'),
-      addHeader: text('rest-header-add'),
-      format: text('rest-format'),
+      importCurl: text('rest-curl-open'),
+      envManage: text('rest-env-manage'),
+      addHeader,
+      format,
+      tabs,
+      bodyModes,
       templateAria: attr('rest-template', 'aria-label'),
-      savedAria: attr('rest-saved', 'aria-label'),
+      envAria: attr('rest-env-select', 'aria-label'),
       blankOption: templateOptions[0] || '',
-      noSavedOption: savedOptions[0] || '',
+      noEnvOption: envOptions[0] || '',
       historyEmpty: text('rest-history-empty'),
-      keptEmpty: text('rest-kept-empty'),
+      treeEmpty: text('rest-tree-empty'),
       groupTitles: [...page.querySelectorAll('.td-rest-group-title')].map((el) => el.textContent || ''),
       fieldLabels: [...page.querySelectorAll('.td-field > span:first-child')].map((el) => el.textContent || ''),
       templates: templateOptions.slice(1)
@@ -180,23 +205,27 @@ async function main() {
     rest.missing ? 'no [data-testid=rest-page]' : 'ok')
   push('the REST toolbar is Chinese',
     rest.send === '发送' && hasCJK(rest.copy) && (rest.copy || '').includes('cURL') &&
+      hasCJK(rest.importCurl) && hasCJK(rest.envManage) &&
       hasCJK(rest.addHeader) && hasCJK(rest.format),
-    [rest.send, rest.copy, rest.addHeader, rest.format].join(' | '))
+    [rest.send, rest.copy, rest.importCurl, rest.envManage, rest.addHeader, rest.format].join(' | '))
   /*
-   * The label of a field is the first span inside it, but for the two fields that carry
-   * controls on the same line (headers, body) that span also wraps the controls, so its
-   * text reads "请求头逐条JSON". Asserting what the label *starts with* is the honest
-   * form; requiring the array to equal the four words was wrong about the DOM.
+   * The request editor is in tabs now, so the labels that used to be fields on one page
+   * are tab names. "JSON" is deliberately the same word in both languages, which is why
+   * the mode check counts the ones that have a Chinese form instead of requiring all four.
    */
+  push('the request and body tabs are Chinese',
+    (rest.tabs || []).length === 4 && rest.tabs.every(hasCJK) &&
+      (rest.bodyModes || []).filter(hasCJK).length >= 3,
+    (rest.tabs || []).concat(rest.bodyModes || []).join(' | '))
   const fieldLabels = rest.fieldLabels || []
   push('the REST field labels are Chinese',
-    ['方法', '请求头', '请求体', '超时'].every((label) =>
+    ['方法', '地址', '超时'].every((label) =>
       fieldLabels.some((value) => value.indexOf(label) === 0)),
     JSON.stringify(fieldLabels))
   push('its list headings and empty hints are Chinese',
     (rest.groupTitles || []).length === 2 && rest.groupTitles.every(hasCJK) &&
-      hasCJK(rest.historyEmpty) && hasCJK(rest.keptEmpty),
-    (rest.groupTitles || []).concat([rest.historyEmpty, rest.keptEmpty]).join(' | '))
+      hasCJK(rest.historyEmpty) && hasCJK(rest.treeEmpty),
+    (rest.groupTitles || []).concat([rest.historyEmpty, rest.treeEmpty]).join(' | '))
   push('the built-in templates are Chinese, not their English names',
     (rest.templates || []).length >= 6 &&
       rest.templates.filter(hasCJK).length >= 5 &&
@@ -205,16 +234,18 @@ async function main() {
     JSON.stringify(rest.templates))
   push('aria labels and menu rows are translated, not only visible text',
     hasCJK(rest.templateAria) && rest.templateAria !== 'Template' &&
-      hasCJK(rest.savedAria) && rest.savedAria !== 'Saved requests' &&
-      hasCJK(rest.blankOption) && hasCJK(rest.noSavedOption),
-    [rest.templateAria, rest.savedAria, rest.blankOption, rest.noSavedOption].join(' | '))
+      hasCJK(rest.envAria) && rest.envAria !== 'Environment' &&
+      hasCJK(rest.blankOption) && hasCJK(rest.noEnvOption),
+    [rest.templateAria, rest.envAria, rest.blankOption, rest.noEnvOption].join(' | '))
 
   const stillEnglish = [
-    'Send', 'Copy as cURL', 'Add header', 'Format JSON', 'Timeout (s)',
+    'Send', 'Copy as cURL', 'Import cURL', 'Environments…', '+ Folder',
+    'Add header', 'Format JSON', 'Timeout (s)', 'Not in this environment',
     'Accept a self-signed certificate', 'Method', 'Headers', 'Body',
     'History', 'Kept requests', 'Calls you send show up here.',
     'Keep a call to find it again by name.', 'Saved requests', 'Blank request',
-    'No response yet', 'Rows', 'Search the response',
+    'No response yet', 'Rows', 'Search the answer', 'No environment',
+    'Move to', 'Top level', 'No saved requests yet',
     'Fold back to the first 400 lines'
   ].filter((phrase) => (rest.body || '').includes(phrase))
   push('none of the page English is left anywhere on it', stillEnglish.length === 0,
