@@ -166,6 +166,23 @@ async function main() {
   push('a switched-off variable counts as undefined',
     envVars.base === 'http://127.0.0.1:4523' && envVars.off === undefined,
     JSON.stringify(envVars))
+  /*
+   * The row somebody is typing in is data, not junk: dropping it on the way to disk loses
+   * it from the editor too, because the editor renders what the store broadcasts back.
+   */
+  const beingTyped = mod.normaliseVariables([
+    { name: '', value: '', enabled: true },
+    { name: 'later', value: '', enabled: true },
+    'nonsense',
+    null
+  ])
+  push('a variable with no name yet is kept, and junk is still thrown away',
+    beingTyped.length === 2 && beingTyped[0].name === '' && beingTyped[1].name === 'later',
+    JSON.stringify(beingTyped))
+  push('and a nameless variable defines nothing',
+    Object.keys(mod.environmentVars({ id: 'e', name: 'e', variables: beingTyped })).join(',') ===
+      'later',
+    JSON.stringify(mod.environmentVars({ id: 'e', name: 'e', variables: beingTyped })))
 
   // ---- A3. the request that actually goes out ---------------------------
   const built = mod.buildRestRequest(
@@ -293,6 +310,34 @@ async function main() {
     typed.request.headers.length === 1 &&
       typed.request.headers[0].value === 'application/vnd.custom+json',
     JSON.stringify(typed.request.headers))
+
+  /*
+   * The two settings that are not part of the wire format still have to survive the trip
+   * through the page: they are read by the sender, and dropping them substitutes its
+   * defaults — a one-second timeout that behaves like fifteen, or a self-signed
+   * certificate that is refused after the user ticked the box.
+   */
+  const settings = mod.buildRestRequest(
+    {
+      method: 'GET',
+      url: 'https://api.test/x',
+      headers: [],
+      timeoutMs: 2500,
+      insecure: true
+    },
+    null
+  )
+  push('the built request carries the timeout the user chose',
+    settings.request.timeoutMs === 2500, 'timeoutMs=' + settings.request.timeoutMs)
+  push('and the certificate setting',
+    settings.request.insecure === true, 'insecure=' + settings.request.insecure)
+  const noSettings = mod.buildRestRequest(
+    { method: 'GET', url: 'https://api.test/x', headers: [] },
+    null
+  )
+  push('a request with neither set is left without them, rather than given defaults',
+    noSettings.request.timeoutMs === undefined && noSettings.request.insecure === undefined,
+    JSON.stringify([noSettings.request.timeoutMs, noSettings.request.insecure]))
 
   push('a stored body with no mode is read as JSON when it parses',
     mod.effectiveBodyMode({ method: 'POST', url: 'u', headers: [], body: '{"a":1}' }) === 'json')

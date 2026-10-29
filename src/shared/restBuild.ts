@@ -33,6 +33,15 @@ export interface BuiltRestRequest {
   url: string
   headers: RestHeader[]
   body?: string
+  /**
+   * How long the sender waits, and whether it accepts a self-signed certificate.
+   *
+   * Not part of the wire format, but part of "the request that goes out": leaving them
+   * behind would silently substitute the sender's defaults, which is a bug the probe
+   * caught only because a one-second timeout behaved like fifteen.
+   */
+  timeoutMs?: number
+  insecure?: boolean
 }
 
 export interface RestBuild {
@@ -185,6 +194,8 @@ export function buildRestRequest(
 
   const built: BuiltRestRequest = { method: request.method, url, headers }
   if (sentBody !== undefined) built.body = sentBody
+  if (request.timeoutMs !== undefined) built.timeoutMs = request.timeoutMs
+  if (request.insecure === true) built.insecure = true
   return { ok: missing.length === 0, request: built, missing }
 }
 

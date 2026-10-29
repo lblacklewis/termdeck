@@ -77,6 +77,15 @@ export function substituteVars(
 }
 
 /** Variables as the store keeps them, with anything unusable dropped. */
+/**
+ * Variables as stored: structure coerced, nothing dropped.
+ *
+ * A row whose name is still empty is *data being typed*, not junk. Dropping it here looks
+ * harmless on disk but is not: the environment editor renders whatever the store last
+ * broadcast, so a sentence like "click + Variable, then type its name" loses the row
+ * between the click and the first keystroke. Empty names are ignored where they matter —
+ * `environmentVars` will not define one — and the row disappears when the user removes it.
+ */
 export function normaliseVariables(input: unknown): RestVariable[] {
   if (!Array.isArray(input)) return []
   return input
@@ -86,5 +95,4 @@ export function normaliseVariables(input: unknown): RestVariable[] {
       value: typeof row.value === 'string' ? row.value : '',
       enabled: row.enabled !== false
     }))
-    .filter((row) => row.name.trim() !== '')
 }

@@ -38,11 +38,27 @@ interface Hop {
   location?: string
 }
 
-function headerPairs(raw: IncomingMessage['headers']): RestHeader[] {
+/**
+ * The response headers, one row each.
+ *
+ * `rawHeaders` when it is there, because Node's own `headers` object collapses a header
+ * that arrived more than once into one comma-joined value — and the header that arrives
+ * more than once is `set-cookie`, whose values contain commas of their own (`Expires=Wed,
+ * 21 Oct 2026`). Joining them makes the Cookie tab parse fiction. Sorting is kept so the
+ * list reads the same as it always did.
+ */
+function headerPairs(message: IncomingMessage): RestHeader[] {
   const out: RestHeader[] = []
-  for (const [name, value] of Object.entries(raw)) {
-    if (value === undefined) continue
-    out.push({ name, value: Array.isArray(value) ? value.join(', ') : String(value) })
+  const raw = message.rawHeaders
+  if (Array.isArray(raw) && raw.length > 0) {
+    for (let at = 0; at + 1 < raw.length; at += 2) {
+      out.push({ name: raw[at], value: raw[at + 1] })
+    }
+  } else {
+    for (const [name, value] of Object.entries(message.headers)) {
+      if (value === undefined) continue
+      out.push({ name, value: Array.isArray(value) ? value.join(', ') : String(value) })
+    }
   }
   return out.sort((a, b) => a.name.localeCompare(b.name))
 }
@@ -98,7 +114,7 @@ function once(url: URL, req: RestRequest): Promise<Hop> {
           resolve({
             status: response.statusCode ?? 0,
             statusText: response.statusMessage ?? '',
-            headers: headerPairs(response.headers),
+            headers: headerPairs(response),
             body: Buffer.concat(chunks).toString('utf8'),
             size,
             truncated,
