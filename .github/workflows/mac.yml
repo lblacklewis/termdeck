@@ -112,7 +112,12 @@ jobs:
           npm run typecheck
 
       - name: Package (unsigned)
-        run: npm run dist:mac -- --${{ matrix.arch }}
+        # `--publish never` is load-bearing: electron-builder detects CI and, with no
+        # publish config, tries to publish to GitHub by itself — then dies with
+        # "GitHub Personal Access Token is not set" *after* the dmg/zip were built.
+        # That failed this step, so the Checksums and upload steps never ran and every
+        # run lost its artefacts. Nothing here publishes; the release is created by hand.
+        run: npm run dist:mac -- --${{ matrix.arch }} --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
 
@@ -127,6 +132,8 @@ jobs:
           cat "SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt"
 
       - uses: actions/upload-artifact@v4
+        # even if a later step goes red, whatever was built still gets uploaded
+        if: always()
         with:
           name: TermDeck-mac-${{ matrix.arch }}
           path: |
