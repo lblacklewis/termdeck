@@ -21,15 +21,26 @@ export { BUNDLED_MONOSPACE_FONTS }
 /** Heuristic: fonts whose name suggests fixed width. */
 const MONO_HINT = /mono|consol|courier|terminal|fixed|code|hack|inconsolata|menlo/i
 
+/** A `_name` that is really a file name, not a family: never let one through. */
+const FONT_FILE = /\.(ttf|otf|ttc|dfont|woff2?)$/i
+
 /**
  * Family names out of `system_profiler SPFontsDataType -json`.
  *
- * macOS has no `fc-list`, so the enumeration goes through `system_profiler`,
- * which prints one dictionary per font: `_name` is the registered family name
- * (what a CSS `font-family` and xterm's `fontFamily` match on), while `path` is
- * a file name that would make a nonsense picker. The nesting of this report has
- * changed between macOS releases, so every `_name` in the document is collected
- * rather than one level guessed at.
+ * macOS has no `fc-list`, so the enumeration goes through `system_profiler`, and
+ * the shape of that report has changed between releases. Both spellings are in
+ * the wild:
+ *
+ *  - up to at least macOS 15 each entry's `_name` is the registered family name
+ *    (what a CSS `font-family` and xterm's `fontFamily` match on);
+ *  - on macOS 26 the top-level `_name` is the **file name** (`Georgia Bold.ttf`)
+ *    and the family moved down into `typefaces[].family`. Reading `_name` there
+ *    hands the picker a list of file names, and (because the old code collected
+ *    every `_name` in the document) the PostScript names from the typefaces too.
+ *
+ * So `typefaces[].family` wins whenever the report has one, and the older shape
+ * falls back to `_name` with file names filtered out. Entries whose family name
+ * is missing from the document are the price of not showing `Georgia Bold.ttf`.
  *
  * Kept separate from the process call so it can be tested with a fixture: the
  * shape of this output is the only thing that can be checked off a Mac.
@@ -42,6 +53,15 @@ export function parseMacFontFamilies(stdout: string): string[] {
     return []
   }
 
+  const add = (into: Set<string>, raw: unknown): void => {
+    if (typeof raw !== 'string') return
+    const name = raw.trim()
+    if (!name || name.length >= 64) return
+    if (FONT_FILE.test(name) || name.indexOf('/') >= 0) return
+    into.add(name)
+  }
+
+  const families = new Set<string>()
   const names = new Set<string>()
   const visit = (node: unknown): void => {
     if (Array.isArray(node)) {
@@ -50,10 +70,9 @@ export function parseMacFontFamilies(stdout: string): string[] {
     }
     if (!node || typeof node !== 'object') return
     const record = node as Record<string, unknown>
-    if (typeof record['_name'] === 'string') {
-      const name = record['_name'].trim()
-      if (name && name.length < 64) names.add(name)
-    }
+    // `family` only ever appears on a typeface entry, where it is the real family.
+    add(families, record['family'])
+    add(names, record['_name'])
     // Every nested value, not just `_items`: the report shape has changed between
     // macOS releases, and the one thing that must not happen is parsing it into an
     // empty list while the data was right there under another key.
@@ -63,7 +82,7 @@ export function parseMacFontFamilies(stdout: string): string[] {
   }
   visit(parsed)
 
-  return [...names]
+  return [...(families.size > 0 ? families : names)]
 }
 
 /**

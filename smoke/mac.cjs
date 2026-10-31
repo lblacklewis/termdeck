@@ -177,6 +177,29 @@ async function main() {
       .parseMacFontFamilies(JSON.stringify({ SPFontsDataType: [{ _items: [{ _name: 'Hack' }] }] }))
       .indexOf('Hack') >= 0
   )
+  // macOS 26: the entry's _name is the font *file*, the family lives on the
+  // typeface. Reading _name there returns 'Georgia Bold.ttf' plus the PostScript
+  // name beside it, which is what the real-machine check at the end caught.
+  const modernFixture = JSON.stringify({
+    SPFontsDataType: [
+      {
+        _name: 'Georgia Bold.ttf',
+        path: '/System/Library/Fonts/Supplemental/Georgia Bold.ttf',
+        typefaces: [{ _name: 'Georgia-Bold', family: 'Georgia' }]
+      },
+      {
+        _name: 'Menlo.ttc',
+        path: '/System/Library/Fonts/Menlo.ttc',
+        typefaces: [{ _name: 'Menlo-Regular', family: 'Menlo' }]
+      }
+    ]
+  })
+  const modern = mod.parseMacFontFamilies(modernFixture)
+  push(
+    'macOS 26 的形状（顶层 _name 是文件名，族名在 typefaces[].family）取到的是族名',
+    modern.length === 2 && modern.indexOf('Georgia') >= 0 && modern.indexOf('Menlo') >= 0,
+    JSON.stringify(modern)
+  )
   push(
     'mac 的默认等宽字体是系统字体优先',
     mod.defaultFontFamily('darwin').indexOf('"SF Mono"') === 0,
