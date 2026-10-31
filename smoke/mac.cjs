@@ -514,14 +514,23 @@ async function main() {
   const macBuild = pkg.build && pkg.build.mac
   push('package.json 里有 mac 打包配置', !!macBuild)
   const targets = (macBuild && macBuild.target) || []
-  const kinds = targets.map((t) => t.target)
+  const kinds = targets.map((t) => (typeof t === 'string' ? t : t.target))
   push('mac 出 dmg 与 zip 两种产物', kinds.indexOf('dmg') >= 0 && kinds.indexOf('zip') >= 0, kinds.join(','))
-  const arches = []
-  for (const target of targets) for (const arch of target.arch || []) arches.push(arch)
+  // The arch must come from --arm64 / --x64 (or the runner), never from the config.
+  // An arch array written into build.mac.target overrides the command line: asked for
+  // --arm64 it still builds the x64 package too, and the native modules packed into it
+  // (node-pty, ssh2's sshcrypto, cpu-features) are the host's architecture, so that
+  // package is broken on the machine it targets. One arch per run, one runner per arch.
+  const pinned = []
+  for (const target of targets) {
+    if (target && typeof target === 'object' && Array.isArray(target.arch)) {
+      for (const arch of target.arch) pinned.push(arch)
+    }
+  }
   push(
-    'arm64 与 x64 分开出，不做 universal',
-    arches.indexOf('arm64') >= 0 && arches.indexOf('x64') >= 0 && arches.indexOf('universal') < 0,
-    arches.join(',')
+    'mac 配置里不锁死架构（锁死会让 --arm64 / --x64 失效，打出坏包）',
+    pinned.length === 0,
+    pinned.length > 0 ? 'pinned: ' + pinned.join(',') : 'arch comes from the command line'
   )
   push(
     'mac 产物名带版本与架构',
@@ -550,7 +559,11 @@ async function main() {
   const workflow = fs.existsSync(workflowPath) ? fs.readFileSync(workflowPath, 'utf8') : ''
   push('仓库里有 mac 的 CI workflow', workflow.length > 0, workflowPath)
   push('CI 用 npm ci 装依赖', workflow.indexOf('npm ci') >= 0)
-  push('CI 跑 dist:mac', workflow.indexOf('npm run dist:mac') >= 0)
+  push(
+    'CI 跑 dist:mac 并把 runner 自己的架构传进去（一个 runner 只出一个架构）',
+    workflow.indexOf('npm run dist:mac -- --${{ matrix.arch }}') >= 0,
+    'runners: macos-15 arm64 / macos-15-intel x64'
+  )
   push(
     'CI 在 arm64 与 Intel 两种 runner 上分别打包（原生模块按架构装）',
     workflow.indexOf('macos-15-intel') >= 0 && workflow.indexOf('arm64') >= 0,
