@@ -141,9 +141,10 @@ npm run smoke:mac                                      # mac 分支的真机断�
 # 2. 发行说明：docs/发行说明-vX.Y.Z.md（照上一版的结构：下载表 / 更新内容 / 已知边界 / 校验）
 # 3. 发版闸门：Windows 机器上用「原版」而不是 verify:fast（mac 上跑不完，见下方说明）
 rm -rf node_modules/.smoke-data && npm run verify      # 要求 0 条 FAIL + 退出码 0
-# 4. mac 产物（本机）
+# 4. mac 产物：推 tag/分支之后 CI 会打两个架构并自动挂到发布页；
+#    本机这份只是为了自己先验一遍（打包版自检）
 npm run dist:mac -- --arm64                            # 只出本机架构的 dmg + zip（另一架构交给 CI 的 runner）
-# 5. 校验值
+# 5. 校验值（CI 也会给每个架构各算一份）
 cd release && shasum -a 256 TermDeck-X.Y.Z-*.dmg TermDeck-X.Y.Z-*.zip > SHA256SUMS-X.Y.Z-mac-$(uname -m).txt
 # 6. 提交、标签、分支、推送
 git add -A && git commit -m "发布: vX.Y.Z"
@@ -160,10 +161,14 @@ git push origin master && git push origin vX.Y.Z && git push origin release/vX.Y
 - 打包前**先退出正在运行的 TermDeck.app**（Windows 上是 `release\win-unpacked` 锁着 app.asar，
   mac 上同理：运行中的 app 会让 `release/` 下的重写失败）。
 - GitHub 发布页只能你自己在浏览器里建：`https://github.com/lblacklewis/termdeck/releases/new?tag=vX.Y.Z`。
-  **目前还欠 v2.2.0 / v2.3.0 / v2.4.0 / v2.5.0 / v2.6.0 / v2.6.1 六页**（正文都在
-  `docs/发行说明-*.md`，产物也在）—— 其中 **v2.6.1 是本次要建的**：正文已备好
-  （`docs/发行说明-v2.6.1.md`），产物在本机 `release/`（arm64 的 dmg + zip +
-  `SHA256SUMS-2.6.1-mac-arm64.txt`），Intel 那份等 CI。
+  **建好之后，mac 的 dmg / zip / 校验值由 CI 自己挂上去**（`mac.yml` 最后一个 step：
+  页面不存在就跳过，存在就 `gh release upload --clobber`），不用再下载 200 MB 的 artifact 手工传。
+  **还欠 v2.2.0 / v2.3.0 / v2.4.0 / v2.5.0 / v2.6.0 五页**（正文都在 `docs/发行说明-*.md`，产物也在）；
+  **v2.6.1 已经建好并发布**：`https://github.com/lblacklewis/termdeck/releases/tag/v2.6.1`
+  （6 个附件：两个架构的 dmg + zip + 各自的 `SHA256SUMS-2.6.1-mac-<arch>.txt`，CI 挂的）。
+- **改发布页正文时务必带 `--draft=false`**：`gh release edit vX.Y.Z --notes-file …` 不带这个参数
+  会把**已经发布的** release 变成草稿（`published_at` 清空、页面从公开列表消失、Latest 回退到上一版），
+  本次就踩了一次。正确写法：`gh release edit vX.Y.Z --notes-file docs/发行说明-vX.Y.Z.md --draft=false --latest`。
 
 ## 7. 铁律（换成 mac 命令后仍然成立）
 
