@@ -222,8 +222,9 @@ npm run dist:win         # 只能在 Windows 上跑
 
 ## 10. 交接时（v2.6.1）的确切状态
 
-- `master` 最新提交 = **发布 v2.6.1 的构建提交**（版本号 + 发行说明），标签 `v2.6.1` + 分支
-  `release/v2.6.1` 都停在同一个提交上；**目前只在本地提交，还没推送**（后面的文档提交不移动标签）。
+- `master` 最新提交 = CI 修复 `36e0015`（它前面是发布提交 `6b240d1`），标签 `v2.6.1` + 分支
+  `release/v2.6.1` 都停在发布提交上；**都已推 origin**（后面的文档与 CI 修复提交不移动标签）。
+  发布页已建：`https://github.com/lblacklewis/termdeck/releases/tag/v2.6.1`。
 - Mac 上能跑的验证（v2.6.1 本机实测，macOS 26.6.2 / arm64 / Node 24.14.0）：`npm run smoke:mac`
   **102/102、EXIT=0**；`check:probes` / `check:i18n` / `check:s3` / `typecheck` 全过；用 CDP 驱动
   **打包版**自检 **7/7**（版本 2.6.1、platform darwin、`localShellAvailable=true`、开得出本地 shell，
