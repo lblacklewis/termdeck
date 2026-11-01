@@ -72,6 +72,10 @@ jobs:
 
   # The download people actually get.
   package:
+    # `contents: write` is only for the "attach to the release page" step at the end;
+    # the default token is read-only and `gh release upload` would 403 without it.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -141,3 +145,23 @@ jobs:
             release/*.zip
             release/SHA256SUMS-*.txt
           if-no-files-found: error
+
+      - name: Attach to the release page, if one already exists
+        # The release page is still created by hand (see docs/交接-换到Mac继续.md §6);
+        # this only fills it with the per-architecture files, so nobody has to download
+        # a 200 MB artifact and re-upload it. No page yet ⇒ nothing happens.
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          tag="v${version}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            echo "no release page for $tag yet — skipping"
+            exit 0
+          fi
+          gh release upload "$tag" \
+            release/*.dmg \
+            release/*.zip \
+            "release/SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt" \
+            --clobber
+          echo "attached ${version} mac-${{ matrix.arch }} to $tag"
