@@ -162,6 +162,7 @@ git push origin master && git push origin vX.Y.Z && git push origin release/vX.Y
   mac 上同理：运行中的 app 会让 `release/` 下的重写失败）。
 - GitHub 发布页只能你自己在浏览器里建：`https://github.com/lblacklewis/termdeck/releases/new?tag=vX.Y.Z`。
   **建好之后，mac 的 dmg / zip / 校验值由 CI 自己挂上去**（`mac.yml` 最后一个 step：
+  只在 `release/**` 分支的 push 上跑 —— 那个 ref 就是发布本身，文件才来自被发布的提交；
   页面不存在就跳过，存在就 `gh release upload --clobber`），不用再下载 200 MB 的 artifact 手工传。
   **还欠 v2.2.0 / v2.3.0 / v2.4.0 / v2.5.0 / v2.6.0 五页**（正文都在 `docs/发行说明-*.md`，产物也在）；
   **v2.6.1 已经建好并发布**：`https://github.com/lblacklewis/termdeck/releases/tag/v2.6.1`

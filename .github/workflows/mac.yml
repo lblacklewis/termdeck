@@ -150,6 +150,11 @@ jobs:
         # The release page is still created by hand (see docs/交接-换到Mac继续.md §6);
         # this only fills it with the per-architecture files, so nobody has to download
         # a 200 MB artifact and re-upload it. No page yet ⇒ nothing happens.
+        #
+        # Only on a `release/**` push: that ref is the release itself, so the files come
+        # from the released commit. Without this gate every later push to master would
+        # rebuild and silently replace the assets of the release that is already out.
+        if: startsWith(github.ref, 'refs/heads/release/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
