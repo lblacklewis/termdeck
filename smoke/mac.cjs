@@ -532,6 +532,16 @@ async function main() {
     pinned.length === 0,
     pinned.length > 0 ? 'pinned: ' + pinned.join(',') : 'arch comes from the command line'
   )
+  // Without a signing identity electron-builder leaves the linker's ad-hoc signature
+  // on a bundle it has since modified ("code has no resources but signature indicates
+  // they must be present"). Gatekeeper shows that as "已损坏，无法打开" and there is no
+  // right-click-Open path out of it. identity "-" means ad-hoc; hardened runtime would
+  // then reject Electron's differently-signed frameworks, so it has to be off.
+  push(
+    'mac 产物显式做 ad-hoc 签名（identity "-"、hardenedRuntime false）',
+    !!macBuild && macBuild.identity === '-' && macBuild.hardenedRuntime === false,
+    'identity=' + (macBuild && macBuild.identity) + ' hardenedRuntime=' + (macBuild && macBuild.hardenedRuntime)
+  )
   push(
     'mac 产物名带版本与架构',
     !!macBuild && macBuild.artifactName === 'TermDeck-${version}-${arch}.${ext}',

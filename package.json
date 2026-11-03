@@ -164,7 +164,9 @@
         "zip"
       ],
       "category": "public.app-category.developer-tools",
-      "artifactName": "TermDeck-${version}-${arch}.${ext}"
+      "artifactName": "TermDeck-${version}-${arch}.${ext}",
+      "identity": "-",
+      "hardenedRuntime": false
     }
   }
 }
