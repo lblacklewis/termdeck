@@ -13,6 +13,8 @@ const os = require('node:os')
 const fs = require('node:fs')
 const { app, BrowserWindow, dialog } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const all = []
@@ -25,6 +27,12 @@ function report(checks) {
 }
 
 async function main() {
+  // Drives a real quick-connect SSH login; SKIP loudly when the fixture is missing.
+  if (await sshFixture.skipped('features2')) {
+    app.exit(0)
+    return
+  }
+
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   // Wipe the profile before anything constructs a store. The stores cache
   // their contents in memory, so deleting their files afterwards leaves the

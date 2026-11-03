@@ -32,6 +32,29 @@ function check(name, ok, detail) {
   else failed += 1
 }
 
+/*
+ * A check that cannot run on this platform at all is neither a pass nor a failure:
+ * print it as SKIP and count it as satisfied, the way smoke/mac.cjs and smoke/nav.cjs
+ * do, so the tally stays comparable instead of silently shrinking.
+ */
+function skip(name, reason) {
+  fs.writeSync(1, `SKIP  ${name} ${DASH} ${reason}\n`)
+  passed += 1
+}
+
+/** Turn a stored chord ('Ctrl+Shift+Q' / 'Meta+Shift+Q') into a KeyboardEvent init. */
+function chordEvent(chord) {
+  const parts = chord.split('+')
+  const key = parts[parts.length - 1]
+  const mods = parts.slice(0, -1).map((p) => p.trim().toLowerCase())
+  const init = { key: key, bubbles: true, cancelable: true }
+  if (mods.indexOf('ctrl') >= 0 || mods.indexOf('control') >= 0) init.ctrlKey = true
+  if (mods.indexOf('shift') >= 0) init.shiftKey = true
+  if (mods.indexOf('alt') >= 0) init.altKey = true
+  if (mods.indexOf('meta') >= 0 || mods.indexOf('cmd') >= 0) init.metaKey = true
+  return JSON.stringify(init)
+}
+
 function finish() {
   fs.writeSync(1, `\n${passed}/${passed + failed} checks passed\n`)
   app.exit(failed === 0 ? 0 : 1)
@@ -110,19 +133,37 @@ async function main() {
   check('Escape keeps the window open', !win.isDestroyed())
 
   // ---- 4. the quit shortcut asks the same question ------------------------
-  await run(
-    'window.dispatchEvent(new KeyboardEvent("keydown",' +
-      ' { key: "Q", ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })); true'
-  )
-  await sleep(700)
-  check('the quit shortcut opens the same confirmation', await dialogUp())
-  check('the shortcut did not quit on the spot', !win.isDestroyed())
-  const shortcutDetail = await run(
-    '(() => { const e = document.querySelector("[data-testid=\\"quit-detail\\"]");' +
-      ' return e ? e.textContent : "" })()'
-  )
-  check('the shortcut dialog names the live connection',
-    /1 active connection\b/.test(shortcutDetail || ''), JSON.stringify(shortcutDetail))
+  /*
+   * The shortcut only exists where the platform ships one: Windows / Linux bind
+   * Ctrl+Shift+Q, macOS deliberately leaves `quitApp` unbound because Quit there is
+   * the application menu's Cmd+Q (see MAC_BINDING_DEFAULTS in src/shared/platform.ts,
+   * and smoke/mac.cjs which covers that menu item). Pressing a chord that is not
+   * bound would be asserting Windows behaviour on a Mac, so on macOS these three are
+   * an explicit SKIP — and the confirmation is re-opened below so step 5 still has a
+   * dialog to confirm.
+   */
+  const quitChord = (mod.defaultBindings(process.platform).find((b) => b.id === 'quitApp') || {}).keys
+  if (quitChord) {
+    await run(
+      'window.dispatchEvent(new KeyboardEvent("keydown",' + chordEvent(quitChord) + ')); true'
+    )
+    await sleep(700)
+    check('the quit shortcut opens the same confirmation', await dialogUp(), 'chord=' + quitChord)
+    check('the shortcut did not quit on the spot', !win.isDestroyed())
+    const shortcutDetail = await run(
+      '(() => { const e = document.querySelector("[data-testid=\\"quit-detail\\"]");' +
+        ' return e ? e.textContent : "" })()'
+    )
+    check('the shortcut dialog names the live connection',
+      /1 active connection\b/.test(shortcutDetail || ''), JSON.stringify(shortcutDetail))
+  } else {
+    const why = 'quitApp is unbound on ' + process.platform + ' (Quit is the application menu Cmd+Q)'
+    skip('the quit shortcut opens the same confirmation', why)
+    skip('the shortcut did not quit on the spot', why)
+    skip('the shortcut dialog names the live connection', why)
+    win.close()
+    await sleep(800)
+  }
 
   // ---- 5. confirming really quits -----------------------------------------
   win.once('closed', () => {

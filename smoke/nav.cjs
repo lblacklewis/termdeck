@@ -3,16 +3,19 @@
  *
  *   npm run build && electron smoke/nav.cjs --user-data-dir=...
  *
- * `Alt`+digit must land on the session at that position in the arrangement,
- * `Alt+[` / `Alt+]` must walk the same list and wrap at both ends, and a digit
- * past the last session must do nothing at all. The rail is checked too, in the
- * other direction: these keys used to switch *pages*, and the rail must now stay
+ * The jump keys are the platform's own: Alt+digit on Windows/Linux, Cmd+digit on
+ * macOS (sessionJumpModifier). They must land on the session at that position in
+ * the arrangement; the platform's own step chords (Alt+[ / Alt+] on Windows/Linux,
+ * Cmd+Alt+arrows on macOS) must walk the same list and wrap at both ends; and a
+ * digit past the last session must do nothing at all. The rail is checked too, in
+ * the other direction: these keys used to switch pages, and the rail must now stay
  * exactly where the user left it, which is what makes the change visible as a
  * change rather than as two keys that happen to do something.
  *
- * Also checks that the menu bar cannot appear over the layout, since the
- * application menu was removed precisely because every `Alt` shortcut would have
- * revealed it.
+ * The menu checks are platform-dependent as well: Windows and Linux remove the
+ * application menu outright (which is why Alt can no longer reveal a menu bar),
+ * while macOS ships the standard App/Edit/Window menu and draws it in the system
+ * menu bar, not over the layout.
  */
 const path = require('node:path')
 const { app, BrowserWindow, Menu } = require('electron')
@@ -20,10 +23,17 @@ const { app, BrowserWindow, Menu } = require('electron')
 const ROOT = path.join(__dirname, '..')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const all = []
+const SUITE = 'nav.cjs'
 const DASH = String.fromCharCode(8212)
 
 function report(checks) {
   for (const c of checks) {
+    // 平台推导不出来的检查显式 SKIP：打印出来、不计入失败，也不假装它通过了。
+    if (c.skip) {
+      console.log('SKIP  ' + SUITE + ':' + c.name + ' ' + DASH + ' ' + c.detail)
+      all.push({ name: c.name, ok: true, detail: 'SKIP ' + DASH + ' ' + c.detail, skip: true })
+      continue
+    }
     console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.detail ? ' ' + DASH + ' ' + c.detail : ''}`)
     all.push(c)
   }
@@ -36,9 +46,46 @@ async function main() {
   mod.registerFocusIpc()
   mod.storeAccess().layout.clear()
 
+  /*
+   * 按键按平台推导，不写死 Windows 那一组。
+   *
+   * 跳会话的修饰键来自 sessionJumpModifier（Windows 是 Alt，mac 是 Cmd），换会话的
+   * chord 来自该平台的默认键位表 —— mac 上是 Cmd+Alt+左右，不是 Alt+[ / Alt+]。
+   * 平台表本身由 smoke/mac.cjs 断言，这里断言的是「按本平台的键，行为对」。
+   */
+  const bindings = mod.defaultBindings(process.platform)
+  const chordOf = (id) => {
+    const found = bindings.find((b) => b.id === id)
+    return found ? found.keys : ''
+  }
+  const jumpModifier = mod.sessionJumpModifier(process.platform)
+  const jumpMod = jumpModifier === 'meta' ? { metaKey: true } : { altKey: true }
+  const jumpLabel = jumpModifier === 'meta' ? 'Cmd' : 'Alt'
+  /** 把一条 chord 拆成 KeyboardEvent 需要的按键与修饰键。 */
+  const chordEvent = (chord) => {
+    const parts = chord.split('+').map((p) => p.trim())
+    const isMod = (p) =>
+      ['ctrl', 'control', 'shift', 'alt', 'option', 'meta', 'cmd', 'command'].indexOf(
+        p.toLowerCase()
+      ) >= 0
+    const has = (names) => parts.some((p) => names.indexOf(p.toLowerCase()) >= 0)
+    return {
+      key: parts.filter((p) => !isMod(p)).pop() || '',
+      ctrlKey: has(['ctrl', 'control']),
+      shiftKey: has(['shift']),
+      altKey: has(['alt', 'option']),
+      metaKey: has(['meta', 'cmd', 'command'])
+    }
+  }
+  const prevChord = chordEvent(chordOf('prevPage'))
+  const nextChord = chordEvent(chordOf('nextPage'))
+  const prevLabel = mod.displayChord(chordOf('prevPage'), process.platform)
+  const nextLabel = mod.displayChord(chordOf('nextPage'), process.platform)
+
   // The app entry does this before creating its window; the probes build their own
   // window, so they have to ask for the same thing. On Windows and Linux this is the
-  // same "no application menu" it has always been.
+  // same "no application menu" it has always been; on macOS it installs the standard
+  // App / Edit / Window menu (the checks further down are platform-aware).
   mod.installApplicationMenu({
     appName: 'TermDeck',
     askQuit: function () {}
@@ -69,6 +116,13 @@ async function main() {
     (async () => {
       const out = []
       const push = (n, ok, d) => out.push({ name: n, ok: Boolean(ok), detail: d || '' })
+      /* 本平台的按键（主进程按平台算好）：跳会话的修饰键 + 换会话的两条 chord。 */
+      const JUMP = ${JSON.stringify(jumpMod)}
+      const JUMP_LABEL = ${JSON.stringify(jumpLabel)}
+      const PREV = ${JSON.stringify(prevChord)}
+      const NEXT = ${JSON.stringify(nextChord)}
+      const PREV_LABEL = ${JSON.stringify(prevLabel)}
+      const NEXT_LABEL = ${JSON.stringify(nextLabel)}
       const wait = (ms) => new Promise((r) => setTimeout(r, ms))
       const waitFor = async (fn, timeout) => {
         const end = Date.now() + (timeout || 8000)
@@ -106,17 +160,24 @@ async function main() {
        */
       const KEY_CODES = {
         '1': 49, '2': 50, '3': 51, '4': 52, '5': 53,
-        '6': 54, '7': 55, '8': 56, '9': 57, '[': 219, ']': 221
+        '6': 54, '7': 55, '8': 56, '9': 57, '[': 219, ']': 221,
+        ArrowLeft: 37, ArrowRight: 39
       }
-      const key = async (k, opts) => {
+      /*
+       * 按的是本平台的那一组键，不是 Windows 那组写死的键：
+       * 跳会话是 JUMP + digit（Alt 或 Cmd），换会话是 PREV / NEXT 两条 chord。
+       */
+      const press = async (event) => {
         const target = document.activeElement || document.body
-        const code = KEY_CODES[k] || 0
+        const code = KEY_CODES[event.key] || 0
         target.dispatchEvent(new KeyboardEvent('keydown', Object.assign({
-          key: k, keyCode: code, which: code,
+          keyCode: code, which: code,
           bubbles: true, cancelable: true, composed: true
-        }, opts)))
+        }, event)))
         await wait(450)
       }
+      /** Alt+digit / Cmd+digit：修饰键是该平台自己的那一个。 */
+      const jumpKey = (digit) => Object.assign({ key: digit }, JUMP)
       /** Put the keyboard inside a pane, the way clicking one does. */
       const focusPane = async (id) => {
         const entry = (window.__tdTerminals || {})[id]
@@ -168,31 +229,31 @@ async function main() {
             ? document.activeElement.className || document.activeElement.tagName
             : 'none'))
 
-        step = 'alt digits'
-        await key('2', { altKey: true })
-        push('Alt+2 goes to the second session', activeTab() === ids[1], state())
-        await key('1', { altKey: true })
-        push('Alt+1 goes to the first session', activeTab() === ids[0], state())
-        await key('3', { altKey: true })
-        push('Alt+3 goes to the third session', activeTab() === ids[2], state())
+        step = 'jump digits'
+        await press(jumpKey('2'))
+        push(JUMP_LABEL + '+2 goes to the second session', activeTab() === ids[1], state())
+        await press(jumpKey('1'))
+        push(JUMP_LABEL + '+1 goes to the first session', activeTab() === ids[0], state())
+        await press(jumpKey('3'))
+        push(JUMP_LABEL + '+3 goes to the third session', activeTab() === ids[2], state())
 
         // Out of range: a fourth session does not exist, and nothing should happen.
-        await key('4', { altKey: true })
+        await press(jumpKey('4'))
         push('a digit past the last session is ignored', activeTab() === ids[2], state())
 
         step = 'bracket stepping'
-        await key('1', { altKey: true })
-        await key(']', { altKey: true })
-        push('Alt+] steps forward', activeTab() === ids[1], state())
-        await key('[', { altKey: true })
-        push('Alt+[ steps back', activeTab() === ids[0], state())
+        await press(jumpKey('1'))
+        await press(NEXT)
+        push(NEXT_LABEL + ' steps forward', activeTab() === ids[1], state())
+        await press(PREV)
+        push(PREV_LABEL + ' steps back', activeTab() === ids[0], state())
 
         step = 'wrapping'
         // Backwards from the first must land on the last, and forwards from the
         // last must land back on the first: neither end is a dead stop.
-        await key('[', { altKey: true })
+        await press(PREV)
         push('stepping back from the first wraps to the last', activeTab() === ids[2], state())
-        await key(']', { altKey: true })
+        await press(NEXT)
         push('stepping forward from the last wraps to the first', activeTab() === ids[0], state())
 
         step = 'rail untouched'
@@ -231,20 +292,43 @@ async function main() {
     report([{ name: 'nav probe', ok: false, detail: String((err && err.message) || err) }])
   }
 
-  // The menu check has to be made from the main process: the renderer cannot see
-  // whether an application menu exists, and the layout shift it used to cause is
-  // exactly what the shortcut family had to be safe against.
+  /*
+   * The menu check has to be made from the main process: the renderer cannot see
+   * whether an application menu exists, and the layout shift it used to cause is
+   * exactly what the shortcut family had to be safe against.
+   *
+   * 按平台：Windows / Linux 上应用没有菜单（Alt 也就翻不出菜单栏）；macOS 上
+   * App / Edit / Window 是按设计存在的系统菜单栏，Cmd+C/V 就靠它，所以在 mac 上
+   * 断言的是「菜单存在」，并且不再假装窗口级菜单栏这个概念在 mac 上有意义。
+   */
+  const isMac = process.platform === 'darwin'
+  const appMenu = Menu.getApplicationMenu()
   report([
-    {
-      name: 'the application menu is removed, so Alt cannot reveal one',
-      ok: Menu.getApplicationMenu() === null,
-      detail: 'menu=' + (Menu.getApplicationMenu() ? 'installed' : 'none')
-    },
-    {
-      name: 'and the menu bar is not visible over the layout',
-      ok: !win.isMenuBarVisible(),
-      detail: 'menuBarVisible=' + win.isMenuBarVisible()
-    }
+    isMac
+      ? {
+          name: 'macOS 上按设计有应用菜单（Cmd+C/V 来自它的 Edit 菜单）',
+          ok: appMenu !== null,
+          detail: 'menu=' + (appMenu ? 'installed' : 'none')
+        }
+      : {
+          name: 'the application menu is removed, so Alt cannot reveal one',
+          ok: appMenu === null,
+          detail: 'menu=' + (appMenu ? 'installed' : 'none')
+        },
+    isMac
+      ? {
+          name: 'the menu bar cannot appear over the layout',
+          ok: true,
+          skip: true,
+          detail:
+            'macOS 的菜单固定在系统菜单栏，窗口级菜单栏是 Windows/Linux 的概念（本机 ' +
+            process.platform + '）'
+        }
+      : {
+          name: 'and the menu bar is not visible over the layout',
+          ok: !win.isMenuBarVisible(),
+          detail: 'menuBarVisible=' + win.isMenuBarVisible()
+        }
   ])
 
   const failed = all.filter((c) => !c.ok)

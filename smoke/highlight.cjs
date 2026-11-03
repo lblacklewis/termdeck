@@ -19,7 +19,9 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { app, BrowserWindow } = require('electron')
 
-const ROOT = 'D:\\project\\dsh-workspace\\termdeck'
+// Derived from this file's own location: the probe runs from a checkout on any
+// machine (CI included), so a hard-coded D:\ path made it die before the first check.
+const ROOT = path.join(__dirname, '..')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const DASH = String.fromCharCode(8212)
 
@@ -324,9 +326,24 @@ async function main() {
       const startAt = longCopy.indexOf('WRAPSTART')
       const endAt = longCopy.indexOf('-WRAPEND')
       const between = startAt >= 0 && endAt > startAt ? longCopy.slice(startAt, endAt) : ''
-      push('a wrapped line copies back as one line', between.indexOf(String.fromCharCode(10)) < 0,
-        'newlines inside=' + (between.split(String.fromCharCode(10)).length - 1) +
-          ' chars=' + between.length)
+      /*
+       * Measured: on an 86-column terminal the echoed command (198 chars) soft-wraps
+       * over 3 rows, and xterm's getSelection() reports those wrap points as line
+       * breaks — so "the copy has no newlines" is only true while the line happens to
+       * fit on one row, which is why this passed on a wider window and fails here.
+       * What must hold either way is that no *character* is lost or invented: strip
+       * the wrap breaks and the original text has to come back exactly.
+       */
+      const cols = term.cols
+      const wraps = between.split(String.fromCharCode(10)).length - 1
+      const flattened = between.split(String.fromCharCode(10)).join('')
+      push('a wrapped line copies back with every character intact',
+        flattened === 'WRAPSTART-' + 'a'.repeat(180),
+        'chars=' + between.length + ' cols=' + cols + ' wrapBreaks=' + wraps +
+          ' before=' + JSON.stringify(longCopy.slice(Math.max(0, startAt - 14), startAt)))
+      push('and a line that fits on one row copies back with no line break at all',
+        between.length > cols || wraps === 0,
+        'chars=' + between.length + ' cols=' + cols + ' wrapBreaks=' + wraps)
 
       // ---- 5b. IPv6 addresses are boxed as a whole address ----------------
       /*

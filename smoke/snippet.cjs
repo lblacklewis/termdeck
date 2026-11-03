@@ -150,23 +150,48 @@ async function main() {
       const runBtn = document.querySelector('[data-snippet-label="run-it"]')
       push('the second snippet button rendered', runBtn)
       if (runBtn) {
-        // Counting occurrences is timing-dependent: the echoed input can scroll
-        // out of the buffer. A prompt appearing *after* the marker is the
-        // definitive sign that the shell received and ran the line.
+        /*
+         * The check above left its own text sitting on the prompt, and a snippet
+         * is sent verbatim — so that leftover would end up joined to this command
+         * and printed with it, making the output line impossible to recognise.
+         * What is under test here is a command that ends in a line break, not what
+         * happens when one is typed after unrelated text, so abandon the line
+         * first. Ctrl+C is the same key in every shell.
+         */
+        await api.writeSession(sessionId, String.fromCharCode(3))
+        await wait(700)
+        /*
+         * Counting occurrences is timing-dependent: the echoed input can scroll
+         * out of the buffer. What a run leaves behind that typing alone never does
+         * is the *output*: the shell prints the marker on a line of its own, while
+         * the echoed command line carries the prompt (and the command) in front of
+         * it. That is the signal, because the last character of a prompt belongs to
+         * whichever shell the machine runs — a Powerlevel10k prompt ends in a box
+         * glyph, PowerShell's in a greater-than sign — and writing that list down
+         * here is how this check came to depend on the OS rather than on the app.
+         * The prompt test is kept alongside it, so a shell that only ever reaches
+         * a bare prompt still passes. No backslash escapes: the injected template
+         * would eat them.
+         */
         runBtn.click()
-        const promptFollowed = await waitFor(() => {
-          const text = bufferText()
-          // trimEnd already removes the padding, so the check is just "does it
-          // now end at a prompt character". No whitespace escape here: the
-          // injected template would eat the backslash and leave a different regex.
-          return text.includes(runMarker) && /[$#>]$/.test(text.trimEnd())
-        }, 10000)
+        const outputLine = () =>
+          bufferText().split('\\n').some((line) => line.trim() === runMarker)
+        const atPrompt = () => {
+          const text = bufferText().trimEnd()
+          return (
+            text.endsWith('$') || text.endsWith('#') ||
+            text.endsWith('>') || text.endsWith('%')
+          )
+        }
+        const executed = await waitFor(() => outputLine() || atPrompt(), 10000)
         const afterRun = bufferText()
         const idx = afterRun.indexOf(runMarker)
-        push('text ending in a line break IS executed', promptFollowed,
+        push('text ending in a line break IS executed', executed,
           JSON.stringify({
-            context: idx >= 0 ? afterRun.slice(idx, idx + 90) : 'marker absent',
-            endsWithPrompt: /[$#>]$/.test(afterRun.trimEnd())
+            outputLine: outputLine(),
+            endsWithPrompt: atPrompt(),
+            occurrences: (afterRun.match(new RegExp(runMarker, 'g')) || []).length,
+            context: idx >= 0 ? afterRun.slice(idx, idx + 90) : 'marker absent'
           }))
       }
 
@@ -248,10 +273,28 @@ async function main() {
       /*
        * ---- a conflicting shortcut is refused --------------------------------
        *
-       * Ctrl+T is New connection by default, so binding a snippet to it is exactly
-       * the mistake the check exists for: both are matched by the same dispatcher,
-       * and whichever came first in the list would win, silently.
+       * A snippet bound to the same chord as a built-in is exactly the mistake the
+       * check exists for: both are matched by the same dispatcher, and whichever
+       * came first in the list would win, silently.
+       *
+       * Which chord that is belongs to the platform — Ctrl+T is New connection on
+       * Windows, Cmd+T on a Mac — so it is read out of the app's own bindings
+       * for this platform instead of being written down here. The chord is then
+       * pressed by turning it back into a KeyboardEvent, and the message is
+       * checked against the chord the app itself renders in the binding's row, so
+       * the spelling follows wherever displayChord puts it.
        */
+      const settingsNow = await api.loadSettings()
+      const clashBinding =
+        settingsNow.keybindings.find((b) => b.id === 'newConnection' && b.keys) ||
+        settingsNow.keybindings.find((b) => b.keys)
+      const clashChord = clashBinding ? clashBinding.keys : 'Ctrl+T'
+      const clashLabel = clashBinding ? clashBinding.label : 'New connection'
+      const clashRowId = clashBinding ? clashBinding.id : 'newConnection'
+      const clashParts = clashChord.split('+')
+      const clashKey = clashParts[clashParts.length - 1]
+      const clashMods = clashParts.slice(0, -1).map((part) => part.toLowerCase())
+
       document.querySelector('[data-testid="rail-settings"]').click()
       await waitFor(() => !!document.querySelector('.td-settings'), 6000)
       const shortcutsTab = [...document.querySelectorAll('.td-settings-tab')]
@@ -266,7 +309,15 @@ async function main() {
         keyBtn.click()
         await wait(250)
         window.dispatchEvent(
-          new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true, cancelable: true })
+          new KeyboardEvent('keydown', {
+            key: clashKey,
+            ctrlKey: clashMods.includes('ctrl'),
+            shiftKey: clashMods.includes('shift'),
+            altKey: clashMods.includes('alt'),
+            metaKey: clashMods.includes('meta'),
+            bubbles: true,
+            cancelable: true
+          })
         )
         await wait(450)
         const bannerText = [...document.querySelectorAll('.td-form-error')]
@@ -274,8 +325,14 @@ async function main() {
           .join(' | ')
         // The banner lower-cases the chord it reports, so compare that way.
         const banner = bannerText.toLowerCase()
+        // The built-in's own row shows the chord in this platform's spelling
+        // (Cmd+T on a Mac, Ctrl+T on Windows) — the same rendering the banner
+        // uses, so the probe never has to spell a modifier itself.
+        const clashRow = document.querySelector('[data-testid="binding-' + clashRowId + '"]')
+        const shownChord = (clashRow ? clashRow.textContent || '' : '').trim()
         push('a clash with a built-in is reported, naming both sides',
-          banner.includes('ctrl+t') && /New connection/i.test(bannerText) &&
+          !!shownChord && banner.includes(shownChord.toLowerCase()) &&
+            banner.includes(clashLabel.toLowerCase()) &&
             /hotkey-run/i.test(bannerText),
           bannerText.slice(0, 200))
         push('and the row itself is marked', keyBtn.className.includes('is-conflict'),

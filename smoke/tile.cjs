@@ -43,6 +43,44 @@ async function main() {
   const push = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail || '' })
   const page = (code) => win.webContents.executeJavaScript(code)
 
+  /*
+   * The arrange chord comes from the app, not from a Windows keyboard.
+   *
+   * 'tilePanes' is stored as 'Ctrl+Shift+T' on Windows/Linux and 'Meta+Shift+T' on
+   * macOS (the app's own defaultBindings). The probe used to dispatch ctrlKey
+   * everywhere, so on a Mac the binding never matched, the dialog never opened, and
+   * the next line died on null.click() — the crash was here even though the cause
+   * was the chord. Deriving both the event and the label from the platform keeps the
+   * Windows run exactly the same and makes the Mac run press Cmd.
+   */
+  const bindingChord = (id) => {
+    const found = mod.defaultBindings(process.platform).find((b) => b.id === id)
+    return found ? found.keys : ''
+  }
+  const tileChord = bindingChord('tilePanes')
+  const tileLabel = mod.displayChord(tileChord, process.platform)
+  /** Split a stored chord into the pieces a KeyboardEvent init needs. */
+  const chordEvent = (chord) => {
+    const parts = chord.split('+').map((p) => p.trim())
+    const isMod = (p) =>
+      ['ctrl', 'control', 'shift', 'alt', 'option', 'meta', 'cmd', 'command'].indexOf(
+        p.toLowerCase()
+      ) >= 0
+    const has = (names) => parts.some((p) => names.indexOf(p.toLowerCase()) >= 0)
+    return {
+      key: parts.filter((p) => !isMod(p)).pop() || '',
+      ctrlKey: has(['ctrl', 'control']),
+      shiftKey: has(['shift']),
+      altKey: has(['alt', 'option']),
+      metaKey: has(['meta', 'cmd', 'command']),
+      bubbles: true
+    }
+  }
+  const pressTile = () =>
+    page(
+      `window.dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify(chordEvent(tileChord))}))`
+    )
+
   // ---- four panes to arrange ---------------------------------------------------
   const opened = await page(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -58,7 +96,7 @@ async function main() {
 
   const openDialog = async () => {
     await page(`(() => { document.activeElement && document.activeElement.blur(); return true })()`)
-    await page(`window.dispatchEvent(new KeyboardEvent('keydown', { key: 'T', ctrlKey: true, shiftKey: true, bubbles: true }))`)
+    await pressTile()
     await sleep(700)
     return page(`(() => {
       const dialog = document.querySelector('[data-testid="tile-dialog"]')
@@ -74,7 +112,7 @@ async function main() {
   }
 
   const dialog = await openDialog()
-  push('Ctrl+Shift+T opens the arrange dialog', !!dialog, JSON.stringify(dialog))
+  push(tileLabel + ' opens the arrange dialog', !!dialog, JSON.stringify(dialog))
   push('every pane is ticked by default',
     !!dialog && dialog.checked === 4 && dialog.panes === 4, JSON.stringify(dialog))
   push('the three arrangements are offered',
@@ -133,9 +171,10 @@ async function main() {
     'x=' + distinctX + ' y=' + distinctY + ' ' + JSON.stringify(grid.map((g) => g.w + 'x' + g.h)))
 
   // ---- unticking a pane --------------------------------------------------------
+  await page(`(() => { document.activeElement && document.activeElement.blur(); return true })()`)
+  await pressTile()
   const subset = await page(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'T', ctrlKey: true, shiftKey: true, bubbles: true }))
     await wait(700)
     const boxes = [...document.querySelectorAll('[data-testid="tile-pane"]')]
     boxes[3].click()
@@ -198,9 +237,10 @@ async function main() {
   push('and clicking it again brings it back', toggle.back === toggle.first, JSON.stringify(toggle))
 
   // ---- a partial selection must not squeeze the rest ---------------------------
+  await page(`(() => { document.activeElement && document.activeElement.blur(); return true })()`)
+  await pressTile()
   await page(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'T', ctrlKey: true, shiftKey: true, bubbles: true }))
     await wait(700)
     document.querySelectorAll('[data-testid="tile-pane"]')[3].click()
     await wait(300)
@@ -218,9 +258,10 @@ async function main() {
     JSON.stringify(partial.map((g) => g.w)))
 
   // ---- one window -------------------------------------------------------------
+  await page(`(() => { document.activeElement && document.activeElement.blur(); return true })()`)
+  await pressTile()
   const merged = await page(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'T', ctrlKey: true, shiftKey: true, bubbles: true }))
     await wait(700)
     document.querySelector('[data-testid="tile-mode-stack"]').click()
     await wait(300)

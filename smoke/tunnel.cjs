@@ -19,6 +19,8 @@ const fs = require('node:fs')
 const net = require('node:net')
 const { app, BrowserWindow } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const USER = process.env.TD_SSH_USER || 'root'
@@ -67,6 +69,12 @@ function readBanner(port, timeout = 8000) {
 }
 
 async function main() {
+  // Forwards through a real SSH login; SKIP loudly when the fixture is missing.
+  if (await sshFixture.skipped('tunnel')) {
+    app.exit(0)
+    return
+  }
+
   const localPort = await freePort()
 
   const knownHostsPath = path.join(os.tmpdir(), 'termdeck-tunnel-known-hosts')

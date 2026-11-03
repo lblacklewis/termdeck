@@ -8,10 +8,11 @@
  *   - @lydell/node-pty can spawn a local PTY and stream output
  *   - ssh2 can be required and driven by the SessionManager/SshShellBackend
  */
-const path = require('node:path')
 const { app } = require('electron')
+const sshFixture = require('./sshfixture.cjs')
 
 const results = []
+let skipped = 0
 function record(name, ok, detail) {
   results.push({ name, ok, detail })
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? ` — ${detail}` : ''}`)
@@ -65,11 +66,18 @@ async function checkPty() {
 }
 
 async function checkSsh() {
+  // The real-connection half of this suite needs a test key plus a route to the test
+  // host. When that fixture is absent (a fresh Mac, a CI runner) this is a SKIP, not a
+  // failure: the local PTY check above is the half that must hold on every machine.
+  const problem = await sshFixture.sshFixtureProblem()
+  if (problem) {
+    skipped += 1
+    console.log('SKIP  ssh2 real connect + exec — ' + problem)
+    return
+  }
   try {
     const ssh2 = require('ssh2')
-    const key = require('node:fs').readFileSync(
-      path.join(process.env.USERPROFILE || process.env.HOME || '', '.ssh', 'id_rsa')
-    )
+    const key = require('node:fs').readFileSync(sshFixture.sshKeyPath())
     const parsed = ssh2.utils.parseKey(key)
     if (parsed instanceof Error) throw parsed
     record('ssh2 require + parseKey', true, `key type ${parsed.type}`)
@@ -115,6 +123,7 @@ app.whenReady().then(async () => {
   await checkSsh()
 
   const failed = results.filter((r) => !r.ok)
-  console.log(`\n${results.length - failed.length}/${results.length} checks passed`)
+  const tail = skipped > 0 ? `, ${skipped} skipped` : ''
+  console.log(`\n${results.length - failed.length}/${results.length} checks passed${tail}`)
   app.exit(failed.length === 0 ? 0 : 1)
 })

@@ -51,11 +51,44 @@ async function main() {
   })
   mod.attachFocusMode(win)
   await win.loadFile(path.join(ROOT, 'out', 'renderer', 'index.html'))
-  await sleep(3000)
 
   const checks = []
   const push = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail: detail || '' })
   const page = (code) => win.webContents.executeJavaScript(code)
+
+  /*
+   * Wait for the condition, not for a fixed number of seconds.
+   *
+   * The font chips are the reason this exists. They come from listFonts, which on
+   * macOS shells out to system_profiler SPFontsDataType -json: measured at ~12 s on
+   * a cold cache on this machine, and the main process gives it a 60 s budget. The
+   * probe used to sleep(3000) after load, so on a Mac the chips were still empty
+   * when the queries ran: chips was [], find returned undefined, and the suite died
+   * on undefined.click() before printing a single assertion. Waiting on the
+   * condition itself returns the moment the chips are there, so a slow machine
+   * passes and a broken one still fails on its own assertion.
+   */
+  const waitFor = async (code, budgetMs) => {
+    const deadline = Date.now() + budgetMs
+    for (;;) {
+      if (await page(code)) return true
+      if (Date.now() >= deadline) return false
+      await sleep(250)
+    }
+  }
+
+  /*
+   * Give the screen its boot, then wait for the font enumeration to land. The
+   * ceiling matches the budget the main process gives system_profiler (60 s) plus
+   * a little slack; on Windows/Linux this returns on the first poll.
+   */
+  const booted = await waitFor(`!!document.querySelector('[data-testid="welcome-screen"]')`, 20000)
+  if (booted) {
+    await waitFor(
+      `document.querySelectorAll('[data-testid="welcome-fonts"] .td-font-chip').length > 0`,
+      70000
+    )
+  }
 
   // ---- it appears on a fresh profile -----------------------------------------
   const shown = await page(`(() => {

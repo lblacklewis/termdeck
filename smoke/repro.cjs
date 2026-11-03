@@ -12,6 +12,8 @@ const path = require('node:path')
 const os = require('node:os')
 const { app, BrowserWindow } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const SSH_HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const SSH_USER = process.env.TD_SSH_USER || 'root'
@@ -54,6 +56,12 @@ const DOCK_STATE = `(() => {
 })()`
 
 async function main() {
+  // Connects to the test host for real; SKIP loudly when the fixture is missing.
+  if (await sshFixture.skipped('repro')) {
+    app.exit(0)
+    return
+  }
+
   require(path.join(ROOT, 'out', 'main', 'smokeEntry.js')).registerIpc()
 
   const win = new BrowserWindow({

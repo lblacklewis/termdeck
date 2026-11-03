@@ -86,6 +86,16 @@ async function main() {
     entry.term.focus()
     await wait(300)
     // Does a paste reach onData at all? The popup is fed from there.
+    /*
+     * A shell that turns on bracketed paste has every paste wrapped in
+     * ESC [ 200 ~ … ESC [ 201 ~, and those bytes are on the same stream. The app
+     * unwraps them before it reads the line (commandSuggest.ts), so the probe has
+     * to look through them too: comparing the raw stream would only report which
+     * terminal mode this shell asked for, not whether the text arrived.
+     */
+    const ESC = String.fromCharCode(27)
+    const unwrapPaste = (data) =>
+      data.split(ESC + '[200~').join('').split(ESC + '[201~').join('')
     let seen = ''
     entry.term.onData((data) => { seen += data })
     for (const ch of 'Get-') entry.term.paste(ch)
@@ -93,6 +103,7 @@ async function main() {
     const box = document.querySelector('[data-testid="command-suggest"]')
     return {
       sawData: seen,
+      sawText: unwrapPaste(seen),
       debug: window.__tdSuggest || null,
       box: !!box,
       visible: !!box && !box.hidden,
@@ -101,7 +112,7 @@ async function main() {
     }
   })()`)
   push('a paste reaches the input stream the popup is fed from',
-    typed.sawData.includes('Get-'), JSON.stringify(typed.sawData))
+    typed.sawText.includes('Get-'), JSON.stringify(typed.sawData))
   push('typing a prefix opens the suggestion list', typed.visible, JSON.stringify(typed))
   push('it lists the commands starting with what was typed',
     typed.items.length === 2 && typed.items.every((t) => t.startsWith('Get-')),

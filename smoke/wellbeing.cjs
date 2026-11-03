@@ -33,6 +33,29 @@ async function main() {
   mod.registerFocusIpc()
   mod.storeAccess().layout.clear()
 
+  /*
+   * 锁屏键按平台推导，不写死 Windows 的 Ctrl+Alt+L：mac 上 lockApp 默认是
+   * Ctrl+Cmd+L（MAC_BINDING_DEFAULTS）。平台表本身由 smoke/mac.cjs 断言，
+   * 这里断言的是「按本平台的键，锁屏真的出来」。
+   */
+  const bindings = mod.defaultBindings(process.platform)
+  const lockKeys = (bindings.find((b) => b.id === 'lockApp') || {}).keys || ''
+  const lockParts = lockKeys.split('+').map((p) => p.trim())
+  const lockIsMod = (p) =>
+    ['ctrl', 'control', 'shift', 'alt', 'option', 'meta', 'cmd', 'command'].indexOf(
+      p.toLowerCase()
+    ) >= 0
+  const lockHas = (names) => lockParts.some((p) => names.indexOf(p.toLowerCase()) >= 0)
+  /** 锁屏键在该平台上的按键与修饰键，交给渲染端按原样按下。 */
+  const lockEvent = {
+    key: lockParts.filter((p) => !lockIsMod(p)).pop() || '',
+    ctrlKey: lockHas(['ctrl', 'control']),
+    shiftKey: lockHas(['shift']),
+    altKey: lockHas(['alt', 'option']),
+    metaKey: lockHas(['meta', 'cmd', 'command'])
+  }
+  const lockLabel = mod.displayChord(lockKeys, process.platform)
+
   const win = new BrowserWindow({
     width: 1500,
     height: 950,
@@ -91,6 +114,9 @@ async function main() {
     (async () => {
       const out = []
       const push = (n, ok, d) => out.push({ name: n, ok: Boolean(ok), detail: d || '' })
+      /* 本平台的锁屏键（主进程按平台算好）：Windows 是 Ctrl+Alt+L，mac 是 Ctrl+Cmd+L。 */
+      const LOCK = ${JSON.stringify(lockEvent)}
+      const LOCK_LABEL = ${JSON.stringify(lockLabel)}
       const wait = (ms) => new Promise((r) => setTimeout(r, ms))
       const waitFor = async (fn, timeout) => {
         const end = Date.now() + (timeout || 8000)
@@ -288,14 +314,15 @@ async function main() {
 
       // ---- 2. the lock screen --------------------------------------------
       step = 'lock'
+      // 按的是本平台的 lockApp chord，不是 Windows 那一组写死的键。
       const lockShortcut = () =>
-        window.dispatchEvent(new KeyboardEvent('keydown', {
-          key: 'L', ctrlKey: true, altKey: true, bubbles: true, cancelable: true
-        }))
+        window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({
+          bubbles: true, cancelable: true
+        }, LOCK)))
 
       lockShortcut()
       const locked = await waitFor(() => !!lockEl(), 4000)
-      push('the lock shortcut locks the app', locked)
+      push('the lock shortcut locks the app', locked, LOCK_LABEL)
 
       // A hit test rather than an element check: the point is that the panes
       // cannot be read, so the topmost thing at the centre of the window has to

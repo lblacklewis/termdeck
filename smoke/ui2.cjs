@@ -12,6 +12,8 @@ const path = require('node:path')
 const os = require('node:os')
 const { app, BrowserWindow } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const SSH_HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const SSH_USER = process.env.TD_SSH_USER || 'root'
@@ -27,6 +29,12 @@ function report(checks) {
 }
 
 async function main() {
+  // Section 1 connects a real SSH session; SKIP loudly without the fixture.
+  if (await sshFixture.skipped('ui2')) {
+    app.exit(0)
+    return
+  }
+
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   // Wipe the profile before anything constructs a store. The stores cache
   // their contents in memory, so deleting their files afterwards leaves the

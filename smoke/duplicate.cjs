@@ -21,6 +21,8 @@ const os = require('node:os')
 const fs = require('node:fs')
 const { app, BrowserWindow } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const USER = process.env.TD_SSH_USER || 'root'
@@ -41,6 +43,12 @@ function report(checks) {
 }
 
 async function main() {
+  // Drives a real SSH login; SKIP loudly when the fixture is not on this machine.
+  if (await sshFixture.skipped('duplicate')) {
+    app.exit(0)
+    return
+  }
+
   /*
    * Host keys go to a scratch file. It has to be set before the IPC module is
    * loaded, and it keeps a probe that trusts the host on sight from editing the

@@ -10,12 +10,20 @@ const path = require('node:path')
 const os = require('node:os')
 const { app } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const USER = process.env.TD_SSH_USER || 'root'
 const KEY = process.env.TD_SSH_KEY || path.join(os.homedir(), '.ssh', 'id_rsa')
 
 app.whenReady().then(async () => {
+  // Drives SshShellBackend directly; SKIP loudly when the fixture is missing.
+  if (await sshFixture.skipped('sshdata')) {
+    app.exit(0)
+    return
+  }
+
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
 
   const t0 = Date.now()

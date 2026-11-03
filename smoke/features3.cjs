@@ -12,9 +12,17 @@ const { app, BrowserWindow } = require('electron')
 const ROOT = path.join(__dirname, '..')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const all = []
+const SUITE = 'features3.cjs'
+const DASH = String.fromCharCode(8212)
 
 function report(checks) {
   for (const c of checks) {
+    // 平台推导不出来的检查显式 SKIP：打印出来、不计入失败，也不假装它通过了。
+    if (c.skip) {
+      console.log('SKIP  ' + SUITE + ':' + c.name + ' ' + DASH + ' ' + c.detail)
+      all.push({ name: c.name, ok: true, detail: 'SKIP ' + DASH + ' ' + c.detail, skip: true })
+      continue
+    }
     console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name}${c.detail ? ` — ${c.detail}` : ''}`)
     all.push(c)
   }
@@ -29,6 +37,45 @@ async function main() {
   mod.registerIpc()
   require(path.join(__dirname, 'clearstore.cjs')).resetStores(['sessions', 'settings'])
   mod.storeAccess().layout.clear()
+
+  /*
+   * 键位按平台推导，不写死 Windows 的 Ctrl。
+   *
+   * 这台机器上跑的是真实平台：Windows 上 closeDeadPane 是 Ctrl+D、zoomIn 是 Ctrl+=，
+   * macOS 上分别是「不绑」（Cmd+W 关任何窗格）与 Meta+=。mac 上推导不出等价按键的
+   * 检查显式 SKIP，绝不改成永远为真的断言。
+   */
+  const bindings = mod.defaultBindings(process.platform)
+  const chordOf = (id) => {
+    const found = bindings.find((b) => b.id === id)
+    return found ? found.keys : ''
+  }
+  /** 把一条 chord 拆成 KeyboardEvent 需要的按键与修饰键。 */
+  const chordEvent = (chord) => {
+    const parts = chord.split('+').map((p) => p.trim())
+    const isMod = (p) =>
+      ['ctrl', 'control', 'shift', 'alt', 'option', 'meta', 'cmd', 'command'].indexOf(
+        p.toLowerCase()
+      ) >= 0
+    const has = (names) => parts.some((p) => names.indexOf(p.toLowerCase()) >= 0)
+    return {
+      key: parts.filter((p) => !isMod(p)).pop() || '',
+      ctrlKey: has(['ctrl', 'control']),
+      shiftKey: has(['shift']),
+      altKey: has(['alt', 'option']),
+      metaKey: has(['meta', 'cmd', 'command'])
+    }
+  }
+  const deadChord = chordOf('closeDeadPane')
+  const deadEvent = deadChord ? chordEvent(deadChord) : null
+  const deadReason =
+    'closeDeadPane is unbound on ' + process.platform +
+    ' (Meta+W closes any pane), so there is no equivalent chord to press'
+  const zoomInChord = chordEvent(chordOf('zoomIn'))
+  const zoomOutChord = chordEvent(chordOf('zoomOut'))
+  const scaleUpChord = chordEvent(chordOf('scaleUp'))
+  const scaleDownChord = chordEvent(chordOf('scaleDown'))
+  const chordLabel = (id) => mod.displayChord(chordOf(id), process.platform)
 
   const win = new BrowserWindow({
     width: 1500,
@@ -55,6 +102,17 @@ async function main() {
     (async () => {
       const out = []
       const push = (n, ok, d) => out.push({ name: n, ok: Boolean(ok), detail: d || '' })
+      const skip = (n, why) => out.push({ name: n, ok: true, detail: why, skip: true })
+      /* 本平台的键位（主进程按平台算好）：Windows 是 Ctrl+D / Ctrl+=，mac 是空 / Cmd+=。 */
+      const DEAD = ${JSON.stringify(deadEvent)}
+      const DEAD_WHY = ${JSON.stringify(deadReason)}
+      const ZOOM_IN = ${JSON.stringify(zoomInChord)}
+      const ZOOM_OUT = ${JSON.stringify(zoomOutChord)}
+      const ZOOM_UP = ${JSON.stringify(scaleUpChord)}
+      const ZOOM_DOWN = ${JSON.stringify(scaleDownChord)}
+      const ZOOM_IN_LABEL = ${JSON.stringify(chordLabel('zoomIn'))}
+      const ZOOM_OUT_LABEL = ${JSON.stringify(chordLabel('zoomOut'))}
+      const ZOOM_UP_LABEL = ${JSON.stringify(chordLabel('scaleUp'))}
       const wait = (ms) => new Promise((r) => setTimeout(r, ms))
       const waitFor = async (fn, timeout) => {
         const end = Date.now() + (timeout || 20000)
@@ -569,12 +627,18 @@ async function main() {
        * event alone) and act only once the session has ended. Both halves are
        * checked: a handler that closes whatever is focused would be worse than no
        * binding at all.
+       *
+       * 按的是本平台的 closeDeadPane chord（Windows 上是 Ctrl+D）。mac 上这个键默认
+       * 不绑（Cmd+W 关任何窗格），没有可推导的等价按键 —— 这两条断言显式 SKIP，
+       * 不改成「按什么都一样」的永远为真写法。
        */
       {
-        const ctrlD = () =>
+        const ctrlD = () => {
+          if (!DEAD) return
           window.dispatchEvent(
-            new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true })
+            new KeyboardEvent('keydown', Object.assign({ bubbles: true }, DEAD))
           )
+        }
         const activeId = () => (window.__tdDockApi.activePanel || {}).id
         const panelsNow = () => window.__tdDockApi.panels.length
 
@@ -598,10 +662,14 @@ async function main() {
         }
         ctrlD()
         await wait(600)
-        push('Ctrl+D on a live shell leaves the pane open',
-          panelsNow() === before && !!window.__tdDockApi.getPanel(id),
-          'panels ' + before + ' -> ' + panelsNow() +
-            ' liveness=' + JSON.stringify(window.__tdPaneLiveness ? window.__tdPaneLiveness(id) : null))
+        if (DEAD) {
+          push('Ctrl+D on a live shell leaves the pane open',
+            panelsNow() === before && !!window.__tdDockApi.getPanel(id),
+            'panels ' + before + ' -> ' + panelsNow() +
+              ' liveness=' + JSON.stringify(window.__tdPaneLiveness ? window.__tdPaneLiveness(id) : null))
+        } else {
+          skip('Ctrl+D on a live shell leaves the pane open', DEAD_WHY)
+        }
 
         // End the session for real: type exit in the shell it is running.
         window.termdeck.writeSession(id, 'exit' + String.fromCharCode(13))
@@ -615,8 +683,12 @@ async function main() {
 
         ctrlD()
         await wait(800)
-        push('Ctrl+D now closes that pane', panelsNow() === before - 1,
-          'panels ' + before + ' -> ' + panelsNow())
+        if (DEAD) {
+          push('Ctrl+D now closes that pane', panelsNow() === before - 1,
+            'panels ' + before + ' -> ' + panelsNow())
+        } else {
+          skip('Ctrl+D now closes that pane', DEAD_WHY)
+        }
       }
 
       // ---- a toast dismisses itself ---------------------------------------
@@ -642,26 +714,27 @@ async function main() {
         await wait(500)
       }
 
-      // ---- Ctrl+= resizes the terminal text, not the interface ------------
+      // ---- the font chord resizes the terminal text, not the interface -----
       /*
        * Asked for after the fact: Ctrl + / - used to zoom the whole window, so
        * making the shell's output readable also shrank the tab bar, the drawer and
        * the dialogs. The check is therefore in two halves — the font grew *and*
        * nothing else moved, then the interface scale did respond to its own chord.
+       *
+       * 按的是该平台默认键位表里的 chord：Windows 是 Ctrl+= / Ctrl+-，mac 是
+       * Cmd+= / Cmd+-（界面的那一对同理，mac 上是 Cmd+Shift+= / Cmd+Shift+-）。
        */
       {
-        const press = (key, shift) =>
-          window.dispatchEvent(
-            new KeyboardEvent('keydown', { key, ctrlKey: true, shiftKey: !!shift, bubbles: true })
-          )
+        const press = (event) =>
+          window.dispatchEvent(new KeyboardEvent('keydown', Object.assign({ bubbles: true }, event)))
         const firstTerm = () => Object.values(window.__tdTerminals || {})[0]
         const before = await window.termdeck.loadSettings()
         const dprBefore = window.devicePixelRatio
 
-        press('=', false)
+        press(ZOOM_IN)
         await wait(900)
         const grown = await window.termdeck.loadSettings()
-        push('Ctrl+= makes the terminal text bigger',
+        push(ZOOM_IN_LABEL + ' makes the terminal text bigger',
           grown.terminal.fontSize === before.terminal.fontSize + 1,
           before.terminal.fontSize + ' -> ' + grown.terminal.fontSize)
         push('the terminal itself picked the new size up',
@@ -671,22 +744,22 @@ async function main() {
           grown.uiScale === before.uiScale && window.devicePixelRatio === dprBefore,
           'uiScale=' + grown.uiScale + ' dpr=' + window.devicePixelRatio)
 
-        press('-', false)
+        press(ZOOM_OUT)
         await wait(700)
         const restored = await window.termdeck.loadSettings()
-        push('Ctrl+- goes back down',
+        push(ZOOM_OUT_LABEL + ' goes back down',
           restored.terminal.fontSize === before.terminal.fontSize,
           String(restored.terminal.fontSize))
 
         // The interface keeps its own chord, so the old behaviour is one Shift away.
-        press('=', true)
+        press(ZOOM_UP)
         await wait(900)
         const scaled = await window.termdeck.loadSettings()
-        push('Ctrl+Shift+= scales the interface instead',
+        push(ZOOM_UP_LABEL + ' scales the interface instead',
           scaled.uiScale !== before.uiScale && scaled.terminal.fontSize === before.terminal.fontSize,
           'uiScale ' + before.uiScale + ' -> ' + scaled.uiScale +
             ' font=' + scaled.terminal.fontSize)
-        press('-', true)
+        press(ZOOM_DOWN)
         await wait(700)
       }
 
@@ -738,29 +811,43 @@ async function main() {
    * "did a session end in front of me" answers no — but the user is looking at a
    * dead pane, and `Ctrl`+`D` is the key that closes dead panes. Driven from here
    * because the reload has to outlive the page script above.
+   *
+   * mac 上 closeDeadPane 默认不绑（Cmd+W 关任何窗格），没有可推导的等价按键 ——
+   * 这一条显式 SKIP，而不是让它在 mac 上恒真。
    */
-  try {
-    win.webContents.reload()
-    await sleep(3200)
+  if (!deadChord) {
     report([
-      await win.webContents.executeJavaScript(`(async () => {
-        const wait = (ms) => new Promise((r) => setTimeout(r, ms))
-        const panels = () => window.__tdDockApi.panels.length
-        const before = panels()
-        const restored = document.querySelectorAll('[data-testid="restored-pane"]').length
-        window.dispatchEvent(
-          new KeyboardEvent('keydown', { key: 'd', ctrlKey: true, bubbles: true })
-        )
-        await wait(900)
-        return {
-          name: 'Ctrl+D closes a restored pane that has no session at all',
-          ok: restored > 0 && panels() === before - 1,
-          detail: 'restored=' + restored + ' panels ' + before + ' -> ' + panels()
-        }
-      })()`)
+      {
+        name: 'Ctrl+D closes a restored pane that has no session at all',
+        ok: true,
+        skip: true,
+        detail: deadReason
+      }
     ])
-  } catch (err) {
-    report([{ name: 'restored-pane Ctrl+D', ok: false, detail: String((err && err.message) || err) }])
+  } else {
+    try {
+      win.webContents.reload()
+      await sleep(3200)
+      report([
+        await win.webContents.executeJavaScript(`(async () => {
+          const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+          const panels = () => window.__tdDockApi.panels.length
+          const before = panels()
+          const restored = document.querySelectorAll('[data-testid="restored-pane"]').length
+          window.dispatchEvent(
+            new KeyboardEvent('keydown', Object.assign({ bubbles: true }, ${JSON.stringify(deadEvent)}))
+          )
+          await wait(900)
+          return {
+            name: 'Ctrl+D closes a restored pane that has no session at all',
+            ok: restored > 0 && panels() === before - 1,
+            detail: 'restored=' + restored + ' panels ' + before + ' -> ' + panels()
+          }
+        })()`)
+      ])
+    } catch (err) {
+      report([{ name: 'restored-pane Ctrl+D', ok: false, detail: String((err && err.message) || err) }])
+    }
   }
 
   const failed = all.filter((c) => !c.ok)

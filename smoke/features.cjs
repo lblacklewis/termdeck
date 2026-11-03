@@ -11,6 +11,8 @@ const path = require('node:path')
 const os = require('node:os')
 const { app, BrowserWindow, clipboard } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const SSH_HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const SSH_USER = process.env.TD_SSH_USER || 'root'
@@ -26,6 +28,12 @@ function report(checks) {
 }
 
 async function main() {
+  // Drives real SSH backends; SKIP loudly when the fixture is not on this machine.
+  if (await sshFixture.skipped('features')) {
+    app.exit(0)
+    return
+  }
+
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   // Wipe the profile before anything constructs a store. The stores cache
   // their contents in memory, so deleting their files afterwards leaves the
@@ -245,7 +253,20 @@ async function main() {
 
       try {
         const defaults = store.load()
-        push('defaults: copy on select', defaults.clipboard.copyOnSelect === true)
+        /*
+         * The shipped default is per platform: `defaultClipboardSettings` turns
+         * copy-on-select off on macOS (selecting and then pressing Cmd+C is the
+         * habit there) and leaves it on everywhere else. The expectation therefore
+         * comes from the app's own table for this platform — a literal `true` is
+         * what made this check red on the Mac — while win32 stays pinned to the
+         * shipped `true`.
+         */
+        const shippedCopyOnSelect = mod.defaultClipboardSettings(process.platform).copyOnSelect
+        push('defaults: copy on select',
+          defaults.clipboard.copyOnSelect === shippedCopyOnSelect &&
+            (process.platform !== 'win32' || defaults.clipboard.copyOnSelect === true),
+          'got=' + defaults.clipboard.copyOnSelect + ' shipped=' + shippedCopyOnSelect +
+            ' platform=' + process.platform)
         push('defaults: right-click paste', defaults.clipboard.pasteOnRightClick === true)
         push('defaults: builtin keybindings', defaults.keybindings.length >= 8,
           defaults.keybindings.map((b) => `${b.id}=${b.keys}`).join(' '))

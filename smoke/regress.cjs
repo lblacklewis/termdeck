@@ -15,6 +15,8 @@ const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { spawnSync } = require('node:child_process')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const SSH_HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const SSH_USER = process.env.TD_SSH_USER || 'root'
@@ -79,6 +81,12 @@ function report(checks) {
 }
 
 async function main() {
+  // Part A connects to the test host for real; SKIP loudly without the fixture.
+  if (await sshFixture.skipped('regress')) {
+    app.exit(0)
+    return
+  }
+
   const mod = require(path.join(ROOT, 'out', 'main', 'smokeEntry.js'))
   mod.registerIpc()
 

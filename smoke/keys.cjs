@@ -9,11 +9,16 @@
  *
  * 所以这里断言两件事，各自都会在旧代码上失败：
  *
- *   1. **默认值**不再是 Ctrl+W（settings 的默认表）；
- *   2. **迁移**：存盘里还是旧默认 'Ctrl+W' 的，读回来变成空；但用户自己改成别的值（如
- *      Ctrl+Shift+W）必须原样留着 —— 迁移不是大锤；
+ *   1. **默认值**不再是 Ctrl+W（settings 的默认表）；平台不同，正确值也不同：
+ *      Windows / Linux 上 closeSession 默认**不绑**（''），macOS 上默认是 **Cmd+W**
+ *      （'Meta+W'，因为 Cmd 不是 readline 的那个键）。期望值按平台写死在这里，
+ *      不调用被测函数去算 —— 否则实现错了断言会跟着错；
+ *   2. **迁移**：存盘里还是旧默认 'Ctrl+W' 的，Windows / Linux 上读回来变成空、
+ *      macOS 上变成 'Meta+W'；但用户自己改成别的值（如 Ctrl+Shift+W）必须原样留着
+ *      —— 迁移不是大锤；
  *   3. **真按键**：焦点在终端里按下 Ctrl+W，终端的**数据通道必须吐出 0x17**（否则那个字节
- *      到不了 PTY），窗格和会话也不许少一个。
+ *      到不了 PTY），窗格和会话也不许少一个。这一条两个平台都成立：mac 上占用 Ctrl+W
+ *      的是 Cmd+W，不是 Ctrl+W。
  *
  * 真按键用 `sendInputEvent` 送进去，和用户按下去走的是同一条路。
  * "有没有被应用吃掉"不看 defaultPrevented（xterm 自己转发的键也会 preventDefault），
@@ -78,13 +83,24 @@ async function main() {
   await sleep(2600)
 
   // ---- 1. defaults -------------------------------------------------------
+  /*
+   * 期望值按平台写死，不调用被测函数去算：Windows / Linux 上 closeSession 是「不绑」（''），
+   * macOS 上是 Cmd+W（存 'Meta+W'）。旧实现与错实现上这两条都必须失败。
+   */
+  const IS_MAC = process.platform === 'darwin'
+  const EXPECTED_CLOSE_DEFAULT = IS_MAC ? 'Meta+W' : ''
+  const EXPECTED_CLOSE_MIGRATED = IS_MAC ? 'Meta+W' : ''
+
   const defaults = await win.webContents.executeJavaScript(
     'window.termdeck.loadSettings().then((s) => s.keybindings)'
   )
   const byId = (list, id) => list.find((entry) => entry.id === id) || { keys: 'MISSING' }
   const closeDefault = byId(defaults, 'closeSession').keys
-  push('closing a session is not bound to Ctrl+W out of the box', closeDefault === '',
-    "closeSession default='" + closeDefault + "'")
+  push(IS_MAC
+    ? 'closing a session is bound to Cmd+W out of the box (Ctrl+W stays the shell)'
+    : 'closing a session is not bound to Ctrl+W out of the box',
+  closeDefault === EXPECTED_CLOSE_DEFAULT,
+  "closeSession default='" + closeDefault + "' (expected '" + EXPECTED_CLOSE_DEFAULT + "')")
   push('but it is still a binding that can be set', byId(defaults, 'closeSession').id === 'closeSession',
     'listed in the shortcut list=' + (byId(defaults, 'closeSession').id || 'MISSING'))
 
@@ -498,8 +514,12 @@ async function main() {
       storedOwn: afterOwn.keybindings.find((b) => b.id === 'closeSession').keys
     }
   })()`)
-  push('an existing install keeps the old default migrated away', migrated.storedOld === '',
-    "after loading a file that said Ctrl+W: '" + migrated.storedOld + "'")
+  push(IS_MAC
+    ? 'an existing install with the old Ctrl+W moves to Cmd+W on macOS'
+    : 'an existing install keeps the old default migrated away',
+  migrated.storedOld === EXPECTED_CLOSE_MIGRATED,
+  "after loading a file that said Ctrl+W: '" + migrated.storedOld +
+    "' (expected '" + EXPECTED_CLOSE_MIGRATED + "')")
   push('a chord the user chose is left alone', migrated.storedOwn === 'Ctrl+Shift+W',
     "after loading a file that said Ctrl+Shift+W: '" + migrated.storedOwn + "'")
 

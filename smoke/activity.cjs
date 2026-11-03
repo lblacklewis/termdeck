@@ -22,7 +22,9 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { app, BrowserWindow } = require('electron')
 
-const ROOT = 'D:\\project\\dsh-workspace\\termdeck'
+// Derived from this file's own location: the probe runs from a checkout on any
+// machine (CI included), so a hard-coded D:\ path made it die before the first check.
+const ROOT = path.join(__dirname, '..')
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const DASH = String.fromCharCode(8212)
 

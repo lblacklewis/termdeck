@@ -18,6 +18,8 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { app, BrowserWindow } = require('electron')
 
+const sshFixture = require('./sshfixture.cjs')
+
 const ROOT = path.join(__dirname, '..')
 const SSH_HOST = process.env.TD_SSH_HOST || '82.156.226.192'
 const SSH_USER = process.env.TD_SSH_USER || 'root'
@@ -94,6 +96,12 @@ async function boot() {
 }
 
 async function main() {
+  // Arranges a real SSH pane; SKIP loudly when the fixture is not on this machine.
+  if (await sshFixture.skipped('layout')) {
+    app.exit(0)
+    return
+  }
+
   // Start from a profile with nothing in it: this suite saves a session per run,
   // and a leftover copy from an earlier run would make the "which session is this"
   // lookups ambiguous.

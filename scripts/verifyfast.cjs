@@ -143,12 +143,25 @@ class Run {
       const stream = fs.createWriteStream(logPath)
       let child
       if (!cmd) {
-        // npm script（四项检查走这里）：过 shell，杀进程树用 taskkill。
-        child = spawn('cmd.exe', ['/d', '/s', '/c', 'npm run ' + step.name], {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          windowsHide: true
-        })
+        /*
+         * npm script（四项检查走这里）：要过 shell。
+         *
+         * Windows 上是 cmd.exe；其它平台（macOS / Linux）上 cmd.exe 根本不存在，
+         * 早先这里没有平台判断，第一步就 spawn cmd.exe ENOENT，整个 verify:fast
+         * 在这类机器上跑不起来。非 Windows 用 /bin/sh -lc 跑同一条命令。
+         */
+        const shellCommand = 'npm run ' + step.name
+        child = process.platform === 'win32'
+          ? spawn('cmd.exe', ['/d', '/s', '/c', shellCommand], {
+              cwd: ROOT,
+              stdio: ['ignore', 'pipe', 'pipe'],
+              windowsHide: true
+            })
+          : spawn('/bin/sh', ['-lc', shellCommand], {
+              cwd: ROOT,
+              stdio: ['ignore', 'pipe', 'pipe'],
+              windowsHide: true
+            })
       } else if (cmd.kind === 'electron') {
         child = spawn(require('electron'), cmd.args, {
           cwd: ROOT,
