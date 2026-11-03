@@ -47,19 +47,9 @@ async function checkPty() {
         buf += d
         if (buf.includes('PTY_OK')) {
           clearTimeout(timer)
-          /*
-           * Do not kill the ConPTY the moment its output arrives. On a Windows CI
-           * runner that crashed the host process at exit (0xC0000409 /
-           * STATUS_STACK_BUFFER_OVERRUN, right after this suite printed its summary),
-           * which stopped the whole verify chain there. The spawn args already end
-           * with `exit 0`, so on Windows the shell goes away by itself — and onExit
-           * below still resolves in case it does not.
-           */
-          if (process.platform !== 'win32') {
-            try {
-              proc.kill()
-            } catch {}
-          }
+          try {
+            proc.kill()
+          } catch {}
           resolve(buf)
         }
       })
