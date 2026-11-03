@@ -51,6 +51,12 @@ jobs:
         # spirit. It is not skipped: that probe is written to be judged off-darwin too
         # (it asserts the injected darwin branches and marks the real-machine section
         # SKIP), so it runs here the same way it does on the Windows dev machine.
+        # `verify:fast` rather than the `&&` chain that `npm run verify` uses: the chain
+        # stops at the first bad step, and on this runner the very first Electron suite
+        # (smoke:deps) dies at exit with 0xC0000409 — so the chain reported one crash and
+        # hid the other 50-odd suites. `verify:fast` builds once and runs every step,
+        # reporting all of them; that is also what tells us whether the crash is specific
+        # to that suite or to running Electron on a CI runner at all.
         run: |
           # GitHub's PowerShell wrapper sets $ErrorActionPreference = 'Stop'. With `2>&1`
           # every stderr line npm or Electron writes becomes a *terminating* error record,
@@ -62,7 +68,7 @@ jobs:
           if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
             $PSNativeCommandUseErrorActionPreference = $false
           }
-          npm run verify 2>&1 | Tee-Object -FilePath verify.log
+          npm run verify:fast 2>&1 | Tee-Object -FilePath verify.log
           $status = $LASTEXITCODE
           Write-Output ('verify exit code: ' + $status)
           # Re-emit each failure as an annotation: the run UI and the REST API both show
