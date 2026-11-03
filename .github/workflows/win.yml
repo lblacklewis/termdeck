@@ -50,16 +50,26 @@ jobs:
         # (it asserts the injected darwin branches and marks the real-machine section
         # SKIP), so it runs here the same way it does on the Windows dev machine.
         run: |
+          # GitHub's PowerShell wrapper sets $ErrorActionPreference = 'Stop'. With `2>&1`
+          # every stderr line npm or Electron writes becomes a *terminating* error record,
+          # so the step dies mid-suite — which is exactly what the first run did: it stopped
+          # right after smoke:deps with no npm error block and exit code 1, and the whole
+          # suite was never actually run. Both switches have to be relaxed for a long native
+          # command's output to survive to the end.
+          $ErrorActionPreference = 'Continue'
+          if (Test-Path variable:PSNativeCommandUseErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
           npm run verify 2>&1 | Tee-Object -FilePath verify.log
           $status = $LASTEXITCODE
-          # Re-emit each failure as an annotation: the run UI and the REST API both
-          # show those, so a red suite is readable without unzipping the raw log.
-          # `Select-String -SimpleMatch` rather than a regex: probe lines contain
-          # regex metacharacters, and only the line prefix matters.
-          $fails = @(Select-String -Path verify.log -Pattern 'FAIL' -SimpleMatch)
+          Write-Output ('verify exit code: ' + $status)
+          # Re-emit each failure as an annotation: the run UI and the REST API both show
+          # those, so a red suite is readable without unzipping the raw log. Case-sensitive
+          # `^FAIL`: a plain -SimpleMatch 'FAIL' also matched "PASS  a failed call ..." and
+          # produced a bogus annotation on the first run.
+          $fails = @(Select-String -Path verify.log -Pattern '^FAIL' -CaseSensitive)
           foreach ($line in $fails) {
-            $text = $line.Line.Trim()
-            Write-Output ('::error title=verify::' + $text)
+            Write-Output ('::error title=verify::' + $line.Line.Trim())
           }
           exit $status
 
