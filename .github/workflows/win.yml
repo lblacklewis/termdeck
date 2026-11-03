@@ -5,9 +5,10 @@ name: win
 #
 # Why two jobs instead of one: `verify` runs the whole suite, `package` makes the
 # download. mac.yml learned this the hard way — a red probe used to skip packaging,
-# so a failed run produced nothing to download at all. Here `verify` is allowed to
-# go red (`continue-on-error`) and only ever reports; `package` keeps building. A
-# red `package` still uploads whatever got built (`if: always()` on the upload).
+# so a failed run produced nothing to download at all. Two *independent* jobs already
+# fix that (neither `needs` the other), so `verify` is left to fail loudly: the run
+# goes red and the artefacts still appear. A red `package` still uploads whatever got
+# built (`if: always()` on the upload).
 #
 # Nothing here is published by CI: the release page is created by hand, and the
 # last step only fills an existing one.
@@ -24,9 +25,10 @@ jobs:
   # this job is the "it all still passes" evidence.
   verify:
     runs-on: windows-latest
-    # Its red/green is for a human to read, not a gate on the artefacts: the run's
-    # conclusion already says the job failed, but packaging below still happens.
-    continue-on-error: true
+    # Deliberately NOT `continue-on-error`: the two jobs are independent, so `package`
+    # builds either way — but a red suite must show up as a red *run*, the way mac.yml's
+    # probe job does. With `continue-on-error` the first run reported success while this
+    # job was red, i.e. the signal was hidden for no benefit.
     steps:
       - uses: actions/checkout@v4
 
