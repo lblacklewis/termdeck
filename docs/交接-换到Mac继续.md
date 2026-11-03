@@ -27,9 +27,9 @@
   别再拿它装**）；再上一版 v2.6.0（REST 工具页整体重做：集合树 / 环境变量 / 四个请求分页 / 响应 Cookie /
   cURL 导入，外加三处终端修复）；再上一版 v2.5.0（后台窗格活动标识 + 两处高亮修复）。
 - 闸门：Windows 上的口径停在 v2.6.0 发版那一次 —— **原版 `npm run verify`（56 个套件）与
-  `verify:fast`（56 步）都全绿**。**Mac 上整套闸门目前跑不绿**（56 步 **30 过 / 25 挂**，
-  `smoke:deps` 跳过；三类原因见 §7、§8），Mac 上能当依据的是 `npm run smoke:mac`（103 条）
-  与打包版自检（见 §2、§7）。
+  `verify:fast`（56 步）都全绿**。**Mac 上从第三十七批起整套闸门也能跑了**：`verify:fast`
+  已平台化（16m29s 跑完），本机 **55/56 通过**，真 SSH 套件按夹具缺失显式 SKIP；唯一要单独
+  复跑的是 `smoke:memory`（负载敏感、已加热身轮）。见 §7、§8。
 - 产物：Windows 三件（Setup / 单文件 / 便携 zip）在 Windows 机器上打，**2.6.2 的三件还没产出**
   （这一版改动只在 macOS 侧，Mac 上也打不了，原因见 §8）。mac 侧的 arm64 已在本机打出
   `TermDeck-2.6.2-arm64.dmg` + `.zip`（本机那份没有另留校验值文件）；Intel 那份与两个架构的
@@ -63,7 +63,7 @@ npm run smoke:mac                                      # mac 分支的真机断�
 
 | 能在 Mac 上做完 | 只能在 Windows 或 CI 做 |
 | --- | --- |
-| 改代码、`npm run build` / `typecheck` / `check:*`、`npm run smoke:mac`（103 条）与单个 `smoke:*` 套件 | **整套闸门** `npm run verify` / `verify:fast` —— 现在写死了 Windows 前提，mac 上跑不起来 / 跑不完（§7） |
+| 改代码、**整套闸门** `npm run verify` / `verify:fast`（第三十七批起已平台化，真 SSH 套件缺夹具时显式 SKIP）、`npm run smoke:mac`（103 条）与单个 `smoke:*` 套件 | **Windows 三件产物**（NSIS 安装版）—— 本机打不了，现在由 `win.yml` 在 windows-latest 上打（第三十七批加的，已跑通并上传 artifact） |
 | `npm run dev` 手工过界面与键位 | **Windows 三件产物**（NSIS 安装版）—— 要留在那台 Windows 机器上打 |
 | `npm run dist:mac -- --arm64`（本机打 dmg + zip，`hdiutil` 在 Mac 上） | 需要 mac 的 `hdiutil` 才能打的 dmg |
 | 键位表、菜单、字体、本地 shell、串口、钥匙串的真机验收 | **正式签名 / 公证**（要 Apple 开发者账号 $99/年；ad-hoc 签名本机 `dist:mac` 就能做，v2.6.2 起已经做了，见 §6） |
@@ -191,7 +191,7 @@ git push origin master && git push origin vX.Y.Z && git push origin release/vX.Y
 
 | 事 | 做法 |
 | --- | --- |
-| 验证分级 | 分级口径不变：**日常**定向 `npm run verify:fast -- --only <套件>`、**推 origin 前** `verify:fast` 全量、**发版/打标签前**原版 `npm run verify`（先 `rm -rf node_modules/.smoke-data`，要 0 FAIL 且退出码 0）。但这两条命令**目前只能在 Windows 上跑**：`verify:fast` 在 macOS 上第一步就 `spawn cmd.exe ENOENT`（`scripts/verifyfast.cjs:147` 没有平台判断），原版 `verify` 会停在 `smoke:deps`（它要 `~/.ssh/id_rsa` 与本机 sshd）。**Mac 上诚实的替代**：`npm run build` + 单个 `smoke:<套件>` + `npm run smoke:mac`（103 条）+ `check:probes` / `check:i18n` / `check:s3` / `typecheck`，整套闸门回 Windows 机器补；要平台化见 §8。动了 `src/shared/`、`src/main/store`、preload、ipc、`App.tsx`、i18n 机制的**不许定向跑** |
+| 验证分级 | 分级口径不变：**日常**定向 `npm run verify:fast -- --only <套件>`、**推 origin 前** `verify:fast` 全量、**发版/打标签前**原版 `npm run verify`（先 `rm -rf node_modules/.smoke-data`，要 0 FAIL 且退出码 0）。**第三十七批起这两条在 macOS 上也能跑**：`verify:fast` 已平台化（非 Windows 走 `/bin/sh -lc`），本机 16m29s 跑完、55/56 通过；真 SSH 套件（drawer/duplicate/features/features2/layout/probe/reconnect/regress/repro/sshdata/tunnel/ui2）在没有 `~/.ssh/id_rsa` + 测试机 `82.156.226.192:22` 时**打印 SKIP 并退 0**（不是通过，是没跑）。`smoke:memory` 是负载敏感套件，偶发红要单独重跑再定性。动了 `src/shared/`、`src/main/store`、preload、ipc、`App.tsx`、i18n 机制的**不许定向跑** |
 | 探针 | 每个改动都要有"旧实现必然失败"的断言；探针文件里**一个反引号都别写**（`check:probes` 按反引号判断模板字面量边界，注释里的也算）；换行用 `String.fromCharCode(10)`；改完跑 `npm run check:probes` |
 | 提交 | 中文，前缀 `修复:` / `新增:` / `改进:` / `文档:` / `发布:`；一次功能一个提交，文档与版本号单独一笔 |
 | 产物 | `release/` 已 gitignore；口径是**只留当前版本 + 上一版** |
