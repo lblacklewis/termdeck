@@ -1,0 +1,194 @@
+name: win
+
+# The Windows artefacts are produced here, so getting them no longer depends on the
+# one development machine that happens to be Windows being at hand.
+#
+# Why two jobs instead of one: `verify` runs the whole suite, `package` makes the
+# download. mac.yml learned this the hard way — a red probe used to skip packaging,
+# so a failed run produced nothing to download at all. Here `verify` is allowed to
+# go red (`continue-on-error`) and only ever reports; `package` keeps building. A
+# red `package` still uploads whatever got built (`if: always()` on the upload).
+#
+# Nothing here is published by CI: the release page is created by hand, and the
+# last step only fills an existing one.
+
+on:
+  push:
+    branches: [master, 'release/**']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  # The whole suite, on Windows: this is the machine the app was developed on, so
+  # this job is the "it all still passes" evidence.
+  verify:
+    runs-on: windows-latest
+    # Its red/green is for a human to read, not a gate on the artefacts: the run's
+    # conclusion already says the job failed, but packaging below still happens.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: The whole suite
+        # The exit code is captured by hand rather than by letting the step fail:
+        # the log has to be written *and* annotated first, otherwise there is nothing
+        # to read when it goes red. PowerShell is the default shell on Windows
+        # runners, so no `PIPESTATUS`/`tee` here — `Tee-Object` and `$LASTEXITCODE`
+        # are the equivalents.
+        #
+        # `package.json`'s verify chain ends with `smoke:mac`, which is macOS-only in
+        # spirit. It is not skipped: that probe is written to be judged off-darwin too
+        # (it asserts the injected darwin branches and marks the real-machine section
+        # SKIP), so it runs here the same way it does on the Windows dev machine.
+        run: |
+          npm run verify 2>&1 | Tee-Object -FilePath verify.log
+          $status = $LASTEXITCODE
+          # Re-emit each failure as an annotation: the run UI and the REST API both
+          # show those, so a red suite is readable without unzipping the raw log.
+          # `Select-String -SimpleMatch` rather than a regex: probe lines contain
+          # regex metacharacters, and only the line prefix matters.
+          $fails = @(Select-String -Path verify.log -Pattern 'FAIL' -SimpleMatch)
+          foreach ($line in $fails) {
+            $text = $line.Line.Trim()
+            Write-Output ('::error title=verify::' + $text)
+          }
+          exit $status
+
+      - name: Keep the full suite log
+        # Even on a red suite the log is the artefact that matters.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verify-log-win
+          path: verify.log
+          if-no-files-found: error
+
+  # The download people actually get: installer, portable exe, portable zip.
+  package:
+    # `contents: write` is only for the "attach to the release page" step at the
+    # end; the default token is read-only and `gh release upload` would 403 without it.
+    permissions:
+      contents: write
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Native modules load on Windows
+        # A warning rather than a failure: without node-pty the app still runs and
+        # SSH works, it just cannot open a local shell. The annotation makes that
+        # state visible instead of letting it pass silently.
+        run: |
+          node -e "try { require('@lydell/node-pty'); console.log('pty ok') } catch (e) { console.log('::warning title=node-pty::' + e.message) }"
+          node -e "try { require('serialport'); console.log('serial ok') } catch (e) { console.log('::warning title=serialport::' + e.message) }"
+
+      - name: Gates
+        run: |
+          npm run check:probes
+          npm run check:i18n
+          npm run check:s3
+          npm run typecheck
+
+      - name: Package (unsigned)
+        # `--publish never` is load-bearing: electron-builder detects CI and, with no
+        # publish config, tries to publish to GitHub by itself — then dies with
+        # "GitHub Personal Access Token is not set" *after* the exe was built. That
+        # failed this step on mac.yml, so Checksums and upload never ran and every run
+        # lost its artefacts. Nothing here publishes; the release is created by hand.
+        #
+        # Two targets in one call: nsis (TermDeck-Setup-<v>.exe) and portable
+        # (TermDeck-<v>-x64.exe), both from build.win in package.json.
+        run: npm run dist:win -- --publish never
+
+      - name: Portable zip
+        # Deliberately not `npm run pack:zip`: that script is
+        # `npm run build && electron-builder --win --dir && node scripts/zipdist.cjs`,
+        # and the bare electron-builder in the middle would hit the same CI publish
+        # trap the step above documents — with no way to pass `--publish never`
+        # through the script without editing package.json, which is off limits.
+        # So the equivalent commands are run here instead, with the flag attached.
+        # `scripts/zipdist.cjs` is then called exactly as the script calls it.
+        run: |
+          npx electron-builder --win --dir --publish never
+          node scripts/zipdist.cjs
+
+      - name: Checksums
+        # Shipped next to the artefacts: the Mac runners cannot hash files that only
+        # exist on a Windows runner, so this machine carries its own list and the
+        # release page gets all three sets.
+        #
+        # `Get-FileHash` is the Windows spelling of `shasum -a 256`; the output line
+        # is written as "<hash>  <name>" so it reads like the mac one.
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $lines = Get-ChildItem release -File |
+            Where-Object { $_.Extension -in '.exe', '.zip' } |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+              "$hash  $($_.Name)"
+            }
+          $out = "release/SHA256SUMS-$version.txt"
+          $lines | Set-Content -Path $out -Encoding ascii
+          Get-Content $out
+
+      - uses: actions/upload-artifact@v4
+        # even if a later step goes red, whatever was built still gets uploaded
+        if: always()
+        with:
+          name: TermDeck-win-x64
+          path: |
+            release/*.exe
+            release/*.zip
+            release/SHA256SUMS-*.txt
+          if-no-files-found: error
+
+      - name: Attach to the release page, if one already exists
+        # The release page is still created by hand; this only fills it with the
+        # Windows files, so nobody has to download a 200 MB artifact and re-upload it.
+        # No page yet ⇒ nothing happens.
+        #
+        # Only on a `release/**` push: that ref is the release itself, so the files
+        # come from the released commit. Without this gate every later push to master
+        # would rebuild and silently replace the assets of the release that is out.
+        #
+        # These are the Windows names, not the mac ones: TermDeck-Setup-<v>.exe,
+        # TermDeck-<v>-x64.exe, TermDeck-<v>-win-x64-portable.zip and
+        # SHA256SUMS-<v>.txt. mac.yml uploads .dmg/zip with a mac-<arch> suffix and
+        # must not be duplicated here.
+        if: startsWith(github.ref, 'refs/heads/release/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Output "no release page for $tag yet - skipping"
+            exit 0
+          }
+          $assets = @(
+            "release/TermDeck-Setup-$version.exe",
+            "release/TermDeck-$version-x64.exe",
+            "release/TermDeck-$version-win-x64-portable.zip",
+            "release/SHA256SUMS-$version.txt"
+          )
+          gh release upload $tag @assets --clobber
+          Write-Output "attached $version windows to $tag"
