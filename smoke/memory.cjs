@@ -226,6 +226,18 @@ async function main() {
     return privateBytes()
   }
 
+  /*
+   * One throwaway cycle before the four measured ones. The rounds below are meant to
+   * measure the cost of opening a page *again*, but on macOS the first visits are
+   * still paying one-off costs much later than that: the font catalogue behind
+   * `system_profiler` alone is a 2 MB JSON document (~12 s on this machine), and it
+   * landed in the fourth reading, making steady state look like per-round growth
+   * (+3.4 MB a round, every run). Warming up keeps the assertion about steady state;
+   * the 1 MB threshold itself is unchanged.
+   */
+  const warm = await cycle()
+  console.log('warm-up round: ' + mb(warm) + ' (discarded)')
+
   const readings = []
   for (let i = 0; i < 4; i += 1) readings.push(await cycle())
   const steps = readings.map((value, i) => value - (i === 0 ? baseline : readings[i - 1]))
