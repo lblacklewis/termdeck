@@ -921,6 +921,24 @@ kbd {
 
 .td-terminal-host .xterm {
   height: 100%;
+
+  /*
+   * The app's own tracking (`body { letter-spacing: 0.01em }`) must not reach
+   * into the terminal.
+   *
+   * xterm keeps a row's glyphs on its cell grid by giving the row container a
+   * letter-spacing of `cellWidth - measuredCharWidth`, and it measures that char
+   * width in a hidden span that inherits CSS from its ancestors -- while the row
+   * container's own rule overrides whatever it inherited. So tracking that
+   * reaches the hidden span lands in the measurement but not in the rendered
+   * rows: the cached width comes out 0.13px too wide, xterm subtracts that much
+   * too much, and every row ends up 0.116px per column narrower than the grid
+   * that click and drag selection maths use -- about one character of drift at
+   * 80 columns, growing with distance, so a drag aimed at a glyph selects a
+   * neighbouring cell. Pinning the terminal subtree to `normal` keeps the
+   * measurement and the rendering on the same footing.
+   */
+  letter-spacing: normal;
 }
 
 /*

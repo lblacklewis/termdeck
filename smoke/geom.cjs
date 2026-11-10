@@ -229,6 +229,103 @@ async function main() {
           'cell=' + cellH.toFixed(2) + ' row=' + rowH.toFixed(2))
       }
 
+      /*
+       * ---- selection geometry: the glyph under the pointer is the cell picked
+       *
+       * xterm keeps a row on its cell grid by squeezing glyph advances to the
+       * cell width, so what a row paints and what the selection maths counts
+       * agree only while the width xterm measured is the width the row renders.
+       * Tracking inherited from the app body used to reach xterm's hidden measuring
+       * span but not its rows, leaving every row 0.116px per column narrower
+       * than the grid: a drag aimed at column 81 selected column 80, and the gap
+       * grew with distance. The ruler (90 digits, one row at this size) makes
+       * that measurable, and the drag targets the pixel a digit is painted at.
+       *
+       * The drag is dispatched on the screen element xterm listens on rather
+       * than produced by moving the pointer: real mouse input needs a foreground
+       * window to hit-test, and the coordinate maths is what is under test here,
+       * not the window manager.
+       */
+      const sessionId = window.__tdTerminals ? Object.keys(window.__tdTerminals)[0] : null
+      const RULER = '0123456789'.repeat(9)
+      if (sessionId) await window.termdeck.writeSession(sessionId, 'echo ' + RULER + '\\r')
+
+      let rulerRow = null
+      let rulerSpan = null
+      for (let i = 0; i < 40 && !rulerSpan; i++) {
+        await wait(200)
+        rulerRow = [...document.querySelectorAll('.xterm-rows > div')].find(
+          (d) => (d.textContent || '').startsWith(RULER)
+        )
+        rulerSpan = rulerRow ? rulerRow.querySelector('span') || rulerRow : null
+      }
+      push('the ruler line printed on a single row',
+        !!rulerSpan && rulerSpan.textContent === RULER,
+        rulerSpan ? rulerSpan.textContent.length + ' cells' : 'no ruler row')
+
+      if (rulerSpan) {
+        const cellW = t._core._renderService.dimensions.css.cell.width
+        const painted = rulerSpan.getBoundingClientRect().width / rulerSpan.textContent.length
+        const drift = (painted - cellW) * t.cols
+        push('a row paints its glyphs at the cell width the selection maths uses',
+          Math.abs(drift) < 3,
+          'painted=' + painted.toFixed(4) + ' cell=' + cellW.toFixed(4) +
+            ' drift=' + drift.toFixed(1) + 'px across ' + t.cols + ' columns')
+
+        // Column 81 (index 80) is far enough out that the old drift was a cell.
+        const INDEX = 80
+        const spanBox = rulerSpan.getBoundingClientRect()
+        const rowBox = rulerRow.getBoundingClientRect()
+        const aimY = rowBox.top + rowBox.height / 2
+        const screen = document.querySelector('.xterm-screen')
+        const fire = (type, cx) =>
+          screen.dispatchEvent(
+            new MouseEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              view: window,
+              clientX: cx,
+              clientY: aimY,
+              button: 0,
+              buttons: type === 'mouseup' ? 0 : 1,
+              detail: 1
+            })
+          )
+        // xterm reports a position for the selection; whether that number counts
+        // from 0 or 1 is not worth assuming, so anchor a selection on the first
+        // cell of the ruler and read the offset off that. (A click without a drag
+        // leaves no selection at all, hence the small drag.)
+        const anchorAt = (index, dist) => {
+          const cx = spanBox.left + index * painted + 4
+          fire('mousedown', cx)
+          for (let i = 1; i <= 4; i++) fire('mousemove', cx + (dist * i) / 4)
+          fire('mouseup', cx + dist)
+          const pos = t.getSelectionPosition()
+          const text = t.getSelection() || ''
+          t.clearSelection()
+          return { pos, text }
+        }
+        const anchor = anchorAt(0, 40)
+        const base = anchor.pos ? anchor.pos.start.x : null
+
+        const aimX = spanBox.left + INDEX * painted + 3
+        fire('mousedown', aimX)
+        for (let i = 1; i <= 6; i++) fire('mousemove', aimX + i * 12)
+        fire('mouseup', aimX + 72)
+        const sel = t.getSelectionPosition()
+        const picked = sel && base !== null ? sel.start.x - base : null
+        push('dragging onto a painted glyph selects the cell it is drawn in',
+          picked === INDEX,
+          'aimed at cell index ' + INDEX + ', picked index ' +
+            (picked === null ? 'nothing' : picked) +
+            ' (raw ' + (sel ? sel.start.x + ',' + sel.start.y : 'none') +
+            ', cell 0 anchor reports ' + base + ' holding ' + JSON.stringify(anchor.text.slice(0, 4)) +
+            ', painted=' + painted.toFixed(4) + ' cell=' + cellW.toFixed(4) +
+            ', screenLeft=' + screen.getBoundingClientRect().left.toFixed(2) +
+            ' spanLeft=' + spanBox.left.toFixed(2) + ')')
+        t.clearSelection()
+      }
+
       return out
     })()
   `
