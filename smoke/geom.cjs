@@ -326,6 +326,94 @@ async function main() {
         t.clearSelection()
       }
 
+      /*
+       * ---- the same drag in a split ----------------------------------------
+       *
+       * "In a split the selection lands beside the pointer" is how this class of
+       * bug was reported, so the mapping is measured on a second pane as well.
+       * Pressing in that pane is also what *activates* it (a split pane is not
+       * the active one), which is the one moment a refit could reflow the rows
+       * underneath a drag that is already in progress.
+       *
+       * The pane is made and measured here, at the end, because a split changes
+       * the first pane's width and would move the boxes the checks above use.
+       */
+      if (sessionId && window.__tdDockApi && window.termdeck.createLocalSession) {
+        const made = await window.termdeck.createLocalSession({})
+        let splitId = null
+        if (made && made.ok) {
+          splitId = made.session.id
+          window.__tdDockApi.addPanel({
+            id: splitId,
+            component: 'terminal',
+            title: made.session.title,
+            position: { referencePanel: sessionId, direction: 'right' },
+            params: { session: made.session, onEnded: () => {} }
+          })
+        }
+        for (let i = 0; i < 60; i++) {
+          await wait(200)
+          if (splitId && window.__tdTerminals[splitId] && window.__tdTerminals[splitId].term) break
+        }
+        await wait(600)
+        const st = splitId && window.__tdTerminals[splitId] ? window.__tdTerminals[splitId].term : null
+        const sroot = splitId ? document.querySelector('.xterm[data-terminal-id="' + splitId + '"]') : null
+        const sscreen = sroot ? sroot.querySelector('.xterm-screen') : null
+        let sspan = null
+        let srow = null
+        const sruler = st ? '0123456789'.repeat(20).slice(0, st.cols) : ''
+        if (st && sscreen) {
+          await window.termdeck.writeSession(splitId, 'echo ' + sruler + String.fromCharCode(13))
+          for (let i = 0; i < 40 && !sspan; i++) {
+            await wait(200)
+            const divs = [...sroot.querySelectorAll('.xterm-rows > div')]
+            srow = divs.find((d) => (d.textContent || '') === sruler)
+            sspan = srow ? (srow.querySelector('span') || srow) : null
+          }
+        }
+        if (st && sscreen && sspan) {
+          const scell = st._core._renderService.dimensions.css.cell.width
+          const sbox = sspan.getBoundingClientRect()
+          const spainted = sbox.width / sruler.length
+          const scol = srow.getBoundingClientRect()
+          const sy = scol.top + scol.height / 2
+          const sfire = (type, cx) => sscreen.dispatchEvent(new MouseEvent(type, {
+            bubbles: true, cancelable: true, view: window,
+            clientX: cx, clientY: sy, button: 0,
+            buttons: type === 'mouseup' ? 0 : 1, detail: 1
+          }))
+          // Anchor on the first cell, so the reading is an offset rather than a
+          // guess about whether xterm numbers cells from 0 or 1.
+          const cx0 = sbox.left + 4
+          sfire('mousedown', cx0)
+          for (let i = 1; i <= 4; i++) sfire('mousemove', cx0 + i * 10)
+          sfire('mouseup', cx0 + 40)
+          const sanchor = st.getSelectionPosition()
+          const sbase = sanchor ? sanchor.start.x : null
+          st.clearSelection()
+          const sind = Math.max(4, Math.min(60, st.cols - 3))
+          const sx = sbox.left + sind * spainted + 3
+          sfire('mousedown', sx)
+          for (let i = 1; i <= 6; i++) sfire('mousemove', sx + i * 12)
+          sfire('mouseup', sx + 72)
+          const spos = st.getSelectionPosition()
+          const spick = spos && sbase !== null ? spos.start.x - sbase : null
+          st.clearSelection()
+          push('a split pane selects the glyph the drag was aimed at',
+            spick === sind && Math.abs(spainted - scell) < 0.05,
+            'aimed index ' + sind + ', picked ' + (spick === null ? 'nothing' : spick) +
+              ' (anchor reports ' + sbase + '), painted=' + spainted.toFixed(4) +
+              ' cell=' + scell.toFixed(4) + ', cols=' + st.cols +
+              ', panes=' + window.__tdDockApi.panels.length +
+              ', activeIsSplit=' +
+              (window.__tdDockApi.activePanel ? window.__tdDockApi.activePanel.id === splitId : false))
+        } else {
+          push('a split pane selects the glyph the drag was aimed at', false,
+            'no measurable split pane (created=' + JSON.stringify(!!(made && made.ok)) +
+              ', terminal=' + !!st + ', screen=' + !!sscreen + ', rulerRow=' + !!sspan + ')')
+        }
+      }
+
       return out
     })()
   `
