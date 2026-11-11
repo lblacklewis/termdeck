@@ -168,22 +168,71 @@ export function attachSuggestions({
     return cache
   }
 
+  /*
+   * How many characters one row can hold.
+   *
+   * Read from the box's resolved max-width instead of from the box itself: the popup
+   * is sized by its content, so measuring it would be circular — the first paint,
+   * which has nothing in it yet, would come out short and keep every later paint
+   * short too. The subtraction covers the box's padding and border plus a row's own
+   * padding, so a shortened row is always a little narrower than the popup can be.
+   */
+  const rowBudget = (): number => {
+    const style = window.getComputedStyle(box)
+    let maxWidth = parseFloat(style.maxWidth)
+    // A hidden box has no resolved width to read; the fallback mirrors the stylesheet.
+    if (!(maxWidth > 0)) maxWidth = Math.min(560, container.clientWidth * 0.8)
+    const canvas = document.createElement('canvas')
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return 0
+    ctx.font = [style.fontStyle, style.fontWeight, style.fontSize, style.fontFamily].join(' ')
+    const charWidth = ctx.measureText('0123456789'.repeat(4)).width / 40
+    if (!(charWidth > 0)) return 0
+    return Math.max(8, Math.floor((maxWidth - 40) / charWidth))
+  }
+
+  /*
+   * A candidate shortened in its middle.
+   *
+   * The end is what tells two candidates apart once they share the text that was
+   * typed — a deep path typed into the line leaves `/…/folder/one` and
+   * `/…/folder/two` as the only visible difference, and a row that ellipsises its
+   * end hides exactly that. So the tail keeps half the room, the head keeps the rest,
+   * and only the middle is dropped.
+   *
+   * `dim` says how much of the shortened text is the typed prefix, so the split
+   * between "already typed" and "what the completion would add" survives shortening:
+   * a gap that fell inside the prefix belongs to the dim half, one after it does not.
+   */
+  const shorten = (command: string, budget: number): { text: string; dim: number } => {
+    if (budget <= 0 || command.length <= budget) return { text: command, dim: line.length }
+    const tail = Math.ceil((budget - 1) / 2)
+    const head = budget - 1 - tail
+    return {
+      text: command.slice(0, head) + '…' + command.slice(command.length - tail),
+      dim: line.length > head ? head + 1 : line.length
+    }
+  }
+
   const paint = (): void => {
     box.textContent = ''
+    // Unhidden before measuring: a hidden box has no resolved max-width to read.
+    box.hidden = items.length === 0
+    const budget = items.length > 0 ? rowBudget() : 0
     items.forEach((command, index) => {
       const row = document.createElement('div')
       row.className = 'td-suggest-item' + (index === active ? ' is-active' : '')
       row.setAttribute('data-index', String(index))
+      const shown = shorten(command, budget)
       // The prefix stays dim so the eye can see what is being added.
       const typed = document.createElement('span')
       typed.className = 'td-suggest-typed'
-      typed.textContent = command.slice(0, line.length)
+      typed.textContent = shown.text.slice(0, shown.dim)
       const rest = document.createElement('span')
-      rest.textContent = command.slice(line.length)
+      rest.textContent = shown.text.slice(shown.dim)
       row.append(typed, rest)
       box.appendChild(row)
     })
-    box.hidden = items.length === 0
   }
 
   const place = (): void => {
@@ -192,7 +241,17 @@ export function attachSuggestions({
     const paneRect = container.getBoundingClientRect()
     if (cursor) {
       const rect = cursor.getBoundingClientRect()
-      box.style.left = Math.max(4, Math.round(rect.left - paneRect.left)) + 'px'
+      /*
+       * Anchored at the cursor, but never past the pane's right edge.
+       *
+       * A long line puts the cursor right up against that edge, and a popup starting
+       * there hangs out of the pane — where the pane's own `overflow: hidden` cuts the
+       * rows off, tails and all. It is pulled back instead, so the whole list stays
+       * readable however long the line is.
+       */
+      const room = paneRect.width - box.offsetWidth - 4
+      box.style.left =
+        Math.max(4, Math.min(Math.round(rect.left - paneRect.left), Math.round(room))) + 'px'
       // Above the cursor line unless there is no room, which happens on the first row.
       const above = rect.top - paneRect.top
       const height = box.offsetHeight || 0

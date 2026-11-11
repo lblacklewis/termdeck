@@ -37,7 +37,23 @@ async function main() {
   history.remember('Get-Process')
   history.remember(' secret-typed-by-mistake')
   history.remember('Get-Date')
+  /*
+   * Two commands that differ only at their very end, and both longer than the popup
+   * can show at once. They are what a deep path typed into the line looks like, and
+   * what the last section of this suite drives.
+   */
+  const LONG_ONE =
+    'cd /Users/lewis/projects/termdeck/src/renderer/src/components/terminalpanel/deep/nested/folder/one'
+  const LONG_TWO =
+    'cd /Users/lewis/projects/termdeck/src/renderer/src/components/terminalpanel/deep/nested/folder/two'
+  const LONG_PREFIX = LONG_ONE.slice(0, 95)
   const seeded = history.globalCommands()
+  /*
+   * Only now: the store keeps the newest command first, and the checks about that list
+   * are about what it keeps, not about these two, so they go in after it was read.
+   */
+  history.remember(LONG_ONE)
+  history.remember(LONG_TWO)
   const file = path.join(stores.configDir, 'commands.json')
 
   const win = new BrowserWindow({
@@ -374,6 +390,62 @@ async function main() {
   push('leaving it gives the prompt back', fullScreen.backToNormal === 'normal')
   push('and suggestions work again at the prompt',
     fullScreen.openedAgain, JSON.stringify(fullScreen))
+
+  /*
+   * ---- a long path typed into the line ----------------------------------------
+   *
+   * A path long enough to reach the right edge used to end the list in two ways at
+   * once: the popup, anchored at the cursor, hung out of the pane and the pane's own
+   * overflow cut it off, and every row was ellipsised at its end — so the two
+   * candidates here, which differ only in their last directory, read as the same
+   * line. Both are read straight off the DOM.
+   */
+  const long = await page(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const id = Object.keys(window.__tdTerminals || {}).pop()
+    const entry = window.__tdTerminals[id]
+    entry.term.focus()
+    await wait(300)
+    // Drop whatever the sections above left on the line, without running any of it.
+    entry.term.paste(String.fromCharCode(3))
+    await wait(500)
+    for (const ch of ${JSON.stringify(LONG_PREFIX)}) entry.term.paste(ch)
+    await wait(1300)
+    const box = document.querySelector('[data-testid="command-suggest"]')
+    if (!box || box.hidden) return { error: 'the popup did not open', debug: window.__tdSuggest || null }
+    const pane = box.parentElement.getBoundingClientRect()
+    const rect = box.getBoundingClientRect()
+    return {
+      cols: entry.term.cols,
+      overflowRight: Math.round(rect.right - pane.right),
+      paneWidth: Math.round(pane.width),
+      boxWidth: Math.round(rect.width),
+      rows: [...box.querySelectorAll('.td-suggest-item')].map((el) => ({
+        text: el.textContent || '',
+        clipped: el.scrollWidth > el.clientWidth + 1,
+        width: el.clientWidth
+      }))
+    }
+  })()`)
+  const longRows = long.rows || []
+  push('a long typed path does not hang the popup out of its pane',
+    typeof long.overflowRight === 'number' && long.overflowRight <= 0,
+    JSON.stringify({
+      overflowRight: long.overflowRight, paneWidth: long.paneWidth,
+      boxWidth: long.boxWidth, cols: long.cols, error: long.error
+    }))
+  push('and neither candidate is cut off at its end',
+    longRows.length >= 2 && longRows.every((r) => !r.clipped) &&
+      longRows.some((r) => r.text.endsWith('one')) && longRows.some((r) => r.text.endsWith('two')),
+    JSON.stringify(longRows.map((r) => ({
+      clipped: r.clipped, width: r.width, tail: r.text.slice(-10), text: r.text
+    }))))
+  push('a shortened row is still its own command, with the middle elided',
+    longRows.length >= 2 && longRows.every((r) => {
+      const candidate = [LONG_ONE, LONG_TWO].find((c) => c.endsWith(r.text.slice(-8)))
+      return !!candidate && r.text.includes('…') && r.text.startsWith(candidate.slice(0, 12))
+    }),
+    JSON.stringify(longRows.map((r) => r.text)))
 
   const failed = checks.filter((c) => !c.ok)
   for (const c of checks) console.log(`${c.ok ? 'PASS' : 'FAIL'}  ${c.name} — ${c.detail}`)
