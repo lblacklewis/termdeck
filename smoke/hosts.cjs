@@ -923,6 +923,78 @@ async function main() {
     }
   ])
 
+  /*
+   * ---- a group whose hosts live in its sub-groups ------------------------------
+   *
+   * "No hosts in this group yet" used to be decided from a group's *direct* hosts, so
+   * a group holding only sub-groups claimed to be empty while the sub-group below it
+   * listed hosts — which reads as if the library had lost them. The note now belongs
+   * to the deepest group that has nothing, so it still appears for a leaf that is
+   * genuinely empty and never above a sub-group that holds something.
+   */
+  const nesting = await win.webContents.executeJavaScript(`(async () => {
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms))
+    const api = window.termdeck
+    const sectionFor = (name) => [...document.querySelectorAll('[data-host-group]')]
+      .find((s) => s.getAttribute('data-host-group') === name)
+    const waitForGroup = async (name) => {
+      for (let i = 0; i < 25; i++) {
+        const el = sectionFor(name)
+        if (el) return el
+        await wait(200)
+      }
+      return null
+    }
+
+    // saveFolder hands back the whole tree rather than the folder it wrote.
+    const withOuter = await api.saveFolder({ name: 'Outer', parentId: null })
+    const outerId = (withOuter.folders.find((f) => f.name === 'Outer') || {}).id
+    const withInner = await api.saveFolder({ name: 'Inner', parentId: outerId })
+    const innerId = (withInner.folders.find((f) => f.parentId === outerId) || {}).id
+    await api.saveSession({
+      name: 'deep-1', host: '10.0.9.9', port: 22, username: 'root',
+      authMethod: 'password', tags: [], parentId: innerId
+    })
+    // A leaf with nothing in it, so the note is still checked where it belongs.
+    await api.saveFolder({ name: 'Barren', parentId: null })
+
+    const outerSection = await waitForGroup('Outer')
+    const innerSection = await waitForGroup('Outer / Inner')
+    const barrenSection = await waitForGroup('Barren')
+    if (!outerSection || !innerSection || !barrenSection) {
+      return { missing: true, groups: [...document.querySelectorAll('[data-host-group]')]
+        .map((s) => s.getAttribute('data-host-group')) }
+    }
+    return {
+      outerNote: !!outerSection.querySelector('.td-host-group-empty'),
+      outerNoteText: (outerSection.querySelector('.td-host-group-empty') || {}).textContent || '',
+      outerOwnRows: outerSection.querySelectorAll(':scope > .td-host-list > [data-host-row]').length,
+      innerRows: innerSection.querySelectorAll('[data-host-row]').length,
+      innerRowNames: [...innerSection.querySelectorAll('[data-host-row]')]
+        .map((r) => ((r.querySelector('.td-host-name') || {}).textContent || '')),
+      barrenNote: !!barrenSection.querySelector('.td-host-group-empty'),
+      barrenNoteText: (barrenSection.querySelector('.td-host-group-empty') || {}).textContent || '',
+      innerIsSubgroup: !!outerSection.querySelector('.td-host-subgroups')
+    }
+  })()`)
+  report([
+    {
+      name: 'a group whose hosts live in a sub-group is not called empty',
+      ok: !nesting.missing && nesting.outerNote === false && nesting.innerRows >= 1,
+      detail: JSON.stringify(nesting)
+    },
+    {
+      name: 'the sub-group below it is where the hosts are listed',
+      ok: nesting.innerIsSubgroup === true && (nesting.innerRowNames || []).includes('deep-1'),
+      detail: JSON.stringify({ names: nesting.innerRowNames, subgroup: nesting.innerIsSubgroup })
+    },
+    {
+      name: 'a group that is genuinely empty still says so',
+      ok: nesting.barrenNote === true && nesting.outerOwnRows === 0,
+      detail: JSON.stringify({ barren: nesting.barrenNoteText, outerOwnRows: nesting.outerOwnRows })
+    }
+  ])
+
   const failed = all.filter((c) => !c.ok)
   console.log(`\n${all.length - failed.length}/${all.length} checks passed`)
   app.exit(failed.length === 0 ? 0 : 1)

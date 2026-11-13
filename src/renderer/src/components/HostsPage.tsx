@@ -510,7 +510,11 @@ export function HostsPage({
     }
   })
 
-  const renderHosts = (hosts: SavedSession[], depth: number): JSX.Element => (
+  const renderHosts = (
+    hosts: SavedSession[],
+    depth: number,
+    hasSubgroups: boolean
+  ): JSX.Element => (
     <ul className={`td-host-list is-${view}`}>
       {hosts.map((session) => {
         const connected = openTitles.has(session.name)
@@ -590,7 +594,17 @@ export function HostsPage({
           </li>
         )
       })}
-      {hosts.length === 0 && (
+      {/*
+        * A group that has sub-groups never claims to be empty.
+        *
+        * The hosts can simply be a level down, and each sub-group says what it holds —
+        * "no hosts in this group yet" printed above a sub-group that lists three of them
+        * is not a small lie, it reads as if the library had lost them. The note belongs
+        * to the deepest group that has nothing, which is the one that can be acted on.
+        * The count beside the heading stays this group's own, so the number and the list
+        * under it still agree with each other.
+        */}
+      {hosts.length === 0 && !hasSubgroups && (
         <li className="td-host-group-empty" data-contrast-exempt>
           {depth > 0
             ? t('hostspage.empty_group', 'Empty group')
@@ -664,7 +678,7 @@ export function HostsPage({
           </button>
         </div>
 
-        {!collapsed && renderHosts(node.hosts, node.depth)}
+        {!collapsed && renderHosts(node.hosts, node.depth, node.children.length > 0)}
         {!collapsed && node.children.length > 0 && (
           <div className="td-host-subgroups">{node.children.map(renderGroup)}</div>
         )}
