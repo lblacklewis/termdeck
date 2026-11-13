@@ -64,6 +64,18 @@ interface GroupNode {
 }
 
 /**
+ * How many hosts a group holds, its sub-groups included.
+ *
+ * The badge sits next to the group's name and is read as "what is in here", so a
+ * group whose hosts all live one level down is not a group with nothing in it. The
+ * sidebar tree counts the same way, and a number under a heading that disagrees with
+ * the list below it is the wrong number.
+ */
+function subtreeHosts(node: GroupNode): number {
+  return node.hosts.length + node.children.reduce((total, child) => total + subtreeHosts(child), 0)
+}
+
+/**
  * Full-page host manager.
  *
  * The page is the editor as well as the list: hosts can be added, edited, filed
@@ -665,7 +677,7 @@ export function HostsPage({
           )}
           <h2>{node.name}</h2>
           <span className="td-host-group-count" data-contrast-exempt>
-            {node.hosts.length}
+            {subtreeHosts(node)}
           </span>
           <span className="td-spacer" />
           <button

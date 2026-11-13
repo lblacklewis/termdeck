@@ -930,7 +930,8 @@ async function main() {
    * a group holding only sub-groups claimed to be empty while the sub-group below it
    * listed hosts — which reads as if the library had lost them. The note now belongs
    * to the deepest group that has nothing, so it still appears for a leaf that is
-   * genuinely empty and never above a sub-group that holds something.
+   * genuinely empty and never above a sub-group that holds something. The count beside
+   * the heading is read as "what is in here" and counts the same subtree.
    */
   const nesting = await win.webContents.executeJavaScript(`(async () => {
     const wait = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -965,10 +966,15 @@ async function main() {
       return { missing: true, groups: [...document.querySelectorAll('[data-host-group]')]
         .map((s) => s.getAttribute('data-host-group')) }
     }
+    const countOf = (section) =>
+      ((section.querySelector('.td-host-group-count') || {}).textContent || '').trim()
     return {
       outerNote: !!outerSection.querySelector('.td-host-group-empty'),
       outerNoteText: (outerSection.querySelector('.td-host-group-empty') || {}).textContent || '',
       outerOwnRows: outerSection.querySelectorAll(':scope > .td-host-list > [data-host-row]').length,
+      outerCount: countOf(outerSection),
+      innerCount: countOf(innerSection),
+      barrenCount: countOf(barrenSection),
       innerRows: innerSection.querySelectorAll('[data-host-row]').length,
       innerRowNames: [...innerSection.querySelectorAll('[data-host-row]')]
         .map((r) => ((r.querySelector('.td-host-name') || {}).textContent || '')),
@@ -992,6 +998,14 @@ async function main() {
       name: 'a group that is genuinely empty still says so',
       ok: nesting.barrenNote === true && nesting.outerOwnRows === 0,
       detail: JSON.stringify({ barren: nesting.barrenNoteText, outerOwnRows: nesting.outerOwnRows })
+    },
+    {
+      name: 'its count is the whole subtree, not just its own level',
+      ok: nesting.outerCount === '1' && nesting.innerCount === '1' && nesting.barrenCount === '0',
+      detail: JSON.stringify({
+        outer: nesting.outerCount, inner: nesting.innerCount,
+        barren: nesting.barrenCount, outerOwnRows: nesting.outerOwnRows
+      })
     }
   ])
 
