@@ -6544,7 +6544,51 @@ html[data-theme-scheme='light'] .td-select {
   color: var(--td-text-faint);
 }
 
+/*
+ * The details of one entry, under the list.
+ *
+ * Part of the panel rather than a modal: the drawer is a transformed ancestor, and a
+ * fixed-position backdrop inside one lands somewhere other than the window.
+ */
+.td-sftp-props {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--td-bg-sunken);
+  border: 1px solid var(--td-border);
+  border-radius: 6px;
+}
 
+.td-sftp-props-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--td-text-dim);
+}
+
+.td-sftp-prop-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 8px;
+  margin: 0;
+  font-size: 11px;
+}
+
+.td-sftp-prop-list dt {
+  color: var(--td-text-faint);
+}
+
+.td-sftp-prop-list dd {
+  margin: 0;
+  color: var(--td-text);
+  overflow-wrap: anywhere;
+}
+
+.td-sftp-prop-path {
+  font-family: "Cascadia Mono", Consolas, monospace;
+}
 
 /* ---- focus mode -------------------------------------------------------- */
 

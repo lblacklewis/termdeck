@@ -8,6 +8,7 @@ import {
   type JSX
 } from 'react'
 import type { SftpEntry } from '@shared/types'
+import { ContextMenu, type MenuItem } from './ContextMenu'
 import { t } from '../i18n'
 
 /**
@@ -69,6 +70,33 @@ export function SftpPanel({
   const [draft, setDraft] = useState<string | null>(null)
   /** Which session the current listing belongs to, so a switch reloads it. */
   const loadedFor = useRef<string | null>(null)
+  /**
+   * Where the row menu is open, and which row it belongs to.
+   *
+   * `entry: null` is the folder itself — the menu on the empty part of the list,
+   * which is where refresh and the folder's own path live.
+   */
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: SftpEntry | null } | null>(null)
+  /**
+   * The entry whose details are shown under the list.
+   *
+   * A block inside the panel rather than a modal: this panel lives in a drawer, and
+   * a `position: fixed` backdrop inside a transformed ancestor (the drawer while it
+   * animates) lands somewhere other than the window.
+   */
+  const [properties, setProperties] = useState<SftpEntry | null>(null)
+  /**
+   * The row the toolbar's download button acts on.
+   *
+   * A hook, so it has to stay above the "no session" early return below: the panel
+   * first renders without a session and then with one, and calling a hook only on the
+   * second render is what React means by "rendered more hooks than during the
+   * previous render".
+   */
+  const selectedEntry = useMemo(
+    () => entries.find((candidate) => candidate.path === selected) ?? null,
+    [entries, selected]
+  )
 
   const load = useCallback(
     async (target: string) => {
@@ -83,6 +111,9 @@ export function SftpPanel({
         setPath(result.path)
         setEntries(result.entries)
         setSelected(null)
+        // A jump leaves both the menu and the details of the old folder behind.
+        setMenu(null)
+        setProperties(null)
       } finally {
         setBusy(false)
       }
@@ -196,6 +227,124 @@ export function SftpPanel({
     onToast(`Saved ${entry.name} to ${result.path}`)
   }
 
+  const copyText = async (text: string): Promise<void> => {
+    await window.termdeck.copyToClipboard(text)
+    onToast(t('drawersections.copied_to_clipboard', 'Copied to clipboard'))
+  }
+
+  /*
+   * "Copy to terminal" types the text into the pane's own session.
+   *
+   * It goes through the session rather than the terminal widget: the panel only knows
+   * a session id, and typing at the prompt is exactly what the user is asking for —
+   * nothing is executed, and a path cannot span lines.
+   */
+  const sendToTerminal = (text: string): void => {
+    if (!sessionId) return
+    window.termdeck.writeSession(sessionId, text)
+    onToast(t('drawersections.sent_to_terminal', 'Sent to the terminal'))
+  }
+
+  /** The folder a path lives in; a directory is its own folder. */
+  const folderOf = (entry: SftpEntry): string => {
+    if (entry.type === 'directory') return entry.path
+    const trimmed = entry.path.replace(/\/+$/, '')
+    const cut = trimmed.lastIndexOf('/')
+    return cut <= 0 ? '/' : trimmed.slice(0, cut)
+  }
+
+  const typeLabel = (entry: SftpEntry): string => {
+    if (entry.type === 'directory') return t('drawersections.type_folder', 'Folder')
+    if (entry.type === 'link') return t('drawersections.type_link', 'Link')
+    if (entry.type === 'file') return t('drawersections.type_file', 'File')
+    return t('drawersections.type_other', 'Other')
+  }
+
+  /**
+   * The menu on a row.
+   *
+   * Modelled on what a file manager offers: open or download, upload into this
+   * folder, copy the name / the path / the folder path — and the last two copied
+   * straight into the terminal, which is what a remote session is usually for.
+   */
+  const rowMenuItems = (entry: SftpEntry): MenuItem[] => [
+    entry.type === 'directory'
+      ? { id: 'open', label: t('drawersections.open', 'Open') }
+      : { id: 'download', label: t('drawersections.download', 'Download') },
+    { id: 'upload', label: t('drawersections.upload_here', 'Upload to this folder') },
+    { id: 'refresh', label: t('drawersections.refresh', 'Refresh'), separatorBefore: true },
+    { id: 'copy-name', label: t('drawersections.copy_name', 'Copy name'), separatorBefore: true },
+    { id: 'copy-path', label: t('drawersections.copy_path', 'Copy path') },
+    { id: 'copy-dir', label: t('drawersections.copy_folder_path', 'Copy folder path') },
+    {
+      id: 'to-terminal-name',
+      label: t('drawersections.copy_name_to_terminal', 'Copy name to terminal'),
+      separatorBefore: true
+    },
+    {
+      id: 'to-terminal-path',
+      label: t('drawersections.copy_path_to_terminal', 'Copy path to terminal')
+    },
+    {
+      id: 'properties',
+      label: t('drawersections.properties', 'Properties'),
+      separatorBefore: true
+    }
+  ]
+
+  /** The menu on the empty part of the list: it belongs to the folder on screen. */
+  const folderMenuItems = (): MenuItem[] => [
+    { id: 'refresh', label: t('drawersections.refresh', 'Refresh') },
+    { id: 'upload', label: t('drawersections.upload_here', 'Upload to this folder') },
+    {
+      id: 'copy-dir',
+      label: t('drawersections.copy_folder_path', 'Copy folder path'),
+      separatorBefore: true
+    },
+    {
+      id: 'to-terminal-path',
+      label: t('drawersections.copy_path_to_terminal', 'Copy path to terminal')
+    }
+  ]
+
+  const runMenuAction = async (id: string, entry: SftpEntry | null): Promise<void> => {
+    const current = path || '.'
+    switch (id) {
+      case 'open':
+        if (entry && entry.type === 'directory') await load(entry.path)
+        return
+      case 'download':
+        if (entry && entry.type !== 'directory') await download(entry)
+        return
+      case 'upload':
+        await upload()
+        return
+      case 'refresh':
+        await load(path || '')
+        return
+      case 'copy-name':
+        if (entry) await copyText(entry.name)
+        return
+      case 'copy-path':
+        await copyText(entry ? entry.path : current)
+        return
+      case 'copy-dir':
+        await copyText(entry ? folderOf(entry) : current)
+        return
+      case 'to-terminal-name':
+        if (entry) sendToTerminal(entry.name)
+        return
+      case 'to-terminal-path':
+        sendToTerminal(entry ? entry.path : current)
+        return
+      case 'properties':
+        if (entry) setProperties(entry)
+        return
+      default:
+        return
+    }
+  }
+
   return (
     <div
       className={'td-sftp' + (dropping ? ' is-dropping' : '')}
@@ -284,6 +433,27 @@ export function SftpPanel({
           ⭱
         </button>
         {/*
+          Download lives in the bar, next to upload.
+          
+          It used to sit on its own row under the list, which meant selecting a file
+          and then finding the button somewhere below the fold of a long listing.
+        */}
+        <button
+          className="td-icon-btn"
+          title={
+            selectedEntry
+              ? t('drawersections.download_selected', 'Download the selected file')
+              : t('drawersections.pick_a_file_first', 'Pick a file first')
+          }
+          data-testid="sftp-download"
+          disabled={busy || !selectedEntry || selectedEntry.type === 'directory'}
+          onClick={() => {
+            if (selectedEntry && selectedEntry.type !== 'directory') void download(selectedEntry)
+          }}
+        >
+          ⭳
+        </button>
+        {/*
           Progress lives in its own window: the panel can only report on the session it
           is showing, and only while somebody is looking at it. The badge is the part
           that makes the window discoverable — a running count on the button.
@@ -306,7 +476,15 @@ export function SftpPanel({
         </button>
       </div>
 
-      <ul className="td-sftp-list" data-testid="sftp-list">
+      <ul
+        className="td-sftp-list"
+        data-testid="sftp-list"
+        onContextMenu={(event) => {
+          // Rows handle their own; anything left is the folder on screen.
+          event.preventDefault()
+          setMenu({ x: event.clientX, y: event.clientY, entry: null })
+        }}
+      >
         {busy && entries.length === 0 && <li className="td-section-empty">{t('drawersections.reading', 'Reading…')}</li>}
         {!busy && entries.length === 0 && <li className="td-section-empty">{t('drawersections.empty_directory', 'Empty directory.')}</li>}
         {entries.map((entry) => (
@@ -317,6 +495,13 @@ export function SftpPanel({
             }`}
             data-sftp-entry={entry.name}
             data-sftp-type={entry.type}
+            onContextMenu={(event) => {
+              event.preventDefault()
+              // Right-click acts on what it points at, like every file manager.
+              event.stopPropagation()
+              setSelected(entry.path)
+              setMenu({ x: event.clientX, y: event.clientY, entry })
+            }}
             onClick={() => setSelected(entry.path)}
             onDoubleClick={() => {
               if (entry.type === 'directory') void load(entry.path)
@@ -334,19 +519,49 @@ export function SftpPanel({
         ))}
       </ul>
 
-      {selected && (
-        <div className="td-sftp-actions">
-          <button
-            className="td-btn"
-            data-testid="sftp-download"
-            onClick={() => {
-              const entry = entries.find((e) => e.path === selected)
-              if (entry) void download(entry)
-            }}
-          >
-            {t('drawersections.download', 'Download')}
-          </button>
+      {properties && (
+        <div className="td-sftp-props" data-testid="sftp-properties">
+          <div className="td-sftp-props-head">
+            <span>{t('drawersections.properties', 'Properties')}</span>
+            <button
+              className="td-icon-btn"
+              title={t('drawersections.close', 'Close')}
+              data-testid="sftp-properties-close"
+              onClick={() => setProperties(null)}
+            >
+              ✕
+            </button>
+          </div>
+          <dl className="td-sftp-prop-list">
+            <dt>{t('drawersections.name', 'Name')}</dt>
+            <dd data-testid="sftp-prop-name">{properties.name}</dd>
+            <dt>{t('drawersections.type', 'Type')}</dt>
+            <dd data-testid="sftp-prop-type">{typeLabel(properties)}</dd>
+            <dt>{t('drawersections.size', 'Size')}</dt>
+            <dd data-testid="sftp-prop-size">
+              {properties.type === 'directory' ? '—' : formatSize(properties.size) || '0 B'}
+            </dd>
+            <dt>{t('drawersections.modified', 'Modified')}</dt>
+            <dd data-testid="sftp-prop-modified">
+              {properties.modified ? new Date(properties.modified).toLocaleString() : '—'}
+            </dd>
+            <dt>{t('drawersections.path', 'Path')}</dt>
+            <dd className="td-sftp-prop-path" data-testid="sftp-prop-path">
+              {properties.path}
+            </dd>
+          </dl>
         </div>
+      )}
+
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          testId="sftp-menu"
+          items={menu.entry ? rowMenuItems(menu.entry) : folderMenuItems()}
+          onSelect={(id) => void runMenuAction(id, menu.entry)}
+          onClose={() => setMenu(null)}
+        />
       )}
     </div>
   )

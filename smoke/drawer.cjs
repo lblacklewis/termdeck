@@ -816,6 +816,114 @@ async function main() {
           'path=' + pathShown())
       }
 
+      // ---- the row menu ---------------------------------------------------
+      /*
+       * What a file manager puts on a right-click: open or download, upload into
+       * this folder, copy the name / the path / the folder path, and the last two
+       * typed into the terminal. The panel had none of it before, and its only
+       * download button sat in its own row under the list.
+       */
+      step = 'sftp menu'
+      const dlBtn = document.querySelector('[data-testid="sftp-download"]')
+      push('the download button lives in the toolbar',
+        !!dlBtn && !!dlBtn.closest('.td-sftp-bar'),
+        dlBtn ? (dlBtn.closest('.td-sftp-bar') ? 'in .td-sftp-bar' : 'outside the bar') : 'missing')
+      const fileRow = document.querySelector('[data-sftp-entry="passwd"]')
+      push('the download button starts disabled', !!dlBtn && dlBtn.disabled === true,
+        dlBtn ? 'disabled=' + dlBtn.disabled : 'missing')
+      if (fileRow) fileRow.click()
+      await wait(150)
+      push('picking a file enables it', !!dlBtn && dlBtn.disabled === false,
+        dlBtn ? 'disabled=' + dlBtn.disabled : 'missing')
+      // Checked with something selected: the old panel only rendered its download
+      // row in that state, so its absence here is the assertion with teeth.
+      push('the old download row under the list is gone',
+        !document.querySelector('.td-sftp-actions'))
+
+      const menuOf = () => document.querySelector('[data-testid="sftp-menu"]')
+      const menuIds = () =>
+        [...document.querySelectorAll('[data-testid="sftp-menu"] [data-menu-id]')]
+          .map((el) => el.getAttribute('data-menu-id'))
+      const openRowMenu = (row) => {
+        row.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true, cancelable: true, clientX: 40, clientY: 200
+        }))
+      }
+
+      if (fileRow) openRowMenu(fileRow)
+      await wait(250)
+      const fileItems = menuIds()
+      push('right-clicking a file opens a menu', !!menuOf(), 'items=' + fileItems.join(','))
+      push('the file menu offers download and the copy actions',
+        ['download', 'upload', 'refresh', 'copy-name', 'copy-path', 'copy-dir',
+          'to-terminal-name', 'to-terminal-path', 'properties'].every((id) => fileItems.includes(id)),
+        'items=' + fileItems.join(','))
+      push('and does not offer an open it cannot do for a file',
+        !!menuOf() && !fileItems.includes('open'), 'items=' + fileItems.join(','))
+
+      /*
+       * A sentinel first: the clipboard survives between runs, so "it still holds
+       * /etc" must not be able to pass for "the menu copied the folder path".
+       */
+      await window.termdeck.copyToClipboard('TD_SFTP_SENTINEL')
+      const copyPathItem = document.querySelector('[data-menu-id="copy-path"]')
+      if (copyPathItem) copyPathItem.click()
+      await wait(250)
+      const copiedPath = await window.termdeck.readClipboard()
+      push('copy path puts the remote path on the clipboard', copiedPath === '/etc/passwd',
+        'clipboard=' + copiedPath)
+
+      await window.termdeck.copyToClipboard('TD_SFTP_SENTINEL')
+      if (fileRow) openRowMenu(fileRow)
+      await wait(250)
+      const copyDirItem = document.querySelector('[data-menu-id="copy-dir"]')
+      if (copyDirItem) copyDirItem.click()
+      await wait(250)
+      const copiedDir = await window.termdeck.readClipboard()
+      push('copy folder path on a file gives the folder holding it', copiedDir === '/etc',
+        'clipboard=' + copiedDir)
+
+      const dirRow = document.querySelector('[data-sftp-entry][data-sftp-type="directory"]')
+      if (dirRow) openRowMenu(dirRow)
+      await wait(250)
+      const dirItems = menuIds()
+      push('a directory is offered as open, not as download',
+        dirItems.includes('open') && !dirItems.includes('download'), 'items=' + dirItems.join(','))
+
+      const propsItem = document.querySelector('[data-menu-id="properties"]')
+      if (propsItem) propsItem.click()
+      await wait(300)
+      const propName = document.querySelector('[data-testid="sftp-prop-name"]')
+      const propPath = document.querySelector('[data-testid="sftp-prop-path"]')
+      push('properties describes the entry that was right-clicked',
+        !!propName && !!propPath &&
+          propName.textContent === (dirRow ? dirRow.getAttribute('data-sftp-entry') : '') &&
+          String(propPath.textContent).indexOf(pathShown()) === 0,
+        propName
+          ? 'name=' + propName.textContent + ' path=' + (propPath ? propPath.textContent : '')
+          : 'no panel')
+      const propsClose = document.querySelector('[data-testid="sftp-properties-close"]')
+      if (propsClose) propsClose.click()
+      await wait(200)
+      push('the properties panel closes',
+        !document.querySelector('[data-testid="sftp-properties"]'))
+
+      // The empty part of the list belongs to the folder on screen.
+      const listEl = document.querySelector('[data-testid="sftp-list"]')
+      if (listEl) listEl.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true, cancelable: true, clientX: 30, clientY: 300
+      }))
+      await wait(250)
+      const folderItems = menuIds()
+      push('right-clicking the folder offers refresh, upload and its own path',
+        folderItems.includes('refresh') && folderItems.includes('upload') &&
+          folderItems.includes('copy-dir') && folderItems.includes('to-terminal-path') &&
+          !folderItems.includes('properties'),
+        'items=' + folderItems.join(','))
+      pressKey(document.body, 'Escape')
+      await wait(200)
+      push('Escape closes the menu', !menuOf())
+
       /*
        * ---- transfers in their own window ----------------------------------
        *
@@ -831,6 +939,31 @@ async function main() {
         liveSsh ? 'dir=' + uploadDir : 'no session')
 
       if (liveSsh) {
+        /*
+         * "Copy path to terminal" types into the pane's own session: the path has to
+         * arrive at the prompt, and nothing may be executed. The line is cleared
+         * afterwards so the session is left exactly as the rest of the suite expects.
+         */
+        const sshEntry = window.__tdTerminals ? window.__tdTerminals[liveSsh.id] : null
+        const sshText = () => {
+          if (!sshEntry) return ''
+          let text = ''
+          for (let i = 0; i < sshEntry.term.buffer.active.length; i++) {
+            const line = sshEntry.term.buffer.active.getLine(i)
+            if (line) text += line.translateToString(true) + '\\n'
+          }
+          return text
+        }
+        const passwdRow = document.querySelector('[data-sftp-entry="passwd"]')
+        if (passwdRow) openRowMenu(passwdRow)
+        await wait(250)
+        const toTerminalItem = document.querySelector('[data-menu-id="to-terminal-path"]')
+        if (toTerminalItem) toTerminalItem.click()
+        const arrived = await waitFor(() => sshText().indexOf('/etc/passwd') !== -1, 15000)
+        push('copy path to terminal types it at the prompt', arrived,
+          arrived ? 'the path is on the prompt line' : 'never reached the buffer')
+        if (arrived) await window.termdeck.writeSession(liveSsh.id, '\\u0003')
+
         const transferBtn = document.querySelector('[data-testid="sftp-transfers"]')
         push('the sftp panel has a transfers button', !!transferBtn)
         if (transferBtn) transferBtn.click()
