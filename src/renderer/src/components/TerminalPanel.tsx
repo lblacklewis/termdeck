@@ -1,6 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type JSX,
+  type KeyboardEvent as ReactKeyboardEvent
+} from 'react'
 import type { SessionExitInfo, SessionInfo } from '@shared/types'
 import { useTerminal, type TerminalHandle } from './useTerminal'
+import type { FindStatus } from './terminalFind'
 import { useClipboard, needsPasteConfirmation } from './useClipboard'
 import { useSettings } from './useSettings'
 import { getStamps, getTerminal, onTerminalRender } from './terminalRegistry'
@@ -228,12 +236,71 @@ export function TerminalPanel({
     [onSessionEnded, onReconnectSession, session, settings.reconnect]
   )
 
+  /*
+   * The pane's own text search.
+   *
+   * Kept in the pane rather than in a global dialog: what is being searched is this
+   * terminal's scrollback, and a search that closed when the user clicked another
+   * pane would keep them from comparing two panes' output.
+   */
+  const [findOpen, setFindOpen] = useState(false)
+  const [findQuery, setFindQuery] = useState('')
+  const [findStatus, setFindStatus] = useState<FindStatus>({ index: 0, total: 0, visible: 0 })
+  const findInputRef = useRef<HTMLInputElement>(null)
+
   const { handle: innerRef, container } = useTerminal(containerRef, session?.id ?? 'disconnected', {
     terminal,
     clipboard,
     theme,
-    onExit: handleExit
+    onExit: handleExit,
+    onFindRequest: () => {
+      setFindOpen(true)
+      // Select whatever is in the box so the first keystroke replaces it, which is
+      // what a second Ctrl+F is normally asking for.
+      window.setTimeout(() => findInputRef.current?.select(), 0)
+    },
+    onFindStatus: setFindStatus
   })
+
+  /** Close the box and hand the keyboard back to the terminal. */
+  const closeFind = useCallback((): void => {
+    setFindOpen(false)
+    setFindQuery('')
+    innerRef.current?.find.clear()
+    innerRef.current?.focus()
+  }, [innerRef])
+
+  const stepFind = useCallback(
+    (delta: 1 | -1): void => {
+      if (delta === 1) innerRef.current?.find.next()
+      else innerRef.current?.find.previous()
+    },
+    [innerRef]
+  )
+
+  const changeFindQuery = useCallback(
+    (value: string): void => {
+      setFindQuery(value)
+      innerRef.current?.find.setQuery(value)
+    },
+    [innerRef]
+  )
+
+  const onFindKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        closeFind()
+        return
+      }
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        // Shift+Enter walks back, the way every other search box behaves.
+        stepFind(event.shiftKey ? -1 : 1)
+      }
+    },
+    [closeFind, stepFind]
+  )
 
   // Mirror the inner handle so the clipboard target can read it synchronously.
   useEffect(() => {
@@ -458,6 +525,67 @@ export function TerminalPanel({
         </div>
       )}
       <div className="td-terminal-host" ref={containerRef} />
+
+      {findOpen && (
+        /*
+         * The pane focuses the terminal on mousedown, which would take the caret
+         * straight back out of this box — so the box keeps its own clicks.
+         */
+        <div
+          className="td-terminal-find"
+          data-testid="terminal-find"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <input
+            ref={findInputRef}
+            className="td-find-input"
+            data-testid="terminal-find-input"
+            value={findQuery}
+            spellCheck={false}
+            placeholder={t('terminalpanel.find_in_terminal', 'Find in terminal')}
+            aria-label={t('terminalpanel.find_in_terminal', 'Find in terminal')}
+            onChange={(event) => changeFindQuery(event.target.value)}
+            onKeyDown={onFindKeyDown}
+          />
+          <span className="td-find-count" data-testid="terminal-find-count">
+            {findQuery === ''
+              ? ''
+              : findStatus.total === 0
+                ? t('terminalpanel.no_matches', 'No matches')
+                : findStatus.index + ' / ' + findStatus.total}
+          </span>
+          <button
+            type="button"
+            className="td-find-step"
+            data-testid="terminal-find-prev"
+            title={t('terminalpanel.find_previous_match', 'Previous match')}
+            aria-label={t('terminalpanel.find_previous_match', 'Previous match')}
+            onClick={() => stepFind(-1)}
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            className="td-find-step"
+            data-testid="terminal-find-next"
+            title={t('terminalpanel.find_next_match', 'Next match')}
+            aria-label={t('terminalpanel.find_next_match', 'Next match')}
+            onClick={() => stepFind(1)}
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            className="td-find-step"
+            data-testid="terminal-find-close"
+            title={t('terminalpanel.close_find', 'Close find')}
+            aria-label={t('terminalpanel.close_find', 'Close find')}
+            onClick={closeFind}
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {pending !== null && (
         <div className="td-paste-guard">

@@ -26,6 +26,7 @@ import {
 import { registerSink, routeInput, unregisterSink } from './broadcast'
 import { attachSuggestions } from './commandSuggest'
 import { attachHighlighter } from './highlight'
+import { attachFinder, type FindStatus, type TerminalFinder } from './terminalFind'
 
 export interface TerminalHandle {
   /** Re-measure the terminal against its container and notify the backend. */
@@ -40,6 +41,8 @@ export interface TerminalHandle {
   applySettings(settings: TerminalSettings): void
   /** Repaint with a different theme palette. */
   applyTheme(theme: Theme): void
+  /** Text search over the scrollback; the pane's own search bar drives it. */
+  find: TerminalFinder
 }
 
 interface UseTerminalOptions {
@@ -48,6 +51,10 @@ interface UseTerminalOptions {
   /** Active theme, so the terminal palette follows the app. */
   theme: Theme
   onExit?: (info: SessionExitInfo) => void
+  /** Ctrl+F inside the pane. The pane owns the box, so it decides what to show. */
+  onFindRequest?: () => void
+  /** Which hit of how many, for the box's counter. */
+  onFindStatus?: (status: FindStatus) => void
 }
 
 /**
@@ -137,6 +144,13 @@ export function useTerminal(
     const highlight = attachHighlighter(term, () => optionsRef.current.terminal)
 
     /*
+     * Text search lives here because the buffer does: the pane has no way to read the
+     * scrollback, and a search that had to round-trip through the main process could
+     * not answer a keystroke.
+     */
+    const finder = attachFinder(term, (status) => optionsRef.current.onFindStatus?.(status))
+
+    /*
      * Leave the session shortcuts alone.
      *
      * xterm claims keys before the window sees them and, for a key it handles,
@@ -152,6 +166,24 @@ export function useTerminal(
      * Returning false here means xterm neither sends anything nor stops the event.
      */
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      /*
+       * Ctrl+F (Cmd+F) opens the pane's search box instead of reaching the shell.
+       *
+       * Left to xterm it would send `0x06` — the shell reads that as a keystroke, so
+       * the pane would quietly gain a control character every time the user asked to
+       * search. Returning false keeps it out of the data stream, and the pane is told
+       * about it directly rather than through the app's window listener, which xterm's
+       * own `stopPropagation` would have hidden.
+       */
+      const findChord =
+        (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey &&
+        event.key.toLowerCase() === 'f'
+      if (findChord) {
+        event.preventDefault()
+        optionsRef.current.onFindRequest?.()
+        return false
+      }
+
       if (event.altKey && !event.ctrlKey && !event.metaKey) {
         const isSessionChord =
           event.key === '[' || event.key === ']' || /^[1-9]$/.test(event.key)
@@ -359,7 +391,8 @@ export function useTerminal(
         const palette = terminalThemeFor(theme)
         term.options.theme = palette
         applyCursorInk(container, palette.foreground)
-      }
+      },
+      find: finder
     }
 
     // Expose the resolved container so consumers can attach DOM listeners now
@@ -385,7 +418,7 @@ export function useTerminal(
         string,
         unknown
       >
-      debug[sessionId] = { term, handle: handleRef.current, stamps }
+      debug[sessionId] = { term, handle: handleRef.current, stamps, find: finder }
     }
     // Always available: copy/save-output and the timestamp gutter read the
     // scrollback through this, and those must work outside debug builds.
@@ -522,6 +555,7 @@ export function useTerminal(
       window.clearInterval(watchdog)
       handleRef.current = null
       highlight.dispose()
+      finder.dispose()
       unregisterTerminal(sessionId)
       unregisterRefit(sessionId)
       unregisterStamps(sessionId)

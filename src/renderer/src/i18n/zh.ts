@@ -573,6 +573,12 @@ export const zh: Catalog = {
   'keybinding.nextPage': '下一个会话',
 
   // ---- terminal pane / welcome --------------------------------------------
+  // Ctrl+F 在终端里找文字：命中全部高亮，当前一条用更亮的底色。
+  'terminalpanel.find_in_terminal': '在终端中查找',
+  'terminalpanel.find_next_match': '下一个匹配',
+  'terminalpanel.find_previous_match': '上一个匹配',
+  'terminalpanel.close_find': '关闭查找',
+  'terminalpanel.no_matches': '无匹配',
   'terminalpanel.cancel': '取消',
   'terminalpanel.cancel_retry': '停止重试',
   'terminalpanel.auto_gave_up': '自动重连 {n} 次都没成功。可以手动重试，或关掉这个窗格。',
