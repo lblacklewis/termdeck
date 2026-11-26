@@ -151,22 +151,42 @@ jobs:
         # this only fills it with the per-architecture files, so nobody has to download
         # a 200 MB artifact and re-upload it. No page yet ⇒ nothing happens.
         #
-        # Only on a `release/**` push: that ref is the release itself, so the files come
-        # from the released commit. Without this gate every later push to master would
-        # rebuild and silently replace the assets of the release that is already out.
-        if: startsWith(github.ref, 'refs/heads/release/')
+        # Only on a `release/**` push, or on a manual dispatch (which is exactly the
+        # "the tag is out and the page needs filling in" case). Without this gate every
+        # later push to master would rebuild and silently replace the assets of a release
+        # that is already out.
+        if: startsWith(github.ref, 'refs/heads/release/') || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           version=$(node -p "require('./package.json').version")
           tag="v${version}"
-          if ! gh release view "$tag" >/dev/null 2>&1; then
+
+          # Look the page up in the *list* endpoint rather than with `gh release view`:
+          # a release created as a **draft** is invisible to the tag lookup, which is how
+          # the v2.7.0 run ended with "no release page yet — skipping" while the draft
+          # page was sitting right there. The list endpoint does include drafts, and the
+          # assets API below works off the numeric id, so a draft gets filled in too.
+          id=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                 --jq ".[] | select(.tag_name == \"${tag}\") | .id" | head -1)
+          if [ -z "$id" ]; then
             echo "no release page for $tag yet — skipping"
             exit 0
           fi
-          gh release upload "$tag" \
-            release/*.dmg \
-            release/*.zip \
-            "release/SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt" \
-            --clobber
-          echo "attached ${version} mac-${{ matrix.arch }} to $tag"
+
+          for f in release/*.dmg release/*.zip \
+                   "release/SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt"; do
+            name=$(basename "$f")
+            # `--clobber` equivalent: an existing asset with this name has to go first.
+            old=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${id}/assets?per_page=100" \
+                    --jq ".[] | select(.name == \"${name}\") | .id")
+            if [ -n "$old" ]; then
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${old}"
+            fi
+            gh api -X POST \
+              "repos/${GITHUB_REPOSITORY}/releases/${id}/assets?name=${name}" \
+              -H "Content-Type: application/octet-stream" --input "$f" > /dev/null
+            echo "attached ${name}"
+          done
+          echo "attached ${version} mac-${{ matrix.arch }} to $tag (release id ${id})"
