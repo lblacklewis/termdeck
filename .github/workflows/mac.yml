@@ -159,34 +159,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          set -euo pipefail
           version=$(node -p "require('./package.json').version")
           tag="v${version}"
 
-          # Look the page up in the *list* endpoint rather than with `gh release view`:
-          # a release created as a **draft** is invisible to the tag lookup, which is how
-          # the v2.7.0 run ended with "no release page yet — skipping" while the draft
-          # page was sitting right there. The list endpoint does include drafts, and the
-          # assets API below works off the numeric id, so a draft gets filled in too.
-          id=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
-                 --jq ".[] | select(.tag_name == \"${tag}\") | .id" | head -1)
-          if [ -z "$id" ]; then
-            echo "no release page for $tag yet — skipping"
-            exit 0
+          # `gh release view` could not see the page while v2.7.0 was still a **draft**
+          # (that run printed "no release page yet — skipping" with the page sitting right
+          # there), so fall back to the list endpoint, which does include drafts. The
+          # upload itself stays `gh release upload`: it is the path that handles binary
+          # assets, and it works against a draft too.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            found=$(gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+                      --jq "[.[] | select(.tag_name == \"${tag}\")] | first | .id // empty")
+            if [ -z "$found" ]; then
+              echo "no release page for $tag yet — skipping"
+              exit 0
+            fi
+            echo "$tag exists as a draft (release id ${found})"
           fi
 
-          for f in release/*.dmg release/*.zip \
-                   "release/SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt"; do
-            name=$(basename "$f")
-            # `--clobber` equivalent: an existing asset with this name has to go first.
-            old=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${id}/assets?per_page=100" \
-                    --jq ".[] | select(.name == \"${name}\") | .id")
-            if [ -n "$old" ]; then
-              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${old}"
-            fi
-            gh api -X POST \
-              "repos/${GITHUB_REPOSITORY}/releases/${id}/assets?name=${name}" \
-              -H "Content-Type: application/octet-stream" --input "$f" > /dev/null
-            echo "attached ${name}"
-          done
-          echo "attached ${version} mac-${{ matrix.arch }} to $tag (release id ${id})"
+          gh release upload "$tag" \
+            release/*.dmg \
+            release/*.zip \
+            "release/SHA256SUMS-${version}-mac-${{ matrix.arch }}.txt" \
+            --clobber
+          echo "attached ${version} mac-${{ matrix.arch }} to $tag"
